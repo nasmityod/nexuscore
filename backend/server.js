@@ -96,6 +96,10 @@ const loginRateLimiter = rateLimit({
 app.use('/api/auth/login', loginRateLimiter);
 app.use('/api/auth', authRoutes);
 
+// Licencia debe ir ANTES de app.use('/api', apiProtected): ese router aplica requireAuth a
+// TODO lo que empiece por /api y bloqueaba /api/licencia/activar-inicial con 401.
+app.use('/api/licencia', licenciaRoutes);
+
 const apiProtected = express.Router();
 apiProtected.use(requireAuth);
 apiProtected.use('/productos', productosRoutes);
@@ -114,10 +118,6 @@ apiProtected.use('/cashea', casheaRoutes);
 apiProtected.use('/devoluciones', devolucionesRoutes);
 
 app.use('/api', apiProtected);
-
-// Rutas de licencia: activar-inicial es pública (sin JWT); las demás usan
-// requirePermission dentro de licencia.routes.js.
-app.use('/api/licencia', licenciaRoutes);
 
 app.use(errorHandlerMiddleware);
 
