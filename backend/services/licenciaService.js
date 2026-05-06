@@ -35,7 +35,7 @@ const crypto = require('crypto');
 //  Debe ser la pareja EXACTA de NEXUS_LICENSE_PRIVATE_KEY en Vercel.
 // ══════════════════════════════════════════════════════════════════════════
 const PUBLIC_KEY_PEM_DEFAULT = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA1UzTkTmidawf5PyTeFoBzjNxWbzhIhORolI915bR2Uo=
+MCowBQYDK2VwAyEALRroxTO1ghmGygJM0WMWY9zWk2XvQDdcZDBqbcb5qrM=
 -----END PUBLIC KEY-----`;
 
 function effectivePublicKeyPem() {
