@@ -1,0 +1,203 @@
+<section class="page-content reportes-page">
+<style>
+.reportes-page .reportes-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem; }
+.reportes-page .reporte-card { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem;display:flex;align-items:flex-start;gap:1rem;cursor:pointer;transition:all .15s;position:relative;overflow:hidden; }
+.reportes-page .reporte-card:hover { border-color:#3b82f6;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3); }
+.reportes-page .reporte-card.reporte-urgente { border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.06); }
+.reportes-page .reporte-icono { font-size:2.2rem;min-width:2.5rem;text-align:center; }
+.reportes-page .reporte-info h3 { margin:0 0 .3rem;font-size:.95rem; }
+.reportes-page .reporte-info p { margin:0;font-size:.8rem;color:var(--text-secondary);line-height:1.4; }
+.reportes-page .btn-generar { position:absolute;bottom:.75rem;right:.75rem;padding:.3rem .75rem;border-radius:var(--radius-sm);background:#3b82f6;border:none;color:#fff;cursor:pointer;font-size:.8rem; }
+
+/* Vista de reporte */
+.reportes-page .reporte-vista { display:none; }
+.reportes-page .reporte-vista.activo { display:block; }
+.reportes-page .btn-volver { height:40px;padding:0 1rem;border-radius:var(--radius-sm);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem;margin-bottom:1rem; }
+.reportes-page .reporte-tabla { width:100%;border-collapse:collapse;font-size:.85rem; }
+.reportes-page .reporte-tabla th { text-align:left;padding:.5rem .75rem;background:var(--bg-tertiary);color:var(--text-secondary);font-size:.75rem;text-transform:uppercase;border-bottom:2px solid var(--border-primary); }
+.reportes-page .reporte-tabla td { padding:.5rem .75rem;border-bottom:1px solid var(--border-subtle); }
+.reportes-page .reporte-tabla tr:hover td { background:rgba(59,130,246,.05); }
+.prioridad-badge { padding:.2rem .5rem;border-radius:var(--radius-sm);font-size:.75rem;font-weight:700;text-transform:uppercase; }
+.prioridad-AGOTADO,.prioridad-agotado { background:rgba(239,68,68,.2);color:#ef4444; }
+.prioridad-URGENTE,.prioridad-urgente { background:rgba(239,68,68,.15);color:#f87171; }
+.prioridad-PRONTO,.prioridad-pronto { background:rgba(245,158,11,.2);color:#f59e0b; }
+.prioridad-PLANIFICAR,.prioridad-planificar { background:rgba(59,130,246,.15);color:#3b82f6; }
+.reportes-page .reporte-card:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+</style>
+
+<!-- Menú de reportes -->
+<div id="menu-reportes">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Reportes y Análisis</h1>
+      <p class="page-subtitle">Indicadores operativos, financieros y de inventario · exportación Excel en los informes con botón verde</p>
+    </div>
+    <div class="page-header-actions">
+      <button type="button" id="btn-excel-precios" class="btn btn-success">
+        📥 Exportar precios
+      </button>
+    </div>
+  </div>
+
+  <!-- Filtro de fecha personalizado -->
+  <div style="background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:.9rem 1.1rem;margin-bottom:1.25rem;display:flex;flex-wrap:wrap;align-items:flex-end;gap:.75rem">
+    <div>
+      <label style="display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:.3rem">Desde</label>
+      <input type="date" id="rpt-desde" style="background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);border-radius:var(--radius-sm);padding:.35rem .6rem;font-size:.85rem" />
+    </div>
+    <div>
+      <label style="display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:.3rem">Hasta</label>
+      <input type="date" id="rpt-hasta" style="background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);border-radius:var(--radius-sm);padding:.35rem .6rem;font-size:.85rem" />
+    </div>
+    <button type="button" id="btn-rpt-rango" class="btn btn-primary" style="height:34px;padding:0 1.1rem;font-size:.85rem">
+      Ver ventas del rango
+    </button>
+    <span style="font-size:.78rem;color:var(--text-muted);align-self:center">Filtra las ventas por un período exacto y descarga Excel</span>
+    <button type="button" id="btn-rpt-rango-excel" class="btn btn-success" style="height:34px;padding:0 1rem;font-size:.85rem;margin-left:auto">
+      📥 Excel rango
+    </button>
+  </div>
+
+  <div class="reportes-grid">
+    <div class="reporte-card" data-reporte-id="ventas-dia" role="button" tabindex="0" aria-label="Ver ventas de hoy">
+      <div class="reporte-icono">📅</div>
+      <div class="reporte-info">
+        <h3>Ventas de hoy</h3>
+        <p>Ver todo lo que vendiste hoy con detalle de cada venta</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="ventas-semana" role="button" tabindex="0" aria-label="Ver ventas de la semana">
+      <div class="reporte-icono">📆</div>
+      <div class="reporte-info">
+        <h3>Ventas de esta semana</h3>
+        <p>Resumen de ventas de los últimos 7 días, día por día</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="ventas-mes" role="button" tabindex="0" aria-label="Ver ventas del mes">
+      <div class="reporte-icono">🗓️</div>
+      <div class="reporte-info">
+        <h3>Ventas del mes</h3>
+        <p>Cuánto vendiste este mes (últimos 30 días)</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="top-productos" role="button" tabindex="0" aria-label="Ver productos más vendidos">
+      <div class="reporte-icono">🏆</div>
+      <div class="reporte-info">
+        <h3>Productos más vendidos</h3>
+        <p>Los 10 productos que más se venden y cuánto ganas con cada uno</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="rentabilidad" role="button" tabindex="0" aria-label="Ver rentabilidad por categoría">
+      <div class="reporte-icono">💹</div>
+      <div class="reporte-info">
+        <h3>Rentabilidad por categoría</h3>
+        <p>Cuánto ganas con cada tipo de producto (¿cuáles son más rentables?)</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card reporte-urgente" data-reporte-id="reposicion" role="button" tabindex="0" aria-label="Ver sugerencias de reposición">
+      <div class="reporte-icono">🔔</div>
+      <div class="reporte-info">
+        <h3>¿Qué debo comprar? (Reposición)</h3>
+        <p>El sistema analiza tu ritmo de ventas y te dice qué comprar y cuánto</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="inventario-valorizado" role="button" tabindex="0" aria-label="Ver valor del inventario">
+      <div class="reporte-icono">📦</div>
+      <div class="reporte-info">
+        <h3>Valor de mi inventario</h3>
+        <p>Cuánto valen todos tus productos en USD (lo que tienes en mercancía)</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="deudas-clientes" role="button" tabindex="0" aria-label="Ver deudas de clientes">
+      <div class="reporte-icono">📋</div>
+      <div class="reporte-info">
+        <h3>Clientes que me deben</h3>
+        <p>Lista completa de créditos pendientes, ordenados por monto</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="historial-cierres" role="button" tabindex="0" aria-label="Ver historial de cierres de caja">
+      <div class="reporte-icono">🏦</div>
+      <div class="reporte-info">
+        <h3>Historial de cierres de caja</h3>
+        <p>Ver los cierres de caja anteriores con cuadre completo</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="ventas-cajero" role="button" tabindex="0" aria-label="Ver ventas por cajero">
+      <div class="reporte-icono">👤</div>
+      <div class="reporte-info">
+        <h3>Ventas por cajero</h3>
+        <p>Cuánto vendió cada persona, cuánto ganó el negocio y su margen</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="ventas-rango" role="button" tabindex="0" aria-label="Ver ventas por rango de fechas">
+      <div class="reporte-icono">📊</div>
+      <div class="reporte-info">
+        <h3>Ventas por fecha exacta</h3>
+        <p>Selecciona cualquier día o rango de días para ver el detalle de ventas</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <div class="reporte-card" data-reporte-id="historial-tasas" role="button" tabindex="0" aria-label="Ver historial de tasas">
+      <div class="reporte-icono">💱</div>
+      <div class="reporte-info">
+        <h3>Historial de tasas de cambio</h3>
+        <p>Ver cómo han cambiado las tasas BCV y Paralela con el tiempo</p>
+      </div>
+      <span class="btn-generar">Ver →</span>
+    </div>
+
+    <!-- Libros Fiscales -->
+    <div class="reporte-card" data-excel-url="/api/reportes/excel/libro-ventas" role="button" tabindex="0" aria-label="Descargar Libro de Ventas IVA">
+      <div class="reporte-icono">📖</div>
+      <div class="reporte-info">
+        <h3>Libro de Ventas IVA</h3>
+        <p>Exporta el libro fiscal de ventas del mes para tu declaración de IVA (SENIAT)</p>
+      </div>
+      <span class="btn-generar" style="background:#10b981">Excel →</span>
+    </div>
+
+    <div class="reporte-card" data-excel-url="/api/reportes/excel/libro-compras" role="button" tabindex="0" aria-label="Descargar Libro de Compras IVA">
+      <div class="reporte-icono">📗</div>
+      <div class="reporte-info">
+        <h3>Libro de Compras IVA</h3>
+        <p>Exporta el libro fiscal de compras del mes para tu declaración de IVA (SENIAT)</p>
+      </div>
+      <span class="btn-generar" style="background:#10b981">Excel →</span>
+    </div>
+  </div>
+</div>
+
+<!-- Vista detalle de reporte -->
+<div id="reporte-detalle" class="reporte-vista">
+  <h2 id="reporte-detalle-titulo" class="page-title" style="margin:0 0 1rem;font-size:1.15rem;font-weight:600"></h2>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.75rem">
+    <button type="button" class="btn-volver" id="btn-volver-reportes">← Volver a reportes</button>
+    <button type="button" style="height:40px;padding:0 1rem;border-radius:var(--radius-sm);background:#10b981;border:none;color:#fff;cursor:pointer;font-size:.85rem"
+            id="btn-exportar-reporte">📥 Descargar Excel</button>
+  </div>
+  <div id="reporte-contenido" style="background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem">
+    <p style="text-align:center;color:var(--text-secondary);padding:2rem">⏳ Cargando reporte...</p>
+  </div>
+</div>
+</section>

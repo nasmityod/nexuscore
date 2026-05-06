@@ -1,0 +1,160 @@
+<section class="page-content login-page card" style="max-width: 420px; margin: 2rem auto">
+  <h1 style="margin-top: 0; font-size: 1.4rem">Nexus-Core</h1>
+  <p style="font-size: 0.85rem; margin-bottom: 1.25rem; color: var(--text-muted)">
+    ERP / POS — Servidor: <code data-login-api-base style="font-size:.8rem"></code>
+  </p>
+  <form data-login-form id="login-form-main">
+    <div class="form-group" style="margin-bottom: 1rem">
+      <label for="login-user" style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.3rem">Usuario</label>
+      <input
+        id="login-user"
+        type="text"
+        name="username"
+        autocomplete="username"
+        class="tasa-input"
+        style="width: 100%; box-sizing: border-box; height:44px"
+        required
+      />
+    </div>
+    <div class="form-group" style="margin-bottom: .5rem">
+      <label for="login-pass" style="font-size:.85rem;font-weight:600;display:block;margin-bottom:.3rem">Contraseña</label>
+      <div style="position:relative">
+        <input
+          id="login-pass"
+          type="password"
+          name="password"
+          autocomplete="current-password"
+          class="tasa-input"
+          style="width: 100%; box-sizing: border-box; height:44px; padding-right:2.5rem"
+          required
+        />
+        <button type="button" id="login-toggle-pass" tabindex="-1" style="position:absolute;right:.6rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:1rem">👁</button>
+      </div>
+    </div>
+    <div style="text-align:right;margin-bottom:1rem">
+      <button type="button" id="btn-forgot" style="background:none;border:none;color:#3b82f6;font-size:.82rem;cursor:pointer;text-decoration:underline">¿Olvidaste tu contraseña?</button>
+    </div>
+    <p data-login-error style="color: var(--danger, #ef4444); display: none; font-size: 0.9rem; margin-bottom:.5rem"></p>
+    <button type="submit" class="btn-primary" style="width: 100%; height:44px; font-size:.95rem">Entrar →</button>
+  </form>
+
+  <!-- Panel recuperación de contraseña (offline) -->
+  <div id="login-forgot-panel" style="display:none;margin-top:1.25rem;border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1rem;background:var(--bg-tertiary)">
+    <h3 style="margin:0 0 .5rem;font-size:.9rem">Recuperar acceso</h3>
+    <p style="font-size:.82rem;color:var(--text-secondary);margin:0 0 .75rem;line-height:1.45">
+      Esta aplicación funciona sin conexión a internet. Para restablecer una contraseña:
+    </p>
+    <ul style="font-size:.82rem;color:var(--text-secondary);margin:0 0 .75rem;padding-left:1.25rem;line-height:1.7">
+      <li>Pídele al <strong>administrador</strong> que reinicie tu contraseña desde <em>Configuración → Usuarios</em>.</li>
+      <li>Si eres el administrador y perdiste el acceso, ejecuta el script <code>scripts/recuperar_admin.sql</code> con psql para restablecer la contraseña a <code>admin123</code>.</li>
+    </ul>
+    <div id="login-forgot-admin" style="display:none;margin-top:.5rem">
+      <p style="font-size:.82rem;font-weight:600;margin:0 0 .5rem">Reinicio rápido de contraseña (admin)</p>
+      <input type="text" id="forgot-username" placeholder="Nombre de usuario" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
+      <input type="password" id="forgot-nueva-pass" placeholder="Nueva contraseña (mín. 4 caracteres)" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
+      <input type="password" id="forgot-admin-pass" placeholder="Tu contraseña de admin" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
+      <button type="button" id="btn-forgot-submit" style="height:38px;padding:0 1rem;background:#3b82f6;color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:.85rem;font-weight:600">Restablecer contraseña</button>
+      <p id="forgot-msg" style="font-size:.82rem;margin-top:.5rem;display:none"></p>
+    </div>
+    <div style="display:flex;gap:.5rem;margin-top:.75rem">
+      <button type="button" id="btn-forgot-mostrar-admin" style="height:34px;padding:0 .75rem;background:var(--bg-secondary);border:1px solid var(--border-primary);color:var(--text-primary);border-radius:var(--radius-sm);cursor:pointer;font-size:.8rem">🔑 Soy administrador</button>
+      <button type="button" id="btn-forgot-cerrar" style="height:34px;padding:0 .75rem;background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:.8rem">Volver al login</button>
+    </div>
+  </div>
+
+  <script data-page-inline>
+    window.LoginPage = {
+      mount: function (host) {
+        var form  = host.querySelector('[data-login-form]');
+        var errEl = host.querySelector('[data-login-error]');
+        var baseEl = host.querySelector('[data-login-api-base]');
+        if (baseEl && window.NexusAuth) baseEl.textContent = window.NexusAuth.apiBase ? window.NexusAuth.apiBase() : '';
+
+        // Toggle password visibility
+        var toggleBtn = host.querySelector('#login-toggle-pass');
+        var passInput = host.querySelector('#login-pass');
+        if (toggleBtn && passInput) {
+          toggleBtn.addEventListener('click', function () {
+            passInput.type = passInput.type === 'password' ? 'text' : 'password';
+          });
+        }
+
+        // Forgot password panel
+        var btnForgot         = host.querySelector('#btn-forgot');
+        var forgotPanel       = host.querySelector('#login-forgot-panel');
+        var btnForgotCerrar   = host.querySelector('#btn-forgot-cerrar');
+        var btnForgotAdmin    = host.querySelector('#btn-forgot-mostrar-admin');
+        var forgotAdminDiv    = host.querySelector('#login-forgot-admin');
+        var btnForgotSubmit   = host.querySelector('#btn-forgot-submit');
+        var forgotMsg         = host.querySelector('#forgot-msg');
+
+        if (btnForgot && forgotPanel) {
+          btnForgot.addEventListener('click', function () {
+            forgotPanel.style.display = forgotPanel.style.display === 'none' ? 'block' : 'none';
+          });
+        }
+        if (btnForgotCerrar) btnForgotCerrar.addEventListener('click', function () { if (forgotPanel) forgotPanel.style.display = 'none'; });
+        if (btnForgotAdmin && forgotAdminDiv) {
+          btnForgotAdmin.addEventListener('click', function () {
+            forgotAdminDiv.style.display = forgotAdminDiv.style.display === 'none' ? 'block' : 'none';
+          });
+        }
+
+        if (btnForgotSubmit) {
+          btnForgotSubmit.addEventListener('click', function () {
+            var uname    = (host.querySelector('#forgot-username') || {}).value || '';
+            var newPass  = (host.querySelector('#forgot-nueva-pass') || {}).value || '';
+            var adminPas = (host.querySelector('#forgot-admin-pass') || {}).value || '';
+            if (!uname || !newPass || !adminPas) {
+              if (forgotMsg) { forgotMsg.style.display = 'block'; forgotMsg.style.color = '#ef4444'; forgotMsg.textContent = 'Completa todos los campos'; }
+              return;
+            }
+            var apiBase = (window.NexusAuth && window.NexusAuth.apiBase) ? window.NexusAuth.apiBase() : 'http://127.0.0.1:3000';
+            // Primero autenticamos al admin, luego reseteamos la contraseña del usuario objetivo
+            fetch(apiBase + '/api/auth/login', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: 'admin', password: adminPas })
+            })
+              .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error || 'Admin incorrecto'); }); })
+              .then(function (d) {
+                var token = d.token;
+                // Buscar el usuario objetivo
+                return fetch(apiBase + '/api/usuarios?limit=100', { headers: { Authorization: 'Bearer ' + token } })
+                  .then(function (r) { return r.json(); })
+                  .then(function (users) {
+                    var u = users.find(function (x) { return x.username === uname.trim().toLowerCase(); });
+                    if (!u) throw new Error('Usuario "' + uname + '" no encontrado');
+                    return fetch(apiBase + '/api/usuarios/' + u.id + '/cambiar-password', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+                      body: JSON.stringify({ password_nuevo: newPass })
+                    });
+                  });
+              })
+              .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error || 'Error'); }); })
+              .then(function () {
+                if (forgotMsg) { forgotMsg.style.display = 'block'; forgotMsg.style.color = '#10b981'; forgotMsg.textContent = 'Contraseña restablecida correctamente. Ya puedes iniciar sesión.'; }
+              })
+              .catch(function (e) {
+                if (forgotMsg) { forgotMsg.style.display = 'block'; forgotMsg.style.color = '#ef4444'; forgotMsg.textContent = e.message || 'Error'; }
+              });
+          });
+        }
+
+        if (!form || !window.NexusAuth) return;
+        form.addEventListener('submit', function (ev) {
+          ev.preventDefault();
+          var u = (host.querySelector('#login-user') || {}).value || '';
+          var p = (host.querySelector('#login-pass') || {}).value || '';
+          errEl.style.display = 'none';
+          errEl.textContent = '';
+          window.NexusAuth.login(u, p)
+            .then(function () { window.location.hash = '#/dashboard'; })
+            .catch(function (e) {
+              errEl.textContent = e.message || 'Error de acceso';
+              errEl.style.display = 'block';
+            });
+        });
+      }
+    };
+  </script>
+</section>

@@ -1,0 +1,56 @@
+:root {
+  --bg-primary: #0a0e1a;
+  --bg-secondary: #0f1629;
+  --bg-tertiary: #1a2035;
+  --bg-accent: #1e2d45;
+
+  --accent-primary: #3b82f6;
+  --accent-secondary: #6366f1;
+  --accent-success: #10b981;
+  --accent-warning: #f59e0b;
+  --accent-danger: #ef4444;
+  --accent-info: #06b6d4;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --text-accent: #3b82f6;
+
+  --border-primary: #1e3a5f;
+  --border-subtle: #0f2340;
+
+  --font-primary: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+  --font-display: 'Rajdhani', 'Oswald', 'Segoe UI', sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.6);
+  --shadow-accent: 0 4px 20px rgba(59, 130, 246, 0.25);
+  --shadow-success: 0 4px 20px rgba(16, 185, 129, 0.25);
+  --shadow-danger: 0 4px 20px rgba(239, 68, 68, 0.25);
+
+  --sidebar-width: 240px;
+  --header-height: 56px;
+  --transition-page: 200ms ease;
+
+  /* Tema Quiosco */
+  --kiosk-bg: #ffffff;
+  --kiosk-surface: #f8fafc;
+  --kiosk-border: #e2e8f0;
+  --kiosk-text: #1e293b;
+  --kiosk-text-light: #64748b;
+  --kiosk-primary: #2563eb;
+  --kiosk-primary-hover: #1d4ed8;
+  --kiosk-success: #16a34a;
+  --kiosk-success-hover: #15803d;
+  --kiosk-danger: #dc2626;
+  --kiosk-danger-hover: #b91c1c;
+  --kiosk-warning: #ea580c;
+  --kiosk-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}

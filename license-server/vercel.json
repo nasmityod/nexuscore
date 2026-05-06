@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 10
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "headers": {
+        "X-Content-Type-Options":  "nosniff",
+        "X-Frame-Options":         "DENY",
+        "Referrer-Policy":         "no-referrer",
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains"
+      },
+      "continue": true
+    }
+  ]
+}

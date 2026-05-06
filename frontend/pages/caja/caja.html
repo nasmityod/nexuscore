@@ -1,0 +1,308 @@
+<section class="page-content caja-page">
+<style>
+.caja-page { max-width: 940px; margin: 0 auto; }
+.caja-page .card { margin-bottom: 1rem; }
+.caja-page .apertura-header { text-align: center; padding: .5rem 0 1.5rem; }
+.caja-page .apertura-header h2 { font-size: 1.5rem; margin: 0 0 .25rem; }
+.caja-page .apertura-header p { color: var(--text-secondary); margin: 0; font-size: .9rem; }
+.caja-page .apertura-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.campo-label { display:block;font-size:.85rem;font-weight:600;color:var(--text-secondary);margin-bottom:.35rem; }
+.input-caja { width:100%;height:48px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:1rem;box-sizing:border-box; }
+.input-caja:focus { outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.25); }
+.btn-abrir { width:100%;height:52px;background:#10b981;border:none;border-radius:var(--radius-md);color:#fff;font-size:1.1rem;font-weight:700;cursor:pointer;margin-top:1.25rem; }
+.btn-abrir:hover { background:#059669; }
+.btn-abrir:disabled { background:#6b7280;cursor:not-allowed; }
+
+/* Cashea — cierre (dinero en tránsito) */
+.cashea-resumen-box {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.2) 0%, rgba(15, 23, 42, 0.55) 100%);
+}
+.cashea-resumen-box h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #fcd34d;
+  letter-spacing: 0.02em;
+}
+.cashea-resumen-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.65rem;
+  font-size: 0.82rem;
+  padding: 0.25rem 0;
+  color: var(--text-secondary);
+}
+.cashea-resumen-row strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.cashea-pend-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.75rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: #fbbf24;
+}
+
+/* Resumen sistema */
+.cierre-resumen-sistema .resumen-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.75rem; }
+.cierre-resumen-sistema .resumen-item { background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:.75rem;text-align:center; }
+.cierre-resumen-sistema .resumen-item > span { display:block;font-size:.75rem;color:var(--text-secondary);margin-bottom:.3rem; }
+.cierre-resumen-sistema .resumen-item > strong { display:block;font-size:1.1rem;font-weight:700;color:var(--text-primary); }
+
+/* Filas de conteo físico */
+.conteo-bloque { margin-bottom: 1.25rem; }
+.conteo-bloque h4 { font-size:.85rem;font-weight:700;color:var(--text-secondary);margin:0 0 .6rem;text-transform:uppercase;letter-spacing:.04em; }
+.conteo-fila { display:grid;grid-template-columns:1fr 1fr;gap:.75rem;align-items:start;margin-bottom:.75rem; }
+.conteo-fila-label { font-size:.9rem;font-weight:600;padding-top:.65rem; }
+.conteo-fila-input { display:flex;flex-direction:column;gap:.25rem; }
+.conteo-fila-input input {
+  width:100%;height:44px;padding:0 .75rem;background:var(--bg-tertiary);
+  border:1px solid var(--border-primary);border-radius:var(--radius-sm);
+  color:var(--text-primary);font-size:1rem;box-sizing:border-box;
+}
+.conteo-fila-input input:focus { outline:none;border-color:#3b82f6; }
+.conteo-hint { font-size:.75rem;color:var(--text-secondary); }
+
+/* Acciones */
+.cierre-acciones { display:flex;gap:.75rem;margin-top:1.25rem;flex-wrap:wrap; }
+.btn-imprimir { height:44px;padding:0 1.25rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.9rem;display:inline-flex;align-items:center;gap:.4rem; }
+.btn-cerrar-caja { flex:1;min-width:200px;height:52px;background:#ef4444;border:none;border-radius:var(--radius-md);color:#fff;font-size:1rem;font-weight:700;cursor:pointer; }
+.btn-cerrar-caja:hover { background:#dc2626; }
+.btn-cerrar-caja:disabled { background:#9ca3af;cursor:not-allowed; }
+</style>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Control de Caja</h1>
+    <p class="page-subtitle">Apertura, arqueo y cierre diario · cuadre automático con ventas registradas</p>
+  </div>
+  <div class="page-header-actions">
+    <button class="btn" id="btn-ver-historial">Ver historial</button>
+  </div>
+</div>
+
+<!-- ═══ VISTA: APERTURA DE CAJA ═══ -->
+<div id="vista-apertura">
+  <div class="card">
+    <div class="apertura-header">
+      <div style="font-size:3rem;margin-bottom:.5rem">🔓</div>
+      <h2>Apertura de Caja</h2>
+      <p id="apertura-fecha">Cargando fecha...</p>
+    </div>
+
+    <div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.3);border-radius:var(--radius-sm);padding:.75rem 1rem;margin-bottom:1.25rem;font-size:.9rem">
+      👤 Cajero: <strong id="apertura-cajero">—</strong> &nbsp;·&nbsp; 🏪 Caja: <strong>Principal</strong>
+    </div>
+
+    <div class="apertura-grid">
+      <div>
+        <label class="campo-label">💵 ¿Cuántos dólares en efectivo tienes para empezar?</label>
+        <input type="number" id="apertura-monto-usd" class="input-caja" step="0.01" min="0" placeholder="Ej: 50.00" value="0">
+      </div>
+      <div>
+        <label class="campo-label">🇻🇪 ¿Cuántos bolívares en efectivo tienes para empezar?</label>
+        <input type="number" id="apertura-monto-bs" class="input-caja" step="0.01" min="0" placeholder="Ej: 15000.00" value="0">
+      </div>
+      <div>
+        <label class="campo-label">💱 Tasa BCV de hoy</label>
+        <input type="number" id="apertura-tasa-bcv" class="input-caja" step="0.0001" min="0.0001" placeholder="Ej: 489.5547">
+      </div>
+      <div>
+        <label class="campo-label">📈 Tasa Paralela (USD) de hoy</label>
+        <input type="number" id="apertura-tasa-usd" class="input-caja" step="0.0001" min="0.0001" placeholder="Ej: 625.0000">
+      </div>
+    </div>
+
+    <button class="btn-abrir" id="btn-abrir-caja">✓ Abrir Caja y Comenzar</button>
+  </div>
+</div>
+
+<!-- ═══ VISTA: CIERRE DE CAJA (ARQUEO) ═══ -->
+<div id="vista-cierre" style="display:none">
+
+  <!-- Resumen del sistema -->
+  <div class="card cierre-resumen-sistema">
+    <h3 style="margin:0 0 1rem;font-size:1rem;font-weight:700">📊 Lo que dice el sistema hoy</h3>
+    <div class="resumen-grid">
+      <div class="resumen-item">
+        <span>Total ventas</span>
+        <strong id="sistema-num-ventas">0</strong>
+      </div>
+      <div class="resumen-item">
+        <span>Total USD vendido</span>
+        <strong id="sistema-usd" style="color:#10b981">$0.00</strong>
+      </div>
+      <div class="resumen-item">
+        <span>Total Bs vendido</span>
+        <strong id="sistema-bs" style="color:#10b981">Bs. 0.00</strong>
+      </div>
+      <div class="resumen-item">
+        <span>Ticket promedio</span>
+        <strong id="sistema-ticket">$0.00</strong>
+      </div>
+      <div class="resumen-item">
+        <span>Ventas anuladas</span>
+        <strong id="sistema-anuladas" style="color:#f59e0b">0</strong>
+      </div>
+    </div>
+
+    <!-- Cashea — no forma parte del efectivo físico de cierre -->
+    <div class="cashea-resumen-box" id="caja-cashea-bloque" style="display:none">
+      <h4>CASHEA (dinero en tránsito — NO contar en caja física)</h4>
+      <div class="cashea-resumen-row">
+        <span>Inicial cobrada hoy (va a tu caja)</span>
+        <strong id="cashea-q-inicial">$0.00</strong>
+      </div>
+      <div class="cashea-resumen-row">
+        <span>Monto prestado pendiente (Cashea)</span>
+        <strong id="cashea-q-prestado">$0.00</strong>
+      </div>
+      <div class="cashea-resumen-row">
+        <span>Comisiones descontadas</span>
+        <strong id="cashea-q-comision">$0.00</strong>
+      </div>
+      <div class="cashea-resumen-row">
+        <span>Neto esperado próx. liquidación</span>
+        <strong id="cashea-q-neto">$0.00</strong>
+      </div>
+      <div class="cashea-resumen-row">
+        <span>Ventas con Cashea</span>
+        <strong id="cashea-q-cantidad">0</strong>
+      </div>
+      <div id="cashea-pend-warning" class="cashea-pend-badge" style="display:none">
+        Pendiente de liquidación semanal por Cashea
+      </div>
+    </div>
+
+    <div style="margin-top:1rem">
+      <h4 style="font-size:.85rem;color:var(--text-secondary);margin:0 0 .5rem">Desglose por método de pago:</h4>
+      <table style="width:100%;font-size:.85rem;border-collapse:collapse">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:.4rem;border-bottom:1px solid var(--border-primary)">Método</th>
+            <th style="text-align:right;padding:.4rem;border-bottom:1px solid var(--border-primary)">Ventas</th>
+            <th style="text-align:right;padding:.4rem;border-bottom:1px solid var(--border-primary)">Total USD</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-metodos">
+          <tr><td colspan="3" style="text-align:center;padding:.5rem;color:var(--text-secondary)">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Conteo físico -->
+  <div class="card">
+    <h3 style="margin:0 0 .25rem;font-size:1.05rem;font-weight:700">💰 ¿Cuánto dinero tienes físicamente?</h3>
+    <p style="color:var(--text-secondary);font-size:.85rem;margin:0 0 1.25rem">
+      Cuenta el dinero real que tienes en caja y escríbelo aquí. El sistema calculará si cuadra automáticamente.
+    </p>
+
+    <!-- Bloque USD -->
+    <div class="conteo-bloque">
+      <h4>💵 Dinero en dólares</h4>
+      <div class="conteo-fila">
+        <div class="conteo-fila-label">Billetes en efectivo USD</div>
+        <div class="conteo-fila-input">
+          <input type="number" id="conteo-usd" step="0.01" min="0" placeholder="Cuenta los billetes" value="0">
+          <span class="conteo-hint" data-hint="conteo-usd"></span>
+        </div>
+      </div>
+      <div class="conteo-fila">
+        <div class="conteo-fila-label">Zelle recibido (USD)</div>
+        <div class="conteo-fila-input">
+          <input type="number" id="conteo-zelle" step="0.01" min="0" placeholder="0.00" value="0">
+          <span class="conteo-hint" data-hint="conteo-zelle"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bloque Bs -->
+    <div class="conteo-bloque">
+      <h4>🇻🇪 Dinero en bolívares</h4>
+      <div class="conteo-fila">
+        <div class="conteo-fila-label">Billetes en efectivo Bs</div>
+        <div class="conteo-fila-input">
+          <input type="number" id="conteo-bs" step="0.01" min="0" placeholder="Cuenta los billetes" value="0">
+          <span class="conteo-hint" data-hint="conteo-bs"></span>
+        </div>
+      </div>
+      <div class="conteo-fila">
+        <div class="conteo-fila-label">Transferencias recibidas (Bs)</div>
+        <div class="conteo-fila-input">
+          <input type="number" id="conteo-transf" step="0.01" min="0" placeholder="0.00" value="0">
+          <span class="conteo-hint" data-hint="conteo-transf"></span>
+        </div>
+      </div>
+      <div class="conteo-fila">
+        <div class="conteo-fila-label">Pagos Móviles recibidos (Bs)</div>
+        <div class="conteo-fila-input">
+          <input type="number" id="conteo-pm" step="0.01" min="0" placeholder="0.00" value="0">
+          <span class="conteo-hint" data-hint="conteo-pm"></span>
+        </div>
+      </div>
+      <div class="conteo-fila">
+        <div class="conteo-fila-label">Punto de venta (Bs)</div>
+        <div class="conteo-fila-input">
+          <input type="number" id="conteo-punto" step="0.01" min="0" placeholder="0.00" value="0">
+          <span class="conteo-hint" data-hint="conteo-punto"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resultado del cuadre (se rellena por JS) -->
+    <div id="panel-diferencias" style="display:none;margin-top:.25rem"></div>
+
+    <div style="margin-top:1rem">
+      <label class="campo-label">Observaciones del cajero (opcional)</label>
+      <textarea id="cierre-notas" class="input-caja" rows="2"
+                style="height:auto;padding:.5rem .875rem;resize:vertical"
+                placeholder="Ej: Se rompió un billete, hubo una devolución, etc."></textarea>
+    </div>
+
+    <div class="cierre-acciones">
+      <button class="btn-imprimir" id="btn-imprimir-cierre">🖨️ Imprimir Resumen</button>
+      <button class="btn-cerrar-caja" id="btn-cerrar-caja">🔒 Cerrar Caja del Día</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ VISTA: HISTORIAL ═══ -->
+<div id="vista-historial" style="display:none">
+  <div class="card">
+    <h3 style="margin:0 0 1rem;font-size:1rem;font-weight:700">📋 Historial de Cierres de Caja</h3>
+    <div style="overflow:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:.5rem;border-bottom:2px solid var(--border-primary)">Fecha</th>
+            <th style="text-align:left;padding:.5rem;border-bottom:2px solid var(--border-primary)">Cajero</th>
+            <th style="text-align:right;padding:.5rem;border-bottom:2px solid var(--border-primary)">Total USD</th>
+            <th style="text-align:right;padding:.5rem;border-bottom:2px solid var(--border-primary)">Ventas</th>
+            <th style="text-align:right;padding:.5rem;border-bottom:2px solid var(--border-primary)">Diferencias</th>
+            <th style="padding:.5rem;border-bottom:2px solid var(--border-primary)">Estado</th>
+          </tr>
+        </thead>
+        <tbody id="historial-tbody">
+          <tr><td colspan="6" style="text-align:center;padding:1rem;color:var(--text-secondary)">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin:.75rem 0 0;font-size:.8rem;color:var(--text-secondary)">
+      💡 Se muestra cuadre en USD y en Bs. Positivo (⬆️) = sobra · Negativo (⬇️) = falta · ✓ = dentro de tolerancia (USD ±0,50 · Bs ±1).
+    </p>
+  </div>
+</div>
+</section>

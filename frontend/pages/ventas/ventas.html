@@ -1,0 +1,432 @@
+<section class="page-content ventas-page">
+  <style>
+    .ventas-page .ventas-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .ventas-page .ventas-toolbar label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .ventas-page .ventas-toolbar select {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-primary);
+      color: var(--text-primary);
+      border-radius: var(--radius-sm);
+      padding: 0.35rem 0.5rem;
+      font-size: 0.85rem;
+    }
+    .ventas-page .ventas-table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 200px);
+      border: 1px solid var(--border-primary);
+      border-radius: var(--radius-sm);
+    }
+    .ventas-page table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .ventas-page th {
+      text-align: left;
+      padding: 0.5rem;
+      background: var(--bg-tertiary);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      color: var(--text-secondary);
+    }
+    .ventas-page td {
+      padding: 0.45rem 0.5rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .ventas-page td.num {
+      text-align: right;
+      font-family: var(--font-mono);
+    }
+    .ventas-page .badge-estado {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .ventas-page .badge-completada {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+    }
+    .ventas-page .badge-anulada {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+    .ventas-page [data-ventas-status] {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .ventas-anular-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(2px);
+    }
+    .ventas-anular-overlay.is-open {
+      display: flex;
+    }
+    .ventas-anular-dialog {
+      width: 100%;
+      max-width: 420px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      box-shadow: var(--shadow-lg);
+    }
+    .ventas-anular-dialog h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1.1rem;
+    }
+    .ventas-anular-num {
+      margin: 0 0 1rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+    .ventas-anular-dialog label {
+      display: block;
+      font-size: 0.8rem;
+      margin-bottom: 0.35rem;
+      color: var(--text-secondary);
+    }
+    .ventas-anular-dialog textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.65rem;
+      margin-bottom: 0.65rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-primary);
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 0.88rem;
+      resize: vertical;
+      min-height: 72px;
+    }
+    .ventas-anular-dialog textarea:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+    }
+    .ventas-anular-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin: 0 0 0.85rem;
+      line-height: 1.4;
+    }
+    .ventas-anular-confirm-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      margin: 0 0 0.65rem;
+      font-size: 0.82rem;
+      line-height: 1.35;
+      color: var(--text-primary);
+      cursor: pointer;
+      user-select: none;
+    }
+    .ventas-anular-confirm-row input {
+      margin-top: 0.12rem;
+      flex-shrink: 0;
+      accent-color: var(--accent-danger);
+    }
+    .ventas-anular-warn {
+      margin: 0 0 1rem;
+      padding: 0.55rem 0.65rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #fecaca;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+    .ventas-anular-actions {
+      display: flex;
+      gap: 0.65rem;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .ventas-detalle-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10001;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(2px);
+    }
+    .ventas-detalle-overlay.is-open {
+      display: flex;
+    }
+    .ventas-detalle-dialog {
+      width: 100%;
+      max-width: 640px;
+      max-height: min(92vh, 760px);
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+    }
+    .ventas-detalle-head {
+      padding: 1rem 1.1rem;
+      border-bottom: 1px solid var(--border-primary);
+      flex-shrink: 0;
+    }
+    .ventas-detalle-head h3 {
+      margin: 0 0 0.35rem;
+      font-size: 1.1rem;
+    }
+    .ventas-detalle-meta {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+    .ventas-detalle-body {
+      padding: 0.85rem 1.1rem 1rem;
+      overflow-y: auto;
+      flex: 1;
+      font-size: 0.82rem;
+    }
+    .ventas-detalle-section {
+      margin-bottom: 1rem;
+    }
+    .ventas-detalle-section h4 {
+      margin: 0 0 0.45rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .ventas-detalle-totales {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.25rem 1rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .ventas-detalle-totales dt {
+      color: var(--text-secondary);
+    }
+    .ventas-detalle-totales dd {
+      margin: 0;
+      text-align: right;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+    .ventas-detalle-mini {
+      overflow: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+    }
+    .ventas-detalle-mini table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    .ventas-detalle-mini th,
+    .ventas-detalle-mini td {
+      padding: 0.38rem 0.45rem;
+      border-bottom: 1px solid var(--border-subtle);
+      text-align: left;
+    }
+    .ventas-detalle-mini th {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+    }
+    .ventas-detalle-mini td.num,
+    .ventas-detalle-mini th.num {
+      text-align: right;
+      font-family: var(--font-mono);
+    }
+    .ventas-detalle-foot {
+      padding: 0.65rem 1.1rem 1rem;
+      border-top: 1px solid var(--border-primary);
+      flex-shrink: 0;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .ventas-btn-link {
+      background: transparent;
+      border: none;
+      color: var(--accent-primary);
+      cursor: pointer;
+      font-size: 0.85rem;
+      text-decoration: underline;
+      padding: 0;
+    }
+    .ventas-btn-link:hover {
+      opacity: 0.9;
+    }
+  </style>
+
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Ventas</h1>
+      <p class="page-subtitle">Historial y anulación · en cada ticket use Ver para método(s) de pago, montos, productos y fecha/hora</p>
+    </div>
+    <div class="page-header-actions" style="display:flex;gap:.5rem">
+      <button type="button" class="btn btn-secondary" id="btn-ver-devoluciones">↩ Devoluciones</button>
+      <button type="button" class="btn btn-primary" data-ventas-refresh>Actualizar</button>
+    </div>
+  </div>
+
+  <div class="ventas-toolbar">
+    <label class="form-label" style="margin:0;display:flex;align-items:center;gap:0.5rem;text-transform:none;letter-spacing:0;font-weight:500;font-size:0.85rem;color:var(--text-secondary)">
+      Estado
+      <select class="form-select" style="height:34px;width:auto" data-ventas-filtro-estado aria-label="Filtrar por estado">
+        <option value="">Todos</option>
+        <option value="completada" selected>Completadas</option>
+        <option value="anulada">Anuladas</option>
+      </select>
+    </label>
+    <span data-ventas-status></span>
+  </div>
+
+  <div class="card ventas-table-wrap">
+    <table aria-label="Listado de ventas">
+      <thead>
+        <tr>
+          <th>Número</th>
+          <th>Fecha</th>
+          <th>Estado</th>
+          <th class="num">Total USD</th>
+          <th class="num">Total Bs</th>
+          <th>Método</th>
+          <th>Detalle</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody data-ventas-tbody></tbody>
+    </table>
+  </div>
+
+  <div class="ventas-anular-overlay" id="ventas-anular-modal" role="dialog" aria-modal="true" aria-labelledby="ventas-anular-title">
+    <div class="ventas-anular-dialog">
+      <h3 id="ventas-anular-title">Anular venta</h3>
+      <p class="ventas-anular-num" id="ventas-anular-num-label"></p>
+      <label for="ventas-anular-motivo">Motivo de anulación</label>
+      <textarea id="ventas-anular-motivo" placeholder="Describe el motivo (obligatorio)" autocomplete="off"></textarea>
+      <p class="ventas-anular-hint">Se devolverá el stock al inventario. Las ventas anuladas no cuentan en totales del día.</p>
+      <label class="ventas-anular-confirm-row" for="ventas-anular-confirm-check">
+        <input type="checkbox" id="ventas-anular-confirm-check" />
+        <span>Confirmo que deseo anular esta venta de forma permanente.</span>
+      </label>
+      <p class="ventas-anular-warn" role="alert">¿Seguro? Esta acción no se puede deshacer.</p>
+      <div class="ventas-anular-actions">
+        <button type="button" class="btn btn-secondary" id="ventas-anular-cancel">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="ventas-anular-confirm">Confirmar anulación</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="ventas-detalle-overlay" id="ventas-detalle-modal" role="dialog" aria-modal="true" aria-labelledby="ventas-detalle-title">
+    <div class="ventas-detalle-dialog">
+      <div class="ventas-detalle-head">
+        <h3 id="ventas-detalle-title">Detalle de la venta</h3>
+        <p class="ventas-detalle-meta" id="ventas-detalle-intro"></p>
+      </div>
+      <div class="ventas-detalle-body">
+        <div class="ventas-detalle-section" id="ventas-detalle-bloque-totales"></div>
+        <div class="ventas-detalle-section" id="ventas-detalle-bloque-pagos"></div>
+        <div class="ventas-detalle-section" id="ventas-detalle-bloque-lineas"></div>
+      </div>
+      <div class="ventas-detalle-foot" style="gap:.5rem">
+        <button type="button" class="btn btn-secondary" id="ventas-detalle-devolver" style="display:none">↩ Registrar devolución</button>
+        <button type="button" class="btn btn-secondary" id="ventas-detalle-factura" style="display:none">🖨️ Factura formal</button>
+        <button type="button" class="btn btn-primary" id="ventas-detalle-cerrar">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL NUEVA DEVOLUCIÓN ═══ -->
+  <div class="ventas-anular-overlay" id="ventas-dev-modal" role="dialog" aria-modal="true" aria-labelledby="ventas-dev-title">
+    <div class="ventas-anular-dialog" style="max-width:560px">
+      <h3 id="ventas-dev-title">↩ Registrar Devolución / Cambio</h3>
+      <p class="ventas-anular-num" id="ventas-dev-venta-label"></p>
+      <div style="display:flex;gap:.75rem;margin-bottom:.75rem">
+        <div style="flex:1">
+          <label style="display:block;font-size:.8rem;margin-bottom:.3rem">Tipo</label>
+          <select id="ventas-dev-tipo" style="width:100%;padding:.4rem .5rem;border-radius:var(--radius-sm);border:1px solid var(--border-primary);background:var(--bg-tertiary);color:var(--text-primary)">
+            <option value="devolucion">Devolución (reembolso)</option>
+            <option value="cambio">Cambio de mercancía</option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <label style="display:block;font-size:.8rem;margin-bottom:.3rem">Método reembolso</label>
+          <select id="ventas-dev-metodo" style="width:100%;padding:.4rem .5rem;border-radius:var(--radius-sm);border:1px solid var(--border-primary);background:var(--bg-tertiary);color:var(--text-primary)">
+            <option value="efectivo_usd">Efectivo USD</option>
+            <option value="efectivo_bs">Efectivo Bs</option>
+            <option value="credito_tienda">Crédito en tienda</option>
+            <option value="pago_movil">Pago Móvil</option>
+          </select>
+        </div>
+      </div>
+      <label style="display:block;font-size:.8rem;margin-bottom:.3rem">Productos a devolver</label>
+      <div id="ventas-dev-lineas" style="border:1px solid var(--border-primary);border-radius:var(--radius-sm);overflow:auto;max-height:200px;margin-bottom:.75rem">
+        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+          <thead><tr>
+            <th style="padding:.35rem .5rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary)">Producto</th>
+            <th style="padding:.35rem .5rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary);text-align:right">Precio</th>
+            <th style="padding:.35rem .5rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary);text-align:center;width:80px">Cantidad</th>
+          </tr></thead>
+          <tbody id="ventas-dev-lineas-tbody"></tbody>
+        </table>
+      </div>
+      <label style="display:block;font-size:.8rem;margin-bottom:.3rem">Motivo</label>
+      <textarea id="ventas-dev-motivo" style="width:100%;box-sizing:border-box;padding:.45rem .65rem;border-radius:var(--radius-sm);border:1px solid var(--border-primary);background:var(--bg-tertiary);color:var(--text-primary);font-family:inherit;font-size:.85rem;resize:vertical;min-height:60px;margin-bottom:.75rem" placeholder="Describe el motivo de la devolución..."></textarea>
+      <div class="ventas-anular-actions">
+        <button type="button" class="btn btn-secondary" id="ventas-dev-cancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="ventas-dev-confirm">Registrar Devolución</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL HISTORIAL DEVOLUCIONES ═══ -->
+  <div class="ventas-anular-overlay" id="ventas-devlist-modal" role="dialog" aria-modal="true">
+    <div class="ventas-anular-dialog" style="max-width:720px;width:100%">
+      <h3>Historial de Devoluciones</h3>
+      <div style="overflow:auto;max-height:400px;margin-bottom:1rem">
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+          <thead><tr>
+            <th style="padding:.4rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary)">Número</th>
+            <th style="padding:.4rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary)">Factura</th>
+            <th style="padding:.4rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary)">Tipo</th>
+            <th style="padding:.4rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary);text-align:right">Monto USD</th>
+            <th style="padding:.4rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary)">Cajero</th>
+            <th style="padding:.4rem;background:var(--bg-tertiary);border-bottom:1px solid var(--border-primary)">Fecha</th>
+          </tr></thead>
+          <tbody id="ventas-devlist-tbody"><tr><td colspan="6" style="padding:1rem;text-align:center;color:var(--text-secondary)">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+      <div style="text-align:right">
+        <button type="button" class="btn btn-secondary" id="ventas-devlist-cerrar">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</section>

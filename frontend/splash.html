@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iniciando Nexus-Core</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: white;
+      overflow: hidden;
+    }
+
+    .splash-container {
+      text-align: center;
+      max-width: 500px;
+      padding: 2rem;
+    }
+
+    .logo {
+      font-size: 3.5rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      text-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .tagline {
+      font-size: 1.1rem;
+      opacity: 0.9;
+      margin-bottom: 2.5rem;
+      font-weight: 300;
+    }
+
+    .loader {
+      width: 60px;
+      height: 60px;
+      margin: 0 auto 1.5rem;
+      border: 5px solid rgba(255, 255, 255, 0.2);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .status-text {
+      font-size: 1rem;
+      opacity: 0.8;
+      min-height: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 1rem;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: white;
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 2px;
+    }
+
+    .error-container {
+      display: none;
+      padding: 1.5rem;
+      background: rgba(239, 68, 68, 0.2);
+      border: 2px solid rgba(239, 68, 68, 0.5);
+      border-radius: 8px;
+      margin-top: 2rem;
+      text-align: left;
+    }
+
+    .error-container.show {
+      display: block;
+    }
+
+    .error-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      text-align: center;
+    }
+
+    .error-message {
+      font-size: 0.9rem;
+      opacity: 0.9;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .tech-log-toggle {
+      display: inline-block;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      opacity: 0.7;
+      cursor: pointer;
+      text-decoration: underline;
+      user-select: none;
+    }
+
+    .tech-log {
+      display: none;
+      margin-top: 0.5rem;
+      padding: 0.75rem;
+      background: rgba(0, 0, 0, 0.35);
+      border-radius: 4px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 0.72rem;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 160px;
+      overflow-y: auto;
+      opacity: 0.85;
+    }
+
+    .tech-log.show {
+      display: block;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    .version {
+      position: absolute;
+      bottom: 1rem;
+      right: 1rem;
+      font-size: 0.8rem;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-container">
+    <div class="logo">⚡ Nexus-Core</div>
+    <div class="tagline">Sistema POS · Yaritagua, Venezuela</div>
+    
+    <div class="loader"></div>
+    
+    <div class="status-text" id="status">Iniciando sistema...</div>
+    
+    <div class="progress-bar">
+      <div class="progress-fill" id="progress"></div>
+    </div>
+
+    <div class="error-container" id="error">
+      <div class="error-title">⚠ Error de Inicio</div>
+      <div class="error-message" id="error-message"></div>
+      <span class="tech-log-toggle" id="tech-log-toggle" style="display:none;">
+        ▶ Ver log técnico
+      </span>
+      <div class="tech-log" id="tech-log"></div>
+    </div>
+  </div>
+
+  <div class="version">v1.0.0</div>
+
+  <script>
+    // Usa window.splashBridge expuesto por preload-splash.js mediante contextBridge.
+    // No se accede a require('electron') directamente (nodeIntegration: false).
+    const bridge = window.splashBridge;
+
+    bridge.onStatus(function (data) {
+      var statusEl = document.getElementById('status');
+      var progressEl = document.getElementById('progress');
+
+      if (data.status) {
+        statusEl.textContent = data.status;
+      }
+      if (data.progress !== undefined) {
+        progressEl.style.width = data.progress + '%';
+      }
+    });
+
+    bridge.onError(function (error) {
+      var errorContainer = document.getElementById('error');
+      var errorMessage = document.getElementById('error-message');
+      var loader = document.querySelector('.loader');
+      var techLogEl = document.getElementById('tech-log');
+      var techLogToggle = document.getElementById('tech-log-toggle');
+
+      loader.style.display = 'none';
+      errorContainer.classList.add('show');
+      errorMessage.textContent = error.message || 'Error desconocido';
+
+      if (error.technicalLog && error.technicalLog.trim()) {
+        techLogEl.textContent = error.technicalLog;
+        techLogToggle.style.display = 'inline-block';
+        techLogToggle.addEventListener('click', function () {
+          var isOpen = techLogEl.classList.toggle('show');
+          techLogToggle.textContent = isOpen ? '▼ Ocultar log técnico' : '▶ Ver log técnico';
+        });
+      }
+    });
+
+    setTimeout(function () {
+      bridge.ready();
+    }, 100);
+  </script>
+</body>
+</html>

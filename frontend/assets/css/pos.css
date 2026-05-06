@@ -1,0 +1,1391 @@
+/* ============================================
+   NEXUS-CORE POS — flujo limpio: BUSCAR → AGREGAR → COBRAR
+   ============================================ */
+
+.pos-page {
+  max-width: 100%;
+  min-height: calc(100vh - var(--header-height) - 2rem);
+}
+
+/* Layout: carrito ancho a la izquierda, búsqueda a la derecha */
+.pos-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+@media (max-width: 1200px) {
+  .pos-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+/* Paneles */
+.pos-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  min-width: 0;
+}
+
+.pos-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pos-panel-title {
+  margin: 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+/* ─── Buscador (panel derecho) ─────────────────────────────────────── */
+.pos-search-wrap {
+  position: relative;
+}
+
+.pos-search-input {
+  width: 100%;
+  height: 52px;
+  padding: 0 1rem 0 2.4rem;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 500;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.pos-search-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+}
+
+.pos-search-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.pos-search-icon {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* Lista de resultados como tarjetas en lugar de tabla */
+.pos-results-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.pos-results-list:empty {
+  display: none;
+}
+
+.pos-result-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.875rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.pos-result-item:hover,
+.pos-result-item:focus-visible {
+  background: var(--bg-accent);
+  border-color: var(--border-primary);
+  outline: none;
+}
+
+.pos-result-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pos-result-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pos-result-price {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  color: var(--accent-success);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.pos-result-empty {
+  padding: 1.25rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.pos-result-item.is-out {
+  opacity: 0.6;
+}
+
+.pos-result-item.is-out .pos-result-price {
+  color: var(--accent-danger);
+}
+
+/* ─── Suspensión: dropdown colapsable ──────────────────────────────── */
+.pos-suspend-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.pos-suspend-bar .form-input,
+.pos-suspend-bar .form-select {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  font-size: 0.82rem;
+  padding: 0 0.65rem;
+}
+
+/* ─── Carrito (panel izquierdo) ────────────────────────────────────── */
+.pos-cart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.pos-disc-input {
+  width: 4.5rem;
+  height: 32px;
+  padding: 0 0.5rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.pos-disc-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.pos-cart-wrap {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  max-height: 48vh;
+  background: var(--bg-primary);
+}
+
+.pos-cart-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.88rem;
+}
+
+.pos-cart-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-tertiary);
+  padding: 0.55rem 0.75rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border-primary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pos-cart-table thead th.num,
+.pos-cart-table tbody td.num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.pos-cart-table tbody td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.pos-cart-table tbody tr:hover {
+  background: var(--bg-accent);
+}
+
+.pos-cart-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.pos-cart-line-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pos-cart-line-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.pos-qty-input,
+.pos-line-disc-input {
+  height: 30px;
+  padding: 0 0.4rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.pos-qty-input { width: 4rem; }
+.pos-line-disc-input { width: 3.5rem; }
+
+.pos-qty-input:focus,
+.pos-line-disc-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.pos-cart-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* ─── Total destacado (carrito) ────────────────────────────────────── */
+.pos-total-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  gap: 0.15rem;
+}
+
+.pos-total-primary {
+  font-size: 2.5rem;
+  font-weight: 800;
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-align: right;
+}
+
+.pos-total-currency {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin-right: 0.35rem;
+  vertical-align: super;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.pos-total-secondary {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+/* ─── Acciones del carrito ─────────────────────────────────────────── */
+.pos-cobrar-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.pos-cobrar-row .btn-xl {
+  flex: 1;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+}
+
+.pos-cart-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pos-cart-secondary-actions .btn {
+  height: 34px;
+  font-size: 0.8rem;
+  padding: 0 0.85rem;
+}
+
+/* ─── Modal de cobro ───────────────────────────────────────────────── */
+.pos-cobro-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1rem;
+  overflow-x: hidden;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-cobro-modal-overlay.is-open {
+  display: flex;
+}
+
+.pos-cobro-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 520px;
+  max-height: none;
+  overflow: hidden !important;
+  padding: 1.5rem 1.75rem;
+  margin: auto 0;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.pos-cobro-modal--wide {
+  max-width: 980px;
+}
+
+.pos-cobro-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.pos-cobro-modal-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.pos-cobro-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.pos-cobro-close:hover {
+  color: var(--accent-danger);
+  background: var(--bg-tertiary);
+}
+
+.cobro-banner-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+  .cobro-banner-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cobro-banner {
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+  text-align: center;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+}
+
+.cobro-banner-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.92;
+  margin-bottom: 0.35rem;
+}
+
+.cobro-banner-line {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.cobro-banner-line--bs {
+  font-size: 1.05rem;
+  margin-top: 0.15rem;
+}
+
+.cobro-banner-line--compact {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+  line-height: 1.2;
+}
+
+.cobro-banner-line--muted {
+  opacity: 0.88;
+  font-weight: 600;
+}
+
+.cobro-banner-line--lg {
+  font-size: 1.75rem;
+  font-weight: 800;
+}
+
+.cobro-banner--green {
+  background: linear-gradient(145deg, #059669 0%, #10b981 50%, #34d399 100%);
+  color: #fff;
+}
+
+.cobro-banner--green .cobro-banner-line--head {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0.35rem;
+  line-height: 1.2;
+}
+
+.cobro-banner--green .cobro-banner-line--bs-row {
+  font-size: 1.2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.15rem;
+  line-height: 1.25;
+}
+
+.cobro-banner--green .cobro-banner-line--usd-row {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.35rem;
+  opacity: 0.95;
+  line-height: 1.2;
+}
+
+.cobro-banner--yellow {
+  background: linear-gradient(145deg, #d97706 0%, #f59e0b 55%, #fbbf24 100%);
+  color: #0f172a;
+}
+
+.cobro-banner--yellow .cobro-banner-label {
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.cobro-banner--red {
+  background: linear-gradient(145deg, #dc2626 0%, #ef4444 55%, #f87171 100%);
+  color: #fff;
+}
+
+.cobro-split {
+  display: grid;
+  grid-template-columns: 1.35fr 0.85fr;
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .cobro-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cobro-tabla-wrap {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  max-height: min(380px, 48vh);
+  background: var(--bg-primary);
+}
+
+.cobro-tabla-pagos {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.cobro-tabla-pagos th {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--border-primary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.cobro-tabla-pagos th.num,
+.cobro-tabla-pagos td.num {
+  text-align: right;
+}
+
+.cobro-tabla-pagos td {
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.cobro-metodo-icon--cashea,
+.cobro-metodo-icon--zelle {
+  width: 1.15rem;
+  height: 1.15rem;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-right: 0.35rem;
+  display: inline-block;
+}
+
+.cobro-tabla-row {
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.cobro-tabla-row:hover {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.cobro-tabla-row.is-active {
+  background: rgba(59, 130, 246, 0.14);
+  outline: 2px solid rgba(59, 130, 246, 0.45);
+  outline-offset: -2px;
+}
+
+.cobro-su-pago-input {
+  width: 100%;
+  min-width: 5rem;
+  max-width: 8rem;
+  margin-left: auto;
+  display: block;
+  height: 34px;
+  padding: 0 0.45rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  text-align: right;
+}
+
+.cobro-su-pago-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.22);
+}
+
+.cobro-cell-moneda {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 0.25rem;
+}
+
+.cobro-split-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cobro-numpad-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.cobro-numpad-display {
+  width: 100%;
+  height: 52px;
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  text-align: right;
+  padding: 0 0.75rem;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+
+.cobro-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+
+.cobro-key {
+  height: 44px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.cobro-key:hover {
+  background: var(--bg-accent);
+  border-color: var(--accent-primary);
+}
+
+.cobro-key:active {
+  transform: scale(0.97);
+}
+
+.cobro-key--wide {
+  grid-column: span 1;
+}
+
+.cobro-key--span2 {
+  grid-column: span 2;
+}
+
+.cobro-key--danger {
+  color: var(--accent-danger);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.cobro-key--ok {
+  background: var(--accent-success);
+  border-color: #059669;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.cobro-key--ok:hover {
+  filter: brightness(1.08);
+}
+
+.cobro-resumen-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+}
+
+.cobro-resumen-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cobro-resumen-line strong {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+}
+
+.cobro-resumen-line--saldo.is-falta strong {
+  color: var(--accent-danger);
+}
+
+.cobro-resumen-line--saldo.is-vuelto strong {
+  color: var(--accent-success);
+}
+
+.cobro-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+}
+
+.cobro-status.is-pending {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--accent-danger);
+}
+
+.cobro-status.is-change {
+  background: rgba(16, 185, 129, 0.10);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: var(--accent-success);
+}
+
+.cobro-status.is-exact {
+  background: rgba(16, 185, 129, 0.10);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: var(--accent-success);
+}
+
+.cobro-status-amount {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  text-align: right;
+  max-width: 100%;
+  line-height: 1.35;
+}
+
+.cobro-pdf-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.cobro-pdf-option input {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+  accent-color: var(--accent-primary);
+}
+
+.cobro-confirm-btn {
+  width: 100%;
+}
+
+/* ─── Mensajes auxiliares ──────────────────────────────────────────── */
+.pos-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* ═══ POS estilo caja clásica (franja + lateral F1/F2/F5 + detalle) ═══ */
+.pos-page--classic {
+  padding-top: 0.5rem;
+}
+
+.pos-marquee {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.pos-marquee-doc {
+  flex: 0 0 auto;
+  min-width: 10rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.pos-marquee-time {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-marquee-ticket {
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--accent-danger);
+  letter-spacing: 0.02em;
+}
+
+.pos-marquee-box {
+  flex: 1 1 140px;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.85rem;
+  min-height: 5.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-sm);
+}
+
+.pos-marquee-box-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  opacity: 0.92;
+  margin-bottom: 0.15rem;
+}
+
+.pos-marquee-box-sub {
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+.pos-marquee-box-main {
+  font-size: 1.45rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.pos-marquee-box-tertiary {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.88;
+  margin-top: 0.2rem;
+  line-height: 1.2;
+}
+
+.pos-precio-etiq {
+  font-size: 0.65em;
+  font-weight: 700;
+  opacity: 0.85;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pos-marquee-box--green {
+  background: linear-gradient(145deg, #059669, #047857);
+  color: #fff;
+}
+
+.pos-marquee-box--yellow {
+  background: linear-gradient(145deg, #d97706, #b45309);
+  color: #fff;
+}
+
+.pos-marquee-box--red {
+  background: linear-gradient(145deg, #dc2626, #b91c1c);
+  color: #fff;
+}
+
+.pos-classic-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 22rem) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .pos-classic-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pos-aside-classic {
+  background: linear-gradient(180deg, #1e3a5f 0%, #0f2744 100%);
+  color: #e2e8f0;
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pos-fblock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pos-flabel {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.pos-fbody {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.88rem;
+  min-height: 2.25rem;
+}
+
+.pos-fbody--cliente {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.pos-cliente-placeholder {
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.pos-cliente-sub {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.pos-fblock--scan {
+  flex: 0 0 auto;
+}
+
+.pos-scan-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 2.25rem 0 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  background: rgba(15, 23, 42, 0.72);
+  color: #f1f5f9;
+  font-size: 1rem;
+  font-weight: 500;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.pos-scan-input::placeholder {
+  color: rgba(148, 163, 184, 0.88);
+  font-weight: 400;
+}
+
+.pos-scan-input:focus {
+  outline: none;
+  border-color: rgba(129, 140, 248, 0.75);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* Botón nativo "borrar" en type=search — visible sobre fondo oscuro */
+.pos-scan-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 1rem;
+  width: 1rem;
+  margin-right: 0.15rem;
+  cursor: pointer;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2394a3b8'%3E%3Cpath d='M4.28 3.22a.75.75 0 00-1.06 1.06L6.94 8l-3.72 3.72a.75.75 0 101.06 1.06L8 9.06l3.72 3.72a.75.75 0 101.06-1.06L9.06 8l3.72-3.72a.75.75 0 00-1.06-1.06L8 6.94 4.28 3.22z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  opacity: 0.7;
+}
+
+.pos-scan-input::-webkit-search-cancel-button:hover {
+  opacity: 1;
+}
+
+.pos-scan-hint {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.pos-results-list--aside {
+  max-height: min(52vh, 26rem);
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(8px);
+}
+
+/* Una columna: nombre completo arriba (varias líneas), precios abajo — el layout en fila cortaba el título */
+.pos-aside-classic .pos-results-list--aside .pos-result-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.pos-aside-classic .pos-results-list--aside .pos-result-name {
+  color: #f1f5f9;
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.pos-aside-classic .pos-results-list--aside .pos-result-meta {
+  color: #94a3b8;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+  display: block;
+  margin-top: 0.2rem;
+  line-height: 1.35;
+}
+
+.pos-aside-classic .pos-results-list--aside .pos-result-price {
+  width: 100%;
+  flex-shrink: 0;
+  margin: 0;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #6ee7b7;
+}
+
+.pos-aside-classic .pos-results-list--aside .pos-result-price .pos-result-meta {
+  margin-top: 0.2rem;
+}
+
+.pos-aside-classic .pos-results-list--aside .pos-result-item.is-out .pos-result-price {
+  color: #fca5a5;
+}
+
+.pos-aside-classic .pos-results-list--aside .pos-result-item:hover,
+.pos-aside-classic .pos-results-list--aside .pos-result-item:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.pos-aside-classic .pos-results-list--aside .pos-result-empty {
+  color: #94a3b8;
+}
+
+.pos-preview-card {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  padding: 0.65rem;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pos-preview-image-wrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 160px;
+  margin: 0 auto 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.pos-preview-img {
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+}
+
+.pos-preview-ph {
+  font-size: 3rem;
+  opacity: 0.45;
+}
+
+.pos-preview-name {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.pos-preview-code {
+  margin: 0.25rem 0 0;
+  font-size: 0.72rem;
+}
+
+.pos-aside-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pos-mini-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.pos-aside-toolbar .pos-disc-input {
+  width: 5rem;
+  height: 34px;
+}
+
+.pos-aside-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pos-aside-actions .btn-xl {
+  flex: 1 1 100%;
+}
+
+.pos-suspend-ref-input {
+  width: 100%;
+  height: 34px;
+  font-size: 0.82rem;
+}
+
+.pos-main-classic {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  min-width: 0;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+}
+
+.pos-line-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.pos-line-banner-idx {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 0.95rem;
+}
+
+.pos-line-banner-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.pos-cart-sheet {
+  flex: 1;
+  overflow: auto;
+  padding: 0 0 0.5rem;
+}
+
+.pos-cart-table--classic {
+  width: 100%;
+}
+
+.pos-cart-table--classic tbody tr.is-selected {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.pos-cell-precio-main {
+  font-weight: 700;
+  color: var(--accent-success);
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-sheet-footer {
+  padding: 0.5rem 1rem 0.75rem;
+  font-size: 0.78rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Cobro — panel Cashea */
+.cashea-desglose-panel {
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  background: linear-gradient(
+    135deg,
+    rgba(88, 28, 135, 0.22) 0%,
+    rgba(15, 23, 42, 0.6) 100%
+  );
+}
+.cashea-desglose-title {
+  font-weight: 800;
+  font-size: 0.95rem;
+  margin-bottom: 0.65rem;
+  letter-spacing: 0.02em;
+  color: #e9d5ff;
+}
+.cashea-desglose-field {
+  margin-bottom: 0.5rem;
+}
+.cashea-desglose-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+.cashea-desglose-select {
+  width: 100%;
+  max-width: 320px;
+  height: 40px;
+  padding: 0 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.cashea-express-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.cashea-desglose-grid {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.cashea-desglose-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.cashea-desglose-row strong {
+  font-variant-numeric: tabular-nums;
+  color: #f5f3ff;
+  font-weight: 700;
+}
+.cashea-desglose-row--neto {
+  margin-top: 0.25rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(167, 139, 250, 0.35);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cashea-desglose-row--neto strong {
+  color: #a7f3d0;
+  font-size: 0.92rem;
+}
+
+/* Banner: caja cerrada (POS bloqueado para cobrar) */
+.pos-caja-banner {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  background: rgba(234, 179, 8, 0.12);
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.pos-caja-banner strong {
+  color: var(--accent-warning, #eab308);
+  font-weight: 700;
+}
+.pos-caja-banner-link {
+  color: var(--accent-primary);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.pos-caja-banner-link:hover {
+  opacity: 0.9;
+}
+.pos-aside-actions .btn[disabled][data-pos-cobrar] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

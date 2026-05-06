@@ -1,0 +1,466 @@
+<section class="page-content inventario-page">
+<style>
+.inventario-page .inv-toolbar { display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1rem; }
+.inventario-page .inv-search { flex:1;min-width:200px;padding:0 1rem;height:48px;font-size:1rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-md);color:var(--text-primary); }
+.inventario-page .btn-primary { height:44px;padding:0 1.2rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.9rem;font-weight:600;display:inline-flex;align-items:center;gap:.4rem;white-space:nowrap; }
+.inventario-page .btn-primary:hover { background:#2563eb; }
+.inventario-page .btn-secondary { height:44px;padding:0 1rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem;display:inline-flex;align-items:center;gap:.4rem; }
+.inventario-page .filtros-rapidos { display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.75rem; }
+.inventario-page .btn-filtro { padding:.35rem .75rem;border-radius:var(--radius-sm);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-secondary);cursor:pointer;font-size:.8rem;transition:all .15s; }
+.inventario-page .btn-filtro:hover,.inventario-page .btn-filtro.active { background:#3b82f6;border-color:#3b82f6;color:#fff; }
+.inventario-page .inv-table-wrap { overflow:auto;border:1px solid var(--border-primary);border-radius:var(--radius-md); }
+.inventario-page .inv-table { width:100%;border-collapse:collapse;font-size:.85rem; }
+.inventario-page .inv-table th { text-align:left;padding:.6rem .75rem;background:var(--bg-tertiary);color:var(--text-secondary);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;border-bottom:2px solid var(--border-primary); }
+.inventario-page .inv-table td { padding:.55rem .75rem;border-bottom:1px solid var(--border-subtle);vertical-align:middle; }
+.inventario-page .inv-table tr:hover td { background:rgba(59,130,246,.06); }
+.inventario-page .inv-row-agotado td { background:rgba(239,68,68,.08)!important; }
+.inventario-page .inv-row-bajo td { background:rgba(245,158,11,.06)!important; }
+/* Acciones fila — clases propias (.inv-btn-*): el .btn-icon global fuerza 32×32px y torcía “Editar” */
+.inventario-page .inv-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+}
+.inventario-page .inv-row-actions .inv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 36px;
+  padding: 0 0.65rem;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.inventario-page .inv-row-actions .inv-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.inventario-page .inv-row-actions .inv-btn-delete {
+  min-width: 36px;
+  padding: 0 0.5rem;
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #ef4444;
+}
+.inventario-page .inv-row-actions .inv-btn-delete:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+.inventario-page .inv-table td.inv-actions-cell {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Modal overlay */
+.modal-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;padding:1rem; }
+.modal-box { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-lg);max-width:720px;width:100%;max-height:90vh;overflow:auto;padding:1.5rem;position:relative; }
+.modal-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem; }
+.modal-header h2 { margin:0;font-size:1.2rem;color:var(--text-primary); }
+.btn-cerrar-modal { background:transparent;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer;padding:.2rem .4rem;border-radius:var(--radius-sm); }
+.btn-cerrar-modal:hover { color:#ef4444; }
+
+.form-seccion-titulo { margin:1.35rem 0 .85rem;font-size:.75rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border-primary);padding-bottom:.4rem; }
+.form-seccion-titulo:first-child { margin-top:0; }
+
+.campo-grupo { margin-bottom:1rem; }
+.campo-grupo label { display:block;font-size:.85rem;font-weight:600;color:var(--text-secondary);margin-bottom:.35rem; }
+.campo-grupo small { display:block;font-size:.75rem;color:var(--text-muted);margin-top:.25rem; }
+.input-grande { width:100%;height:44px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.95rem; }
+.input-grande:focus { outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.25); }
+.select-grande { width:100%;height:44px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.95rem; }
+.campo-fila-2 { display:grid;grid-template-columns:1fr 1fr;gap:1rem; }
+.input-con-prefijo,.input-con-sufijo { display:flex;align-items:center;gap:0; }
+.input-con-prefijo .prefijo,.input-con-sufijo .sufijo { padding:0 .75rem;height:44px;background:var(--bg-surface);border:1px solid var(--border-primary);color:var(--text-secondary);display:flex;align-items:center;font-size:1rem;font-weight:700; }
+.input-con-prefijo .prefijo { border-radius:var(--radius-sm) 0 0 var(--radius-sm);border-right:0; }
+.input-con-sufijo .sufijo { border-radius:0 var(--radius-sm) var(--radius-sm) 0;border-left:0; }
+.input-con-prefijo input { border-radius:0 var(--radius-sm) var(--radius-sm) 0;flex:1; }
+.input-con-sufijo input { border-radius:var(--radius-sm) 0 0 var(--radius-sm);flex:1; }
+
+/* Resultado precios */
+.precios-resultado { background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1rem;margin-top:1rem; }
+.precios-resultado h4 { margin:0 0 .75rem;font-size:.9rem;color:var(--text-secondary); }
+.precio-card { display:flex;align-items:center;gap:.75rem;padding:.6rem 0;border-bottom:1px solid var(--border-subtle); }
+.precio-card:last-of-type { border-bottom:none; }
+.precio-icono { font-size:1.4rem;min-width:1.8rem;text-align:center; }
+.precio-nombre { flex:1;font-size:.85rem;color:var(--text-secondary); }
+.precio-valor { font-size:1.05rem;font-weight:700;color:var(--text-primary); }
+.precio-sub { font-size:.75rem;color:var(--text-muted); }
+.precios-nota { margin-top:.75rem;font-size:.78rem;color:var(--text-muted); }
+
+/* Acciones formulario producto */
+.form-producto-acciones { display:flex;justify-content:flex-end;gap:.65rem;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border-primary); }
+.btn-wizard { height:44px;padding:0 1.25rem;border-radius:var(--radius-md);cursor:pointer;font-size:.9rem;font-weight:600; }
+.btn-wizard-atras { background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary); }
+.btn-wizard-siguiente { background:#3b82f6;border:none;color:#fff; }
+.btn-wizard-siguiente:hover { background:#2563eb; }
+.btn-guardar-prod { background:#10b981;border:none;color:#fff; }
+.btn-guardar-prod:hover { background:#059669; }
+.wizard-nav { display:flex;justify-content:space-between;margin-top:1.25rem; }
+.btn-texto { background:none;border:none;color:#3b82f6;cursor:pointer;font-size:.8rem;padding:.2rem 0; }
+
+/* Ajuste masivo */
+.ajuste-tipo-btns { display:flex;gap:.4rem;flex-wrap:wrap; }
+.btn-ajuste-tipo { padding:.5rem .9rem;border-radius:var(--radius-sm);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-secondary);cursor:pointer;font-size:.85rem; }
+.btn-ajuste-tipo.activo { background:#3b82f6;border-color:#3b82f6;color:#fff;font-weight:600; }
+.ajuste-preview { background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:.75rem;margin-top:.75rem; }
+</style>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Inventario</h1>
+    <p class="page-subtitle">Gestión de productos, precios y stock · alertas automáticas de reposición</p>
+  </div>
+  <div class="page-header-actions">
+    <button class="btn" id="btn-ajuste-masivo">🔀 Ajuste masivo</button>
+    <button class="btn" id="btn-exportar-excel">📥 Exportar Excel</button>
+    <button class="btn" id="btn-importar-excel" title="Importar productos desde archivo .xlsx">📤 Importar Excel</button>
+    <button class="btn btn-primary" id="btn-nuevo-producto">➕ Nuevo producto</button>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:.75rem">
+  <div class="inv-toolbar">
+    <input type="text" id="inv-buscar" class="inv-search" placeholder="🔍 Buscar producto por nombre o código...">
+  </div>
+  <div class="filtros-rapidos">
+    <button class="btn-filtro active" data-filtro="todos">Todos</button>
+    <button class="btn-filtro" data-filtro="stock_bajo">⚠️ Stock Bajo</button>
+    <button class="btn-filtro" data-filtro="agotados">🔴 Agotados</button>
+    <button class="btn-filtro" data-filtro="inactivos">Inactivos</button>
+  </div>
+</div>
+
+<div class="card">
+  <div id="inv-empty" style="display:none;text-align:center;padding:2.5rem;color:var(--text-secondary)">
+    <div style="font-size:3rem;margin-bottom:.75rem">📦</div>
+    <h3>Todavía no tienes productos</h3>
+    <p>Empieza agregando tu primer producto para llevar el control de tu inventario.</p>
+    <button class="btn-primary" onclick="document.getElementById('btn-nuevo-producto').click()">➕ Agregar primer producto</button>
+  </div>
+  <div class="inv-table-wrap">
+    <table class="inv-table">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th style="text-align:center">Stock</th>
+          <th style="text-align:right">Costo USD</th>
+          <th style="text-align:right">Ganancia</th>
+          <th style="text-align:right">💵 Precio USD</th>
+          <th style="text-align:right">💱 Precio $BCV</th>
+          <th style="text-align:right">🇻🇪 Precio Bs</th>
+          <th style="text-align:center">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="inv-tbody">
+        <tr><td colspan="8" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">⏳ Cargando productos...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ MODAL: NUEVO / EDITAR PRODUCTO ═══ -->
+<div class="modal-overlay" id="modal-producto">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="wizard-titulo">➕ Nuevo Producto</h2>
+      <button class="btn-cerrar-modal" data-cerrar-modal="modal-producto">✕</button>
+    </div>
+
+    <div id="form-producto-unico">
+      <h4 class="form-seccion-titulo">Producto e inventario</h4>
+      <div class="campo-grupo">
+        <label>Nombre del producto *</label>
+        <input type="text" id="prod-nombre" class="input-grande" placeholder="Ej: Arroz Diana 1kg">
+      </div>
+      <div class="campo-fila-2">
+        <div class="campo-grupo">
+          <label>Código de barras</label>
+          <input type="text" id="prod-barras" class="input-grande" placeholder="Escanea o escribe el código">
+          <small>Si no tiene código, puedes dejarlo vacío</small>
+        </div>
+        <div class="campo-grupo">
+          <label>Categoría</label>
+          <select id="prod-categoria" class="select-grande"></select>
+          <button type="button" class="btn-texto" id="btn-crear-categoria">+ Crear nueva categoría</button>
+        </div>
+      </div>
+      <div class="campo-grupo">
+        <label>Código interno / SKU</label>
+        <input type="text" id="prod-codigo-interno" class="input-grande" maxlength="30" placeholder="Opcional — si lo dejas vacío se genera uno único al guardar">
+        <small>Referencia tuya para identificar el producto; el sistema puede asignarla sola</small>
+      </div>
+      <div id="grupo-stock-nuevo">
+        <div class="campo-fila-2">
+          <div class="campo-grupo">
+            <label>Bultos (cajas o paquetes)</label>
+            <input type="number" id="prod-stock-bultos" min="0" step="1" class="input-grande" value="0" placeholder="0">
+            <small>Cuántos bultos entran a inventario</small>
+          </div>
+          <div class="campo-grupo">
+            <label>Unidades por bulto</label>
+            <input type="number" id="prod-unidades-bulto" min="1" step="1" class="input-grande" value="1" placeholder="Ej: 12">
+            <small>Piezas que trae cada bulto</small>
+          </div>
+        </div>
+        <div class="campo-fila-2">
+          <div class="campo-grupo">
+            <label>Cantidad suelta (+ unidades)</label>
+            <input type="number" id="prod-stock-cantidad" min="0" step="1" class="input-grande" value="0" placeholder="0">
+            <small>Unidades que no van en bultos completos</small>
+          </div>
+          <div class="campo-grupo">
+            <label>&nbsp;</label>
+            <div class="input-grande" style="display:flex;align-items:center;background:var(--bg-surface);border-style:dashed;font-weight:600;color:var(--text-secondary)" id="prod-stock-total-vista">
+              Total: 0 unidades
+            </div>
+            <small>Se calcula: bultos × unidades por bulto + cantidad suelta</small>
+          </div>
+        </div>
+      </div>
+      <div class="campo-grupo" id="grupo-stock-editar" style="display:none">
+        <label>Stock actual (unidades)</label>
+        <input type="number" id="prod-stock" min="0" step="1" class="input-grande" placeholder="Ej: 50">
+      </div>
+      <div class="campo-grupo">
+        <label>Stock mínimo</label>
+        <input type="number" id="prod-stock-min" min="0" step="1" class="input-grande" placeholder="Ej: 10">
+        <small>Cuando el stock baje de este número, verás una alerta</small>
+      </div>
+
+      <h4 class="form-seccion-titulo">Precios</h4>
+      <div class="campo-fila-2">
+        <div class="campo-grupo">
+          <label>Costo en dólares *</label>
+          <div class="input-con-prefijo">
+            <span class="prefijo">$</span>
+            <input type="number" id="prod-costo" step="0.0001" min="0.0001" class="input-grande" placeholder="Ej: 1.2000">
+          </div>
+          <small>El dinero real que salió de tu bolsillo</small>
+        </div>
+        <div class="campo-grupo">
+          <label>% de ganancia</label>
+          <div class="input-con-sufijo">
+            <input type="number" id="prod-ganancia" step="0.01" min="0" max="9999" class="input-grande" placeholder="Ej: 30" value="30">
+            <span class="sufijo">%</span>
+          </div>
+          <small>Ej.: 30 = 30&nbsp;% sobre el costo</small>
+        </div>
+      </div>
+
+      <div class="precios-resultado" id="precios-resultado" style="display:none">
+        <h4 style="margin:0 0 .75rem;font-size:.9rem;color:var(--text-secondary)">📊 Precios de venta calculados</h4>
+        <div class="precio-card">
+          <span class="precio-icono">💵</span>
+          <div class="precio-nombre">
+            <span style="font-weight:600;color:var(--text-primary)">Precio USD</span>
+            <span style="display:block;font-size:.75rem;color:var(--text-muted)">Si paga en dólares físicos</span>
+          </div>
+          <div class="precio-valor" id="res-precio-usd">$0.00</div>
+        </div>
+        <div class="precio-card">
+          <span class="precio-icono">📈</span>
+          <div class="precio-nombre">
+            <span style="font-weight:600;color:var(--text-primary)">Precio $BCV</span>
+            <span style="display:block;font-size:.75rem;color:var(--text-muted)">Equivalente en dólares a tasa BCV</span>
+          </div>
+          <div class="precio-valor" id="res-precio-usd-bcv" style="color:#6366f1">$0.00</div>
+        </div>
+        <div class="precio-card">
+          <span class="precio-icono">🇻🇪</span>
+          <div class="precio-nombre">
+            <span style="font-weight:600;color:var(--text-primary)">Precio Bs</span>
+            <span style="display:block;font-size:.75rem;color:var(--text-muted)">Bolívares a tasa paralela</span>
+          </div>
+          <div class="precio-valor" id="res-precio-bs">Bs. 0.00</div>
+        </div>
+        <div class="precio-card" style="border-bottom:none">
+          <span class="precio-icono">✅</span>
+          <div class="precio-nombre">
+            <span style="font-weight:600;color:var(--text-primary)">Ganancia neta</span>
+            <span style="display:block;font-size:.75rem;color:var(--text-muted)">Por unidad vendida</span>
+          </div>
+          <div class="precio-valor" id="res-margen-usd" style="color:#10b981">$0.00</div>
+        </div>
+        <p class="precios-nota">
+          Tasas activas — BCV: <strong id="res-tasa-bcv">—</strong> Bs/$ · Paralela: <strong id="res-tasa-paralela">—</strong> Bs/$
+        </p>
+      </div>
+
+      <div class="form-producto-acciones">
+        <button type="button" class="btn-wizard btn-wizard-atras" data-cerrar-modal="modal-producto">Cancelar</button>
+        <button type="button" class="btn-wizard btn-guardar-prod" id="btn-guardar-producto">✓ Guardar producto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: NUEVA CATEGORÍA (sin prompt — compatible Electron) ═══ -->
+<div class="modal-overlay" id="modal-nueva-categoria">
+  <div class="modal-box" style="max-width:440px">
+    <div class="modal-header">
+      <h2>Nueva categoría</h2>
+      <button type="button" class="btn-cerrar-modal" data-cerrar-modal="modal-nueva-categoria">✕</button>
+    </div>
+    <div class="campo-grupo">
+      <label>Nombre de la categoría</label>
+      <input type="text" id="input-nueva-categoria-nombre" class="input-grande" placeholder="Ej: Bebidas" autocomplete="off">
+    </div>
+    <div class="form-producto-acciones" style="margin-top:1rem;border-top:none;padding-top:0">
+      <button type="button" class="btn-wizard btn-wizard-atras" data-cerrar-modal="modal-nueva-categoria">Cancelar</button>
+      <button type="button" class="btn-wizard btn-guardar-prod" id="btn-confirmar-nueva-categoria">Crear categoría</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: AJUSTE MASIVO ═══ -->
+<div class="modal-overlay" id="modal-ajuste-masivo">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>🔀 Ajuste Masivo de Precios</h2>
+      <button class="btn-cerrar-modal" data-cerrar-modal="modal-ajuste-masivo">✕</button>
+    </div>
+    <p style="color:var(--text-secondary);font-size:.9rem;margin-bottom:1rem">
+      Cambia el porcentaje de ganancia de varios productos a la vez. Perfecto cuando sube el dólar.
+    </p>
+
+    <div class="campo-grupo">
+      <label>¿A qué productos aplica?</label>
+      <select id="ajuste-scope" class="select-grande">
+        <option value="todos">Todos los productos activos</option>
+        <option value="categoria">Una categoría específica</option>
+      </select>
+    </div>
+    <div class="campo-grupo" id="ajuste-cat-grupo" style="display:none">
+      <label>Selecciona la categoría</label>
+      <select id="ajuste-categoria" class="select-grande"></select>
+    </div>
+
+    <div class="campo-grupo">
+      <label>¿Qué cambio quieres hacer?</label>
+      <div class="ajuste-tipo-btns">
+        <button class="btn-ajuste-tipo activo" data-tipo="nuevo_fijo">📌 Establecer % fijo</button>
+        <button class="btn-ajuste-tipo" data-tipo="incremento">📈 Subir en puntos</button>
+        <button class="btn-ajuste-tipo" data-tipo="decremento">📉 Bajar en puntos</button>
+      </div>
+    </div>
+
+    <div class="campo-grupo">
+      <label id="ajuste-valor-label">Nuevo porcentaje de ganancia</label>
+      <div class="input-con-sufijo">
+        <input type="number" id="ajuste-valor" min="0" max="9999" step="0.5" class="input-grande" placeholder="Ej: 35">
+        <span class="sufijo">%</span>
+      </div>
+    </div>
+
+    <div id="ajuste-preview" class="ajuste-preview" style="display:none"></div>
+
+    <div class="wizard-nav" style="margin-top:1rem">
+      <button class="btn-wizard btn-wizard-atras" data-cerrar-modal="modal-ajuste-masivo">Cancelar</button>
+      <button class="btn-wizard" id="btn-aplicar-ajuste"
+              style="background:#10b981;border:none;color:#fff" disabled>
+        ✓ Aplicar a <span id="ajuste-count">0</span> productos
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: IMPORTAR PRODUCTOS DESDE EXCEL ═══ -->
+<div class="modal-overlay" id="modal-importar">
+  <div class="modal-box" style="max-width:640px">
+    <div class="modal-header">
+      <h2>📤 Importar productos desde Excel</h2>
+      <button class="btn-cerrar-modal" data-cerrar-modal="modal-importar">✕</button>
+    </div>
+
+    <!-- Panel inicial: selección de archivo -->
+    <div id="imp-panel-inicio">
+      <div style="background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1rem;margin-bottom:1rem;font-size:.85rem;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">¿Cómo funciona?</strong><br>
+        Sube un archivo <code>.xlsx</code> con tus productos. Las filas con error se omiten y se reportan;
+        el resto se importa correctamente. Descarga la plantilla oficial para ver el formato exacto.
+      </div>
+
+      <div class="campo-fila-2" style="margin-bottom:1rem">
+        <div class="campo-grupo" style="margin-bottom:0">
+          <label>Archivo Excel (.xlsx)</label>
+          <input type="file" id="imp-archivo" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                 style="width:100%;padding:.6rem .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.9rem;cursor:pointer">
+        </div>
+        <div class="campo-grupo" style="margin-bottom:0;display:flex;align-items:flex-end">
+          <button type="button" id="btn-descargar-plantilla" class="btn-wizard btn-wizard-atras" style="height:44px;white-space:nowrap;width:100%">
+            📋 Descargar plantilla
+          </button>
+        </div>
+      </div>
+
+      <div id="imp-archivo-info" style="display:none;padding:.5rem .75rem;background:var(--bg-tertiary);border-radius:var(--radius-sm);font-size:.82rem;color:var(--text-secondary);margin-bottom:.75rem"></div>
+
+      <div class="form-producto-acciones" style="margin-top:0;padding-top:1rem">
+        <button type="button" class="btn-wizard btn-wizard-atras" data-cerrar-modal="modal-importar">Cancelar</button>
+        <button type="button" id="btn-iniciar-importacion" class="btn-wizard btn-guardar-prod" disabled>
+          📤 Iniciar importación
+        </button>
+      </div>
+    </div>
+
+    <!-- Panel de progreso -->
+    <div id="imp-panel-progreso" style="display:none;text-align:center;padding:2rem 1rem">
+      <div style="font-size:2.5rem;margin-bottom:.75rem">⏳</div>
+      <p style="color:var(--text-secondary);margin:0">Procesando el archivo, por favor espera...</p>
+    </div>
+
+    <!-- Panel de resultados -->
+    <div id="imp-panel-resultado" style="display:none">
+      <div id="imp-resumen" style="display:flex;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap"></div>
+      <div id="imp-detalle-wrap" style="max-height:320px;overflow-y:auto;border:1px solid var(--border-primary);border-radius:var(--radius-sm)">
+        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+          <thead>
+            <tr style="position:sticky;top:0;z-index:1">
+              <th style="padding:.45rem .6rem;text-align:center;background:var(--bg-tertiary);color:var(--text-secondary);border-bottom:2px solid var(--border-primary);width:56px">Fila</th>
+              <th style="padding:.45rem .6rem;text-align:left;background:var(--bg-tertiary);color:var(--text-secondary);border-bottom:2px solid var(--border-primary)">Producto</th>
+              <th style="padding:.45rem .6rem;text-align:center;background:var(--bg-tertiary);color:var(--text-secondary);border-bottom:2px solid var(--border-primary);width:90px">Estado</th>
+              <th style="padding:.45rem .6rem;text-align:left;background:var(--bg-tertiary);color:var(--text-secondary);border-bottom:2px solid var(--border-primary)">Detalle</th>
+            </tr>
+          </thead>
+          <tbody id="imp-detalle-tbody"></tbody>
+        </table>
+      </div>
+      <div class="form-producto-acciones" style="margin-top:1rem;padding-top:1rem">
+        <button type="button" class="btn-wizard btn-wizard-atras" id="btn-imp-nueva">Importar otro archivo</button>
+        <button type="button" class="btn-wizard btn-guardar-prod" data-cerrar-modal="modal-importar">✓ Listo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Mostrar/ocultar selector de categoría en ajuste masivo
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'ajuste-scope') {
+    var catGrupo = document.getElementById('ajuste-cat-grupo');
+    if (catGrupo) catGrupo.style.display = e.target.value === 'categoria' ? '' : 'none';
+  }
+});
+// Textos dinámicos de ajuste
+document.addEventListener('click', function(e) {
+  if (e.target && e.target.classList.contains('btn-ajuste-tipo')) {
+    var tipo = e.target.dataset.tipo;
+    var label = document.getElementById('ajuste-valor-label');
+    if (label) {
+      label.textContent = tipo === 'nuevo_fijo' ? 'Nuevo porcentaje de ganancia' :
+                          tipo === 'incremento' ? 'Cuántos puntos quieres subir' :
+                          'Cuántos puntos quieres bajar';
+    }
+  }
+});
+</script>
+</section>

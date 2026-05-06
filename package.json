@@ -1,0 +1,115 @@
+{
+  "name": "nexus-core",
+  "version": "1.0.0",
+  "description": "Nexus-Core ERP/POS — escritorio Windows (Win7+)",
+  "main": "electron/main.js",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "backend": "node backend/server.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable",
+    "dist:nsis": "electron-builder --win nsis",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "chart.js": "3.9.1",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.5.0",
+    "html2canvas": "^1.4.1",
+    "jsbarcode": "^3.12.3",
+    "jsdom": "^20.0.3",
+    "jsonwebtoken": "^9.0.2",
+    "jspdf": "2.5.2",
+    "jspdf-autotable": "^3.8.4",
+    "multer": "^2.1.1",
+    "node-thermal-printer": "^4.6.0",
+    "pg-promise": "^10.15.4",
+    "quagga": "^0.12.1",
+    "svg2pdf.js": "^2.2.3",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "electron": "^36.9.5",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.nexuscore.pos",
+    "productName": "NexusCore POS",
+    "copyright": "Copyright © 2024-2026 NexusCore",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/**/*",
+      "backend/**/*",
+      "resources/**/*",
+      "package.json",
+      "!database/postgres/**",
+      "!**/*.log",
+      "!dist/**",
+      "!node_modules/.cache/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build-resources/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NexusCore POS",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "installerHeaderIcon": "build-resources/icon.ico",
+      "language": "3082",
+      "include": "build-resources/installer.nsh"
+    },
+    "publish": null,
+    "extraResources": [
+      {
+        "from": "database/postgres",
+        "to": "postgres",
+        "filter": [
+          "**/*",
+          "!**/pgAdmin 4/**"
+        ]
+      },
+      {
+        "from": "database/migrations",
+        "to": "migrations"
+      }
+    ],
+    "extraFiles": [],
+    "compression": "maximum",
+    "removePackageScripts": true
+  }
+}

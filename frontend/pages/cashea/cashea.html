@@ -1,0 +1,171 @@
+<section class="page-content cashea-page">
+<style>
+.cashea-page .btn-primary{height:40px;padding:0 1.1rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.875rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem}
+.cashea-page .btn-primary:hover{background:#2563eb}
+.cashea-page .btn-success{height:40px;padding:0 1.1rem;border-radius:var(--radius-md);background:#10b981;color:#fff;border:none;cursor:pointer;font-size:.875rem;font-weight:600}
+.cashea-page .btn-secondary{height:40px;padding:0 .9rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem}
+.cashea-tabs{display:flex;border-bottom:2px solid var(--border-primary);margin-bottom:1.25rem;gap:.1rem}
+.cashea-tab{padding:.6rem 1.1rem;cursor:pointer;border:none;background:transparent;color:var(--text-secondary);font-size:.88rem;border-bottom:2px solid transparent;margin-bottom:-2px;font-weight:500}
+.cashea-tab:hover{color:var(--text-primary)}
+.cashea-tab.activo{color:#3b82f6;font-weight:700;border-bottom-color:#3b82f6}
+.cashea-panel{display:none}
+.cashea-panel.activo{display:block}
+.cashea-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.25rem}
+.cashea-kpi{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1rem}
+.cashea-kpi-label{font-size:.75rem;color:var(--text-secondary);text-transform:uppercase;margin-bottom:.3rem}
+.cashea-kpi-value{font-size:1.4rem;font-weight:700}
+.cashea-kpi.cashea-verde .cashea-kpi-value{color:#10b981}
+.cashea-kpi.cashea-amarillo .cashea-kpi-value{color:#f59e0b}
+.campo-grupo{margin-bottom:.9rem}
+.campo-grupo label{display:block;font-size:.83rem;font-weight:600;color:var(--text-secondary);margin-bottom:.3rem}
+.input-g{width:100%;height:42px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.93rem;box-sizing:border-box}
+.input-g:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
+.liq-table{width:100%;border-collapse:collapse;font-size:.83rem}
+.liq-table th{padding:.45rem .7rem;background:var(--bg-tertiary);border-bottom:2px solid var(--border-primary);text-align:left;font-size:.73rem;text-transform:uppercase;color:var(--text-secondary)}
+.liq-table td{padding:.45rem .7rem;border-bottom:1px solid var(--border-subtle)}
+.liq-table tr:hover td{background:rgba(59,130,246,.04)}
+.config-seccion{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1rem}
+.config-seccion h3{margin:0 0 1rem;font-size:.8rem;text-transform:uppercase;color:var(--text-secondary);letter-spacing:.04em}
+</style>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Cashea</h1>
+    <p class="page-subtitle">Pagos en cuotas con financiamiento — ventas pendientes, liquidaciones y configuración</p>
+  </div>
+  <div class="page-header-actions">
+    <button class="btn-secondary" id="btn-cashea-refresh" style="height:40px">↺ Actualizar</button>
+  </div>
+</div>
+
+<div class="cashea-tabs">
+  <button class="cashea-tab activo" data-tab="pendientes">💸 Pendientes de Liquidar</button>
+  <button class="cashea-tab" data-tab="liquidaciones">📋 Historial Liquidaciones</button>
+  <button class="cashea-tab" data-tab="config">⚙️ Configuración</button>
+</div>
+
+<!-- ═══ PANEL: PENDIENTES ═══ -->
+<div class="cashea-panel activo" id="panel-cashea-pendientes">
+  <div class="cashea-kpis" id="cashea-kpis-pendientes">
+    <div class="cashea-kpi cashea-amarillo"><div class="cashea-kpi-label">Por Liquidar</div><div class="cashea-kpi-value" id="ckpi-ventas-pendientes">—</div></div>
+    <div class="cashea-kpi"><div class="cashea-kpi-label">Monto Total</div><div class="cashea-kpi-value" id="ckpi-monto-total">—</div></div>
+    <div class="cashea-kpi cashea-verde"><div class="cashea-kpi-label">Inicial Estimado</div><div class="cashea-kpi-value" id="ckpi-inicial">—</div></div>
+    <div class="cashea-kpi"><div class="cashea-kpi-label">Financiado por Cashea</div><div class="cashea-kpi-value" id="ckpi-prestado">—</div></div>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+    <div style="font-size:.85rem;color:var(--text-secondary)" id="cashea-pendientes-rango">Mostrando período actual</div>
+    <button class="btn-success" id="btn-liquidar-todos">✅ Liquidar Todo Pendiente</button>
+  </div>
+
+  <div class="card" style="overflow:auto">
+    <table class="liq-table">
+      <thead>
+        <tr>
+          <th>N° Venta</th>
+          <th>Fecha</th>
+          <th>Cliente</th>
+          <th>Nivel Cashea</th>
+          <th style="text-align:right">Total USD</th>
+          <th style="text-align:right">Inicial</th>
+          <th style="text-align:right">Prestado</th>
+          <th>Cajero</th>
+        </tr>
+      </thead>
+      <tbody id="cashea-pendientes-tbody">
+        <tr><td colspan="8" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">Cargando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ PANEL: LIQUIDACIONES ═══ -->
+<div class="cashea-panel" id="panel-cashea-liquidaciones">
+  <div class="card" style="overflow:auto">
+    <table class="liq-table">
+      <thead>
+        <tr>
+          <th>N° Liquidación</th>
+          <th>Fecha</th>
+          <th>Ventas</th>
+          <th style="text-align:right">Total USD</th>
+          <th style="text-align:right">Total Inicial</th>
+          <th style="text-align:right">Total Prestado</th>
+          <th>Registrado por</th>
+        </tr>
+      </thead>
+      <tbody id="cashea-liq-tbody">
+        <tr><td colspan="7" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">Cargando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ PANEL: CONFIGURACIÓN ═══ -->
+<div class="cashea-panel" id="panel-cashea-config">
+  <div class="config-seccion">
+    <h3>Estado del servicio Cashea</h3>
+    <div class="campo-grupo">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="cashea-activo" style="accent-color:#3b82f6">
+        <span>Cashea activado en el POS</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="config-seccion">
+    <h3>Comisiones y niveles</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+      <div class="campo-grupo">
+        <label>Comisión base (%)</label>
+        <input type="number" id="cashea-comision-base" class="input-g" min="0" max="50" step="0.1" placeholder="Ej: 5">
+      </div>
+      <div class="campo-grupo">
+        <label>Modo Express activo</label>
+        <select id="cashea-express" class="input-g">
+          <option value="false">No</option>
+          <option value="true">Sí</option>
+        </select>
+      </div>
+      <div class="campo-grupo">
+        <label>% Inicial Bronce</label>
+        <input type="number" id="cashea-pct-bronce" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 30">
+      </div>
+      <div class="campo-grupo">
+        <label>% Inicial Plata</label>
+        <input type="number" id="cashea-pct-plata" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 20">
+      </div>
+      <div class="campo-grupo">
+        <label>% Inicial Oro</label>
+        <input type="number" id="cashea-pct-oro" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 10">
+      </div>
+      <div class="campo-grupo">
+        <label>% Express</label>
+        <input type="number" id="cashea-pct-express" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 50">
+      </div>
+    </div>
+    <button class="btn-primary" id="btn-guardar-cashea-config">💾 Guardar Configuración</button>
+  </div>
+
+  <!-- Calculadora de prueba -->
+  <div class="config-seccion">
+    <h3>Calculadora de prueba</h3>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-end">
+      <div class="campo-grupo" style="margin:0;flex:1;min-width:140px">
+        <label>Total venta (USD)</label>
+        <input type="number" id="calc-total" class="input-g" min="0.01" step="0.01" placeholder="100.00">
+      </div>
+      <div class="campo-grupo" style="margin:0;flex:1;min-width:140px">
+        <label>Nivel cliente</label>
+        <select id="calc-nivel" class="input-g">
+          <option value="BRONCE">Bronce</option>
+          <option value="PLATA">Plata</option>
+          <option value="ORO">Oro</option>
+        </select>
+      </div>
+      <button class="btn-secondary" id="btn-calcular-cashea" style="height:42px;white-space:nowrap">Calcular →</button>
+    </div>
+    <div id="calc-resultado" style="margin-top:.75rem;display:none;background:var(--bg-tertiary);border-radius:var(--radius-sm);padding:.75rem;font-size:.85rem"></div>
+  </div>
+</div>
+</section>

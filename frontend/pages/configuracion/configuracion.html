@@ -1,0 +1,264 @@
+<section class="page-content config-page">
+<style>
+.config-page .config-tabs { display:flex;border-bottom:2px solid var(--border-primary);margin-bottom:1.5rem;gap:.1rem;flex-wrap:wrap; }
+.config-page .cfg-tab { padding:.65rem 1.25rem;cursor:pointer;border:none;background:transparent;color:var(--text-secondary);font-size:.9rem;border-bottom:2px solid transparent;margin-bottom:-2px;font-weight:500; }
+.config-page .cfg-tab:hover { color:var(--text-primary); }
+.config-page .cfg-tab.activo { color:#3b82f6;font-weight:700;border-bottom-color:#3b82f6; }
+.config-page .cfg-panel { display:none; }
+.config-page .cfg-panel.activo { display:block; }
+.campo-grupo { margin-bottom:1rem; }
+.campo-grupo label { display:block;font-size:.85rem;font-weight:600;color:var(--text-secondary);margin-bottom:.35rem; }
+.input-g { width:100%;height:44px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.95rem; }
+.input-g:focus { outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.25); }
+.btn-primary { height:44px;padding:0 1.5rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.9rem;font-weight:600;display:inline-flex;align-items:center;gap:.5rem; }
+.btn-primary:hover { background:#2563eb; }
+.btn-secondary { height:44px;padding:0 1rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.875rem; }
+.btn-danger { height:44px;padding:0 1rem;border-radius:var(--radius-md);background:transparent;border:1px solid rgba(239,68,68,.4);color:#ef4444;cursor:pointer;font-size:.875rem; }
+.config-seccion { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1rem; }
+.config-seccion h3 { margin:0 0 1rem;font-size:.95rem;color:var(--text-secondary);text-transform:uppercase;font-size:.8rem;letter-spacing:.05em; }
+.tasa-display { font-size:2rem;font-weight:700;text-align:center;padding:.5rem; }
+/* Usuarios */
+.usuario-row { display:flex;align-items:center;gap:.75rem;padding:.6rem;border-bottom:1px solid var(--border-subtle); }
+.usuario-avatar { width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem;flex-shrink:0; }
+.modal-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;padding:1rem; }
+.modal-box { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-lg);max-width:480px;width:100%;padding:1.5rem; }
+.modal-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem; }
+</style>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Configuración</h1>
+    <p class="page-subtitle">Tasas, datos del negocio, impresora, usuarios y respaldos</p>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="config-tabs">
+  <button class="cfg-tab activo" data-tab="tasas">💱 Tasas de Cambio</button>
+  <button class="cfg-tab" data-tab="empresa">🏢 Mi Empresa</button>
+  <button class="cfg-tab" data-tab="impresora">🖨️ Impresora</button>
+  <button class="cfg-tab" data-tab="usuarios">👥 Usuarios</button>
+  <button class="cfg-tab" data-tab="respaldo">💾 Respaldo</button>
+  <button class="cfg-tab" data-tab="licencia">🔐 Licencia</button>
+</div>
+
+<!-- ═══ TAB: TASAS ═══ -->
+<div class="cfg-panel activo" id="panel-tasas">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+    <div class="config-seccion">
+      <h3>📊 Tasa BCV (oficial)</h3>
+      <div class="tasa-display" id="display-bcv" style="color:#3b82f6">—</div>
+      <div class="campo-grupo" style="margin:0">
+        <label>Nueva tasa BCV</label>
+        <input type="number" id="input-tasa-bcv" class="input-g" step="0.0001" min="1" placeholder="Ej: 89.5462">
+      </div>
+    </div>
+    <div class="config-seccion">
+      <h3>💵 Tasa Paralela (USD)</h3>
+      <div class="tasa-display" id="display-usd" style="color:#f59e0b">—</div>
+      <div class="campo-grupo" style="margin:0">
+        <label>Nueva tasa Paralela</label>
+        <input type="number" id="input-tasa-usd" class="input-g" step="0.0001" min="1" placeholder="Ej: 92.1800">
+      </div>
+    </div>
+  </div>
+  <p data-tasas-admin-only style="display:none;font-size:.85rem;color:var(--text-secondary);margin:0 0 1rem;padding:.5rem .75rem;background:rgba(148,163,184,.12);border-radius:var(--radius-sm)">
+    Solo el <strong>administrador</strong> puede modificar las tasas globales del sistema. Consulta los valores actuales arriba.
+  </p>
+  <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:var(--radius-sm);padding:.75rem;font-size:.85rem;margin-bottom:1rem">
+    ⚠️ <strong>Importante:</strong> Actualiza las tasas todos los días. Los precios de todos los productos se recalculan automáticamente.
+  </div>
+  <button class="btn-primary" id="btn-guardar-tasas">💾 Guardar Tasas</button>
+</div>
+
+<!-- ═══ TAB: EMPRESA ═══ -->
+<div class="cfg-panel" id="panel-empresa">
+  <div class="config-seccion">
+    <h3>Información de la empresa</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+      <div class="campo-grupo" style="grid-column:1/-1">
+        <label>Nombre del negocio *</label>
+        <input type="text" id="cfg-empresa-nombre" class="input-g" placeholder="Ej: Distribuidora El Éxito">
+      </div>
+      <div class="campo-grupo">
+        <label>RIF o Cédula</label>
+        <input type="text" id="cfg-empresa-rif" class="input-g" placeholder="J-12345678-9">
+      </div>
+      <div class="campo-grupo">
+        <label>Teléfono</label>
+        <input type="text" id="cfg-empresa-telefono" class="input-g" placeholder="0412-1234567">
+      </div>
+      <div class="campo-grupo" style="grid-column:1/-1">
+        <label>Dirección</label>
+        <input type="text" id="cfg-empresa-direccion" class="input-g" placeholder="Av. Principal, Local #5">
+      </div>
+      <div class="campo-grupo" style="grid-column:1/-1">
+        <label>Correo electrónico</label>
+        <input type="email" id="cfg-empresa-email" class="input-g" placeholder="negocio@correo.com">
+      </div>
+      <div class="campo-grupo">
+        <label>Número de control inicial (facturas)</label>
+        <input type="number" id="cfg-factura-control-desde" class="input-g" min="1" step="1" placeholder="1">
+      </div>
+      <div class="campo-grupo" style="grid-column:1/-1">
+        <label>Leyenda en facturas</label>
+        <input type="text" id="cfg-factura-leyenda" class="input-g" placeholder="Ej: Este documento no tiene validez fiscal hasta ser timbrado.">
+      </div>
+    </div>
+    <button class="btn-primary" id="btn-guardar-empresa" style="margin-top:.5rem">💾 Guardar datos de empresa</button>
+  </div>
+</div>
+
+<!-- ═══ TAB: IMPRESORA ═══ -->
+<div class="cfg-panel" id="panel-impresora">
+  <div class="config-seccion">
+    <h3>Configuración de impresora térmica</h3>
+    <div class="campo-grupo">
+      <label>Nombre de la impresora</label>
+      <input type="text" id="cfg-imp-nombre" class="input-g" placeholder="Ej: Bixolon SRP-350">
+    </div>
+    <div class="campo-grupo">
+      <label>Interfaz de conexión</label>
+      <select id="cfg-imp-tipo" class="input-g" style="height:44px">
+        <option value="tcp">📡 Red TCP/IP (recomendado)</option>
+        <option value="usb">🔌 USB (\\.\COM3)</option>
+        <option value="none">❌ Sin impresora</option>
+      </select>
+    </div>
+    <div id="cfg-imp-tcp-wrap" class="campo-grupo">
+      <label>Dirección IP y Puerto</label>
+      <input type="text" id="cfg-imp-interfaz" class="input-g" placeholder="tcp://192.168.1.100:9100">
+    </div>
+    <div style="display:flex;gap:.75rem;margin-top:.5rem">
+      <button class="btn-primary" id="btn-guardar-impresora">💾 Guardar</button>
+      <button class="btn-secondary" id="btn-probar-impresora">🖨️ Imprimir prueba</button>
+    </div>
+    <div id="imp-resultado" style="display:none;margin-top:.75rem;padding:.65rem;border-radius:var(--radius-sm);font-size:.875rem"></div>
+  </div>
+</div>
+
+<!-- ═══ TAB: USUARIOS ═══ -->
+<div class="cfg-panel" id="panel-usuarios">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+    <span style="font-size:.9rem;color:var(--text-secondary)">Personas que pueden usar el sistema</span>
+    <button class="btn-primary" id="btn-nuevo-usuario" style="height:38px;font-size:.85rem">➕ Nuevo usuario</button>
+  </div>
+  <div class="config-seccion" style="padding:.75rem">
+    <div id="usuarios-lista">
+      <p style="color:var(--text-secondary);text-align:center;padding:1rem">⏳ Cargando usuarios...</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TAB: RESPALDO ═══ -->
+<div class="cfg-panel" id="panel-respaldo">
+  <div class="config-seccion">
+    <h3>Respaldo de seguridad</h3>
+    <p style="font-size:.875rem;color:var(--text-secondary);margin-bottom:1rem">
+      El sistema hace un respaldo automático al cerrar la caja. También puedes hacerlo manualmente en cualquier momento.
+    </p>
+    <div id="respaldo-status" style="padding:.75rem;background:var(--bg-tertiary);border-radius:var(--radius-sm);font-size:.875rem;margin-bottom:1rem">
+      ⏳ Cargando estado del respaldo...
+    </div>
+    <button class="btn-primary" id="btn-respaldo-manual">💾 Crear respaldo ahora</button>
+  </div>
+</div>
+
+<!-- ═══ PANEL LICENCIA ═══ -->
+<div class="cfg-panel" id="panel-licencia">
+  <div class="config-seccion">
+    <h3>Estado de la Licencia</h3>
+    <div id="lic-estado-box" style="padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;border:1px solid var(--border-primary);background:var(--bg-tertiary)">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem">
+        <span id="lic-icono" style="font-size:2rem">⏳</span>
+        <div>
+          <div id="lic-estado-label" style="font-weight:700;font-size:1.05rem">Verificando...</div>
+          <div id="lic-empresa" style="font-size:.875rem;color:var(--text-secondary)"></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;font-size:.85rem">
+        <div><span style="color:var(--text-secondary)">Hardware ID:</span><br><code id="lic-hwid" style="font-size:.8rem;word-break:break-all">—</code></div>
+        <div><span style="color:var(--text-secondary)">Edición:</span><br><strong id="lic-edition">—</strong></div>
+        <div><span style="color:var(--text-secondary)">Expira:</span><br><strong id="lic-expira">—</strong></div>
+        <div><span style="color:var(--text-secondary)">HWID Registrado:</span><br><code id="lic-hwid-reg" style="font-size:.8rem;word-break:break-all">—</code></div>
+        <div style="grid-column:1/-1"><span style="color:var(--text-secondary)">Versión de la aplicación:</span> <strong id="lic-app-version">—</strong></div>
+      </div>
+    </div>
+    <button class="btn-secondary" id="btn-copiar-hwid" style="margin-bottom:1rem">📋 Copiar Hardware ID</button>
+  </div>
+
+  <div class="config-seccion" id="lic-activar-seccion">
+    <h3>Activar Licencia</h3>
+    <p style="font-size:.875rem;color:var(--text-secondary);margin-bottom:1rem">
+      Ingresa la clave de licencia proporcionada por el distribuidor. Incluye tu Hardware ID al solicitarla.
+    </p>
+    <div class="campo-grupo">
+      <label>Clave de Licencia *</label>
+      <textarea id="lic-clave-input" class="input-g" rows="3"
+        style="height:auto;padding:.5rem .875rem;resize:vertical;font-family:monospace;font-size:.85rem"
+        placeholder="Pega aquí tu clave de licencia..."></textarea>
+    </div>
+    <button class="btn-primary" id="btn-activar-licencia">🔐 Activar Licencia</button>
+  </div>
+
+  <div class="config-seccion" id="lic-generar-seccion" style="display:none">
+    <h3>Generar Clave (Distribuidor)</h3>
+    <p style="font-size:.875rem;color:var(--text-secondary);margin-bottom:1rem">
+      Genera una clave de activación para un cliente dado su Hardware ID.
+    </p>
+    <div class="campo-grupo">
+      <label>Hardware ID del cliente *</label>
+      <input type="text" id="lic-gen-hwid" class="input-g" placeholder="Ej: A1B2C3D4E5F6...">
+    </div>
+    <div class="campo-grupo">
+      <label>Empresa</label>
+      <input type="text" id="lic-gen-empresa" class="input-g" placeholder="Ej: Comercial Flores, C.A.">
+    </div>
+    <div class="campo-grupo">
+      <label>Fecha de expiración (dejar vacío = perpetua)</label>
+      <input type="date" id="lic-gen-expira" class="input-g">
+    </div>
+    <button class="btn-primary" id="btn-generar-clave">⚙️ Generar Clave</button>
+    <div id="lic-gen-resultado" style="margin-top:1rem;display:none;padding:1rem;background:var(--bg-tertiary);border-radius:var(--radius-sm)">
+      <p style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.5rem">Clave generada:</p>
+      <code id="lic-gen-clave-output" style="word-break:break-all;font-size:.85rem"></code>
+      <button class="btn-secondary" id="btn-copiar-gen-clave" style="margin-top:.5rem">📋 Copiar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL USUARIO ═══ -->
+<div class="modal-overlay" id="modal-usuario">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modal-usuario-titulo">Nuevo Usuario</h2>
+      <button style="background:transparent;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-secondary)" id="btn-cerrar-modal-usuario">✕</button>
+    </div>
+    <input type="hidden" id="usuario-id">
+    <div class="campo-grupo">
+      <label>Nombre completo *</label>
+      <input type="text" id="usuario-nombre" class="input-g" placeholder="Ej: María González">
+    </div>
+    <div class="campo-grupo">
+      <label>Nombre de usuario *</label>
+      <input type="text" id="usuario-username" class="input-g" placeholder="Ej: mgonzalez">
+    </div>
+    <div class="campo-grupo">
+      <label id="lbl-password">Contraseña *</label>
+      <input type="password" id="usuario-password" class="input-g" placeholder="Mínimo 6 caracteres">
+    </div>
+    <div class="campo-grupo">
+      <label>Rol</label>
+      <select id="usuario-rol" class="input-g" style="height:44px">
+        <option value="cajero">👤 Cajero (solo vender)</option>
+        <option value="supervisor">🔑 Supervisor (ventas + inventario)</option>
+        <option value="admin">👑 Administrador (acceso total)</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:.75rem;margin-top:1rem;justify-content:flex-end">
+      <button class="btn-secondary" id="btn-cancelar-modal-usuario">Cancelar</button>
+      <button class="btn-primary" id="btn-guardar-usuario">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+</section>

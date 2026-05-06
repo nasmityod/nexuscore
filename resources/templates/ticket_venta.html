@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ticket {{NUMERO_VENTA}}</title>
+  <style>
+    /* Ticket térmico ~80mm — referencia visual / impresión navegador */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 11px;
+      color: #111;
+      width: 72mm;
+      max-width: 72mm;
+      padding: 3mm 2mm;
+      margin: 0 auto;
+    }
+    .ticket-brand {
+      text-align: center;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.02em;
+      margin-bottom: 2mm;
+    }
+    .ticket-muted {
+      text-align: center;
+      font-size: 9px;
+      color: #333;
+      line-height: 1.35;
+      margin-bottom: 3mm;
+    }
+    .ticket-rule {
+      border: none;
+      border-top: 1px dashed #999;
+      margin: 2mm 0;
+    }
+    .ticket-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      margin: 1mm 0;
+    }
+    .ticket-row strong { font-weight: 600; }
+    table.ticket-lines {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+      margin: 2mm 0;
+    }
+    table.ticket-lines th {
+      text-align: left;
+      border-bottom: 1px solid #333;
+      padding: 1mm 0;
+      font-weight: 600;
+    }
+    table.ticket-lines td {
+      padding: 1.2mm 0;
+      vertical-align: top;
+      border-bottom: 1px dotted #ccc;
+    }
+    table.ticket-lines td.num { text-align: right; white-space: nowrap; }
+    .ticket-totals {
+      margin-top: 3mm;
+      font-size: 10px;
+    }
+    .ticket-totals .big {
+      font-weight: 700;
+      font-size: 12px;
+      margin-top: 2mm;
+      display: flex;
+      justify-content: space-between;
+    }
+    .ticket-footer {
+      text-align: center;
+      font-size: 9px;
+      color: #444;
+      margin-top: 4mm;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="ticket-venta">
+    <div class="ticket-brand">{{NOMBRE_EMPRESA}}</div>
+    <div class="ticket-muted">
+      {{RIF_EMPRESA}}<br />
+      {{DIRECCION_EMPRESA}}<br />
+      {{TELEFONO_EMPRESA}}
+    </div>
+    <hr class="ticket-rule" />
+    <div class="ticket-row"><span><strong>Ticket</strong></span><span>{{NUMERO_VENTA}}</span></div>
+    <div class="ticket-row"><span>Fecha</span><span>{{FECHA_VENTA}}</span></div>
+    <div class="ticket-row"><span>Cliente</span><span>{{CLIENTE_NOMBRE}}</span></div>
+    <div class="ticket-row"><span>Método</span><span>{{METODO_PAGO}}</span></div>
+    <div class="ticket-row"><span>Tasa Bs/USD</span><span>{{TASA_CAMBIO}}</span></div>
+    <hr class="ticket-rule" />
+    <table class="ticket-lines">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th class="num">Cant</th>
+          <th class="num">P.Unit</th>
+          <th class="num">USD</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{LINEAS_ROWS}}
+      </tbody>
+    </table>
+    <hr class="ticket-rule" />
+    <table class="ticket-lines">
+      <tbody>
+        {{PAGOS_ROWS}}
+      </tbody>
+    </table>
+    <div class="ticket-totals">
+      <div class="ticket-row"><span>Subtotal USD</span><span>{{SUBTOTAL_USD}}</span></div>
+      <div class="ticket-row"><span>Descuento</span><span>{{DESCUENTO_INFO}}</span></div>
+      <div class="ticket-row"><span>IVA ({{IVA_PCT}}%)</span><span>{{IVA_USD}}</span></div>
+      <div class="big"><span>TOTAL USD</span><span>{{TOTAL_USD}}</span></div>
+      <div class="big"><span>TOTAL Bs</span><span>{{TOTAL_BS}}</span></div>
+    </div>
+    <div class="ticket-footer">
+      {{PIE_TICKET}}<br />
+      Gracias por su compra — Nexus-Core POS
+    </div>
+  </div>
+</body>
+</html>

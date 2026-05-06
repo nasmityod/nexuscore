@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' https:; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https: http://127.0.0.1:3000;">
+  <title>Nexus-Core · Activación</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      -webkit-app-region: drag;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 14px;
+      padding: 2.25rem 2rem;
+      max-width: 480px;
+      width: 100%;
+      -webkit-app-region: no-drag;
+    }
+
+    /* Logo */
+    .logo { text-align: center; margin-bottom: 2rem; }
+    .logo-icon { font-size: 2.8rem; display: block; margin-bottom: .4rem; }
+    .logo h1 { font-size: 1.45rem; font-weight: 700; color: #58a6ff; }
+    .logo p { font-size: .82rem; color: #8b949e; margin-top: .2rem; }
+
+    /* Pasos */
+    .steps {
+      display: flex;
+      gap: .5rem;
+      margin-bottom: 1.75rem;
+    }
+    .step-dot {
+      flex: 1;
+      height: 4px;
+      border-radius: 4px;
+      background: #21262d;
+      transition: background .3s;
+    }
+    .step-dot.active   { background: #58a6ff; }
+    .step-dot.done     { background: #3fb950; }
+
+    /* Secciones */
+    .section { margin-bottom: 1.25rem; }
+    .section-label {
+      font-size: .75rem;
+      font-weight: 700;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: .55rem;
+    }
+
+    /* HWID box */
+    .hwid-box {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: .7rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+    }
+    .hwid-code {
+      font-family: 'Courier New', monospace;
+      font-size: .9rem;
+      font-weight: 700;
+      color: #3fb950;
+      flex: 1;
+      word-break: break-all;
+      letter-spacing: .06em;
+    }
+    .btn-copy {
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      cursor: pointer;
+      padding: .35rem .65rem;
+      font-size: .75rem;
+      white-space: nowrap;
+      transition: all .15s;
+      flex-shrink: 0;
+    }
+    .btn-copy:hover          { background: #30363d; color: #e6edf3; }
+    .btn-copy.copied         { color: #3fb950; border-color: rgba(63,185,80,.4); }
+
+    /* Input de código */
+    .code-input {
+      width: 100%;
+      height: 52px;
+      background: #0d1117;
+      border: 2px solid #30363d;
+      border-radius: 8px;
+      color: #e6edf3;
+      font-family: 'Courier New', monospace;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-align: center;
+      text-transform: uppercase;
+      padding: 0 1rem;
+      transition: border-color .2s;
+    }
+    .code-input:focus {
+      outline: none;
+      border-color: #58a6ff;
+      box-shadow: 0 0 0 3px rgba(88,166,255,.15);
+    }
+    .code-input::placeholder {
+      color: #30363d;
+      letter-spacing: .06em;
+    }
+    .code-hint {
+      font-size: .78rem;
+      color: #6e7681;
+      margin-top: .45rem;
+      text-align: center;
+    }
+
+    /* Progreso */
+    .progress-wrap { display: none; margin-bottom: 1rem; }
+    .progress-wrap.show { display: block; }
+    .progress-bar-outer {
+      background: #21262d;
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .progress-bar-inner {
+      height: 100%;
+      border-radius: 4px;
+      background: #58a6ff;
+      width: 0%;
+      transition: width .4s ease;
+    }
+    .progress-text {
+      font-size: .78rem;
+      color: #8b949e;
+      margin-top: .4rem;
+      text-align: center;
+    }
+
+    /* Alertas */
+    .alert {
+      border-radius: 8px;
+      padding: .75rem 1rem;
+      font-size: .84rem;
+      margin-top: .75rem;
+      display: none;
+      align-items: flex-start;
+      gap: .5rem;
+      line-height: 1.5;
+    }
+    .alert.show { display: flex; }
+    .alert-error   { background: rgba(218,54,51,.12); border:1px solid rgba(218,54,51,.3); color: #f85149; }
+    .alert-success { background: rgba(63,185,80,.1);  border:1px solid rgba(63,185,80,.3);  color: #3fb950; }
+
+    /* Botón */
+    .btn-activate {
+      width: 100%;
+      height: 50px;
+      background: #1f6feb;
+      border: 1px solid rgba(240,246,252,.1);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      margin-top: 1.25rem;
+    }
+    .btn-activate:hover:not(:disabled) { background: #388bfd; }
+    .btn-activate:disabled {
+      background: #21262d;
+      color: #484f58;
+      cursor: not-allowed;
+      border-color: #30363d;
+    }
+
+    /* Footer */
+    .footer-note {
+      text-align: center;
+      font-size: .72rem;
+      color: #484f58;
+      margin-top: 1.5rem;
+      border-top: 1px solid #21262d;
+      padding-top: .9rem;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+
+  <div class="logo">
+    <span class="logo-icon">🔐</span>
+    <h1>Nexus-Core</h1>
+    <p>Activa tu licencia para comenzar</p>
+  </div>
+
+  <!-- Barra de progreso de pasos -->
+  <div class="steps">
+    <div class="step-dot active" id="dot-1"></div>
+    <div class="step-dot"        id="dot-2"></div>
+    <div class="step-dot"        id="dot-3"></div>
+  </div>
+
+  <!-- HWID (referencia de soporte) -->
+  <div class="section">
+    <div class="section-label">ID de este equipo (para soporte)</div>
+    <div class="hwid-box">
+      <span class="hwid-code" id="hwid-display">Cargando...</span>
+      <button class="btn-copy" id="btn-copy-hwid">📋 Copiar</button>
+    </div>
+  </div>
+
+  <!-- Código de activación -->
+  <div class="section">
+    <div class="section-label">Código de activación recibido al comprar</div>
+    <input
+      type="text"
+      id="input-code"
+      class="code-input"
+      maxlength="20"
+      placeholder="NC-XXXX-XXXX-XXXX"
+      autocomplete="off"
+      spellcheck="false"
+    >
+    <p class="code-hint">Escribe el código tal como lo recibiste. Requiere internet solo esta vez.</p>
+  </div>
+
+  <!-- Barra de progreso de activación -->
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar-outer">
+      <div class="progress-bar-inner" id="progress-bar"></div>
+    </div>
+    <p class="progress-text" id="progress-text">Conectando al servidor...</p>
+  </div>
+
+  <!-- Alertas -->
+  <div class="alert alert-error" id="alert-error">
+    <span>⛔</span><span id="alert-error-msg"></span>
+  </div>
+  <div class="alert alert-success" id="alert-success">
+    <span>✅</span><span id="alert-success-msg"></span>
+  </div>
+
+  <button class="btn-activate" id="btn-activar" disabled>
+    🔓 Activar Nexus-Core
+  </button>
+
+  <p class="footer-note">
+    La licencia queda vinculada a este equipo y funciona sin internet a partir de ahora.<br>
+    ¿Problemas? Contacta soporte con tu ID de equipo.
+  </p>
+</div>
+
+<script>
+(function () {
+  var hwid        = '';
+  var serverUrl   = 'https://nexus-license-server.vercel.app'; // fallback
+  var hwidEl      = document.getElementById('hwid-display');
+  var codeEl      = document.getElementById('input-code');
+  var btnActivar  = document.getElementById('btn-activar');
+  var btnCopy     = document.getElementById('btn-copy-hwid');
+  var alertErr    = document.getElementById('alert-error');
+  var alertErrMsg = document.getElementById('alert-error-msg');
+  var alertOk     = document.getElementById('alert-success');
+  var alertOkMsg  = document.getElementById('alert-success-msg');
+  var progressWrap= document.getElementById('progress-wrap');
+  var progressBar = document.getElementById('progress-bar');
+  var progressTxt = document.getElementById('progress-text');
+  var dot1 = document.getElementById('dot-1');
+  var dot2 = document.getElementById('dot-2');
+  var dot3 = document.getElementById('dot-3');
+
+  // ── Cargar HWID e URL del servidor ─────────────────────────────────────
+  function init() {
+    var hwidPromise = window.nexusCore && typeof window.nexusCore.getHardwareId === 'function'
+      ? window.nexusCore.getHardwareId()
+      : Promise.resolve('HWID-UNAVAILABLE');
+
+    var urlPromise = window.nexusLicense && typeof window.nexusLicense.getServerUrl === 'function'
+      ? window.nexusLicense.getServerUrl()
+      : Promise.resolve(serverUrl);
+
+    Promise.all([hwidPromise, urlPromise]).then(function (results) {
+      hwid      = results[0] || 'HWID-UNKNOWN';
+      serverUrl = results[1] || serverUrl;
+      hwidEl.textContent = hwid;
+    }).catch(function () {
+      hwid = 'HWID-ERROR';
+      hwidEl.textContent = hwid;
+      hwidEl.style.color = '#f85149';
+    });
+  }
+
+  // ── Copiar HWID ─────────────────────────────────────────────────────────
+  btnCopy.addEventListener('click', function () {
+    if (!hwid) return;
+    navigator.clipboard.writeText(hwid).then(function () {
+      btnCopy.textContent = '✅ Copiado';
+      btnCopy.classList.add('copied');
+      setTimeout(function () {
+        btnCopy.textContent = '📋 Copiar';
+        btnCopy.classList.remove('copied');
+      }, 1800);
+    });
+  });
+
+  // ── Formatear código mientras escribe (NC-XXXX-XXXX-XXXX) ─────────────
+  codeEl.addEventListener('input', function () {
+    var raw = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    var formatted = '';
+    if (raw.startsWith('NC')) {
+      var rest = raw.slice(2);
+      formatted = 'NC';
+      for (var i = 0; i < rest.length && i < 12; i++) {
+        if (i % 4 === 0) formatted += '-';
+        formatted += rest[i];
+      }
+    } else {
+      formatted = raw.slice(0, 14);
+    }
+    codeEl.value = formatted;
+
+    var clean = codeEl.value.replace(/-/g, '');
+    btnActivar.disabled = clean.length < 14;
+    hideAlerts();
+  });
+
+  // ── Helpers UI ──────────────────────────────────────────────────────────
+  function hideAlerts() {
+    alertErr.classList.remove('show');
+    alertOk.classList.remove('show');
+  }
+  function showError(msg) {
+    alertErrMsg.textContent = msg;
+    alertErr.classList.add('show');
+    alertOk.classList.remove('show');
+  }
+  function showSuccess(msg) {
+    alertOkMsg.textContent = msg;
+    alertOk.classList.add('show');
+    alertErr.classList.remove('show');
+  }
+  function setProgress(pct, msg) {
+    progressWrap.classList.add('show');
+    progressBar.style.width = pct + '%';
+    progressTxt.textContent = msg;
+  }
+  function setDot(n, state) {
+    var dots = [dot1, dot2, dot3];
+    dots.forEach(function (d, i) {
+      d.className = 'step-dot';
+      if (i + 1 < n)  d.classList.add('done');
+      if (i + 1 === n) d.classList.add('active');
+    });
+  }
+
+  // ── Activación principal ────────────────────────────────────────────────
+  btnActivar.addEventListener('click', function () {
+    var code = codeEl.value.trim();
+    if (!code || !hwid || hwid === 'HWID-ERROR') return;
+
+    btnActivar.disabled    = true;
+    btnActivar.textContent = '⏳ Activando...';
+    hideAlerts();
+
+    // PASO 1: Llamar al servidor Vercel con código + HWID
+    setDot(1, 'active');
+    setProgress(15, 'Conectando al servidor de licencias...');
+
+    fetch(serverUrl + '/api/license/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code, hwid: hwid })
+    })
+    .then(function (r) {
+      setProgress(45, 'Verificando código de activación...');
+      setDot(2, 'active');
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error(d.error || 'Código inválido o ya usado en otro equipo');
+        return d;
+      });
+    })
+    .then(function (data) {
+      // PASO 2: Guardar el token firmado en el backend local (sin internet)
+      setProgress(70, 'Guardando licencia en este equipo...');
+      setDot(3, 'active');
+
+      return fetch('http://127.0.0.1:3000/api/licencia/activar-inicial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clave: data.token, hwid: hwid })
+      }).then(function (r2) {
+        return r2.json().then(function (d2) {
+          if (!r2.ok) throw new Error(d2.error || 'No se pudo guardar la licencia localmente');
+          return { serverInfo: data.info, localInfo: d2.info };
+        });
+      });
+    })
+    .then(function (result) {
+      // ÉXITO
+      setProgress(100, '¡Licencia activada!');
+      dot1.className = 'step-dot done';
+      dot2.className = 'step-dot done';
+      dot3.className = 'step-dot done';
+
+      var info = result.serverInfo;
+      showSuccess(
+        '¡Activado correctamente! · ' +
+        (info.empresa ? info.empresa + ' · ' : '') +
+        'Edición: ' + (info.edition || 'Profesional') + ' · ' +
+        'Expira: ' + (info.expira || 'Nunca') +
+        '. Iniciando la aplicación...'
+      );
+
+      setTimeout(function () {
+        if (window.nexusLicense && typeof window.nexusLicense.confirmed === 'function') {
+          window.nexusLicense.confirmed();
+        }
+      }, 1800);
+    })
+    .catch(function (e) {
+      progressWrap.classList.remove('show');
+      var msg = e.message || 'Error desconocido';
+
+      // Mensajes de error más amigables
+      if (msg.includes('fetch') || msg.includes('network') || msg.toLowerCase().includes('failed')) {
+        msg = 'Sin conexión a internet. Necesitas internet solo esta primera vez para activar.';
+      }
+
+      showError(msg);
+      btnActivar.disabled    = false;
+      btnActivar.textContent = '🔓 Activar Nexus-Core';
+      setDot(1, 'active');
+    });
+  });
+
+  // ── Iniciar ─────────────────────────────────────────────────────────────
+  init();
+})();
+</script>
+</body>
+</html>

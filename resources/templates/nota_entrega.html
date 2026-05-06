@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nota de entrega {{NUMERO_VENTA}}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Georgia, serif;
+      font-size: 11pt;
+      color: #1a1a1a;
+      max-width: 210mm;
+      min-height: 297mm;
+      margin: 12mm auto;
+      padding: 0 14mm;
+    }
+    .doc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 10mm;
+      margin-bottom: 8mm;
+    }
+    .doc-brand h1 {
+      font-size: 18pt;
+      font-weight: 700;
+      color: #1e3a8a;
+      margin-bottom: 2mm;
+    }
+    .doc-brand p { margin: 1mm 0; font-size: 10pt; color: #374151; line-height: 1.35; }
+    .doc-meta {
+      text-align: right;
+      font-size: 10pt;
+    }
+    .doc-meta .badge {
+      display: inline-block;
+      background: #eff6ff;
+      border: 1px solid #93c5fd;
+      padding: 2mm 4mm;
+      border-radius: 4px;
+      font-weight: 600;
+      color: #1d4ed8;
+      margin-bottom: 3mm;
+    }
+    .doc-block {
+      margin-bottom: 6mm;
+    }
+    .doc-block h2 {
+      font-size: 10pt;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #6b7280;
+      margin-bottom: 2mm;
+    }
+    .two-col { display: flex; gap: 12mm; }
+    .two-col > div { flex: 1; }
+    table.detalle {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10pt;
+      margin-top: 2mm;
+    }
+    table.detalle th {
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+      padding: 2.5mm 2mm;
+      text-align: left;
+      font-weight: 600;
+    }
+    table.detalle td {
+      border: 1px solid #e5e7eb;
+      padding: 2mm;
+      vertical-align: top;
+    }
+    table.detalle td.num { text-align: right; white-space: nowrap; }
+    .totals {
+      margin-top: 6mm;
+      margin-left: auto;
+      width: 85mm;
+      font-size: 10pt;
+    }
+    .totals table { width: 100%; border-collapse: collapse; }
+    .totals td { padding: 1.5mm 2mm; border-bottom: 1px solid #e5e7eb; }
+    .totals td:last-child { text-align: right; font-weight: 500; }
+    .totals .grand td {
+      font-weight: 700;
+      font-size: 11pt;
+      border-bottom: 2px solid #2563eb;
+      padding-top: 3mm;
+    }
+    .firmas {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 18mm;
+      gap: 16mm;
+      font-size: 10pt;
+    }
+    .firmas .line {
+      flex: 1;
+      border-top: 1px solid #111;
+      padding-top: 2mm;
+      text-align: center;
+      color: #374151;
+    }
+    .nota-legal {
+      margin-top: 10mm;
+      font-size: 8pt;
+      color: #6b7280;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="nota-entrega">
+    <header class="doc-header">
+      <div class="doc-brand">
+        <h1>{{NOMBRE_EMPRESA}}</h1>
+        <p><strong>RIF:</strong> {{RIF_EMPRESA}}</p>
+        <p>{{DIRECCION_EMPRESA}}</p>
+        <p>Tel. {{TELEFONO_EMPRESA}}</p>
+      </div>
+      <div class="doc-meta">
+        <div class="badge">NOTA DE ENTREGA</div>
+        <p><strong>{{NUMERO_VENTA}}</strong></p>
+        <p>Fecha: {{FECHA_VENTA}}</p>
+        <p>Tasa aplicada (Bs/USD): {{TASA_CAMBIO}}</p>
+      </div>
+    </header>
+
+    <section class="doc-block two-col">
+      <div>
+        <h2>Cliente</h2>
+        <p><strong>{{CLIENTE_NOMBRE}}</strong></p>
+        <p>{{CLIENTE_DOC}}</p>
+      </div>
+      <div>
+        <h2>Condiciones</h2>
+        <p>Método de pago: <strong>{{METODO_PAGO}}</strong></p>
+        <p>Estado venta: {{ESTADO_VENTA}}</p>
+      </div>
+    </section>
+
+    <section class="doc-block">
+      <h2>Detalle</h2>
+      <table class="detalle">
+        <thead>
+          <tr>
+            <th style="width:40%">Descripción</th>
+            <th class="num">Cant.</th>
+            <th class="num">P. unit. USD</th>
+            <th class="num">Subtotal USD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{LINEAS_ROWS}}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="doc-block">
+      <h2>Pagos registrados</h2>
+      <table class="detalle">
+        <tbody>
+          {{PAGOS_ROWS}}
+        </tbody>
+      </table>
+    </section>
+
+    <div class="totals">
+      <table>
+        <tr><td>Subtotal USD</td><td>{{SUBTOTAL_USD}}</td></tr>
+        <tr><td>Descuento</td><td>{{DESCUENTO_INFO}}</td></tr>
+        <tr><td>IVA ({{IVA_PCT}}%)</td><td>{{IVA_USD}}</td></tr>
+        <tr class="grand"><td>TOTAL USD</td><td>{{TOTAL_USD}}</td></tr>
+        <tr class="grand"><td>TOTAL Bs</td><td>{{TOTAL_BS}}</td></tr>
+      </table>
+    </div>
+
+    <section class="firmas">
+      <div class="line">Entregado por<br />{{NOMBRE_EMPRESA}}</div>
+      <div class="line">Recibido conforme<br />Nombre y cédula / RIF</div>
+    </section>
+
+    <p class="nota-legal">{{PIE_NOTA}}</p>
+  </div>
+</body>
+</html>

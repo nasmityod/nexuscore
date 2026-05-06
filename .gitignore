@@ -1,0 +1,23 @@
+# Entorno — NUNCA subir al repositorio
+.env
+
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+
+# Logs
+*.log
+logs/
+
+# Respaldos locales
+backups/
+
+# PostgreSQL/pgAdmin instalado o portable local (pesado; no debe subirse a Git)
+database/postgres/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus-Core</title>
+  <link rel="stylesheet" href="assets/css/variables.css" />
+  <link rel="stylesheet" href="assets/css/base.css" />
+  <link rel="stylesheet" href="assets/css/components.css" />
+  <link rel="stylesheet" href="assets/css/animations.css" />
+  <link rel="stylesheet" href="assets/css/pos.css" />
+</head>
+<body>
+  <div id="layout-root" class="layout-root">
+    <div id="sidebar-host"></div>
+    <div class="layout-main">
+      <div id="navbar-host"></div>
+      <main id="view" class="view-container" tabindex="-1" aria-live="polite"></main>
+    </div>
+  </div>
+
+  <script src="services/authClient.js"></script>
+  <script src="services/preciosClient.js"></script>
+  <script src="services/numberStepper.js"></script>
+  <script src="../node_modules/chart.js/dist/chart.min.js"></script>
+  <script src="router.js"></script>
+  <script src="components/toast.js"></script>
+  <script src="components/navbar.js"></script>
+  <script src="components/sidebar.js"></script>
+  <script src="pages/dashboard/dashboard.js"></script>
+  <script src="pages/pos/pos.js"></script>
+  <script src="pages/inventario/inventario.js"></script>
+  <script src="pages/ventas/ventas.js"></script>
+  <script src="pages/clientes/clientes.js"></script>
+  <script src="pages/cartera/cartera.js"></script>
+  <script src="pages/proveedores/proveedores.js"></script>
+  <script src="pages/caja/caja.js"></script>
+  <script src="pages/reportes/reportes.js"></script>
+  <script src="pages/configuracion/configuracion.js"></script>
+  <script src="pages/compras/compras.js"></script>
+  <script src="pages/usuarios/usuarios.js"></script>
+  <script src="pages/cashea/cashea.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
