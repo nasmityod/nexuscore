@@ -21,7 +21,7 @@
  * qué campo falló, ni cuántos intentos restan.
  */
 
-const { kv }                                          = require('@vercel/kv');
+const { kv }                                          = require('../../lib/kv');
 const { hashHwid, verifyCodeHmac, firmarToken }       = require('../../lib/crypto');
 const { checkAndIncrement, recordCodeFailure,
         clearCodeFailures, getIp }                    = require('../../lib/ratelimit');

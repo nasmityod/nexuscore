@@ -16,7 +16,7 @@
  * que reactive (lo que fallará porque el código ya está revocado).
  */
 
-const { kv }                                   = require('@vercel/kv');
+const { kv }                                   = require('../../../lib/kv');
 const { validateAdminAuth, sendError, sendOk } = require('../../../lib/validate');
 const { getIp }                                = require('../../../lib/ratelimit');
 

@@ -16,7 +16,7 @@
  *   { ok: true, codes: ["NC-XXXXX-XXXXX-XXXXX", ...] }
  */
 
-const { kv }                                   = require('@vercel/kv');
+const { kv }                                   = require('../../../lib/kv');
 const { generarCodigo, computeCodeHmac }       = require('../../../lib/crypto');
 const { validateAdminAuth, sendError, sendOk } = require('../../../lib/validate');
 

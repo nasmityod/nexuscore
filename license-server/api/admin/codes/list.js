@@ -10,7 +10,7 @@
  *   cursor  string  (para paginación de KV.scan)
  */
 
-const { kv }                                   = require('@vercel/kv');
+const { kv }                                   = require('../../../lib/kv');
 const { validateAdminAuth, sendError, sendOk } = require('../../../lib/validate');
 
 module.exports = async function handler(req, res) {
