@@ -26,80 +26,129 @@ const { hashHwid, verifyCodeHmac, firmarToken }       = require('../../lib/crypt
 const { checkAndIncrement, recordCodeFailure,
         clearCodeFailures, getIp }                    = require('../../lib/ratelimit');
 const { validateActivationInput, sendError, sendOk }  = require('../../lib/validate');
+const { createLogger, maskCode }                      = require('../../lib/logger');
 
-// Mensaje genérico para todos los rechazos de código (evita oracle de enumeración)
 const GENERIC_REJECT = 'Código no válido o ya utilizado.';
 
 module.exports = async function handler(req, res) {
-  // ── 1. Método ──────────────────────────────────────────────────────────
+  const t0 = Date.now();
+  const log = createLogger(req, 'activate');
+
+  log.step('incoming', {
+    contentType: req.headers['content-type'] || null,
+    vercelId: req.headers['x-vercel-id'] || null,
+  });
+
   if (req.method !== 'POST') {
+    log.warn('reject_method', { wanted: 'POST', got: req.method });
+    log.timing('request_total', t0, { outcome: '405' });
     return sendError(res, 405, 'Método no permitido.');
   }
 
-  // ── 2. Rate limiting ───────────────────────────────────────────────────
   const rawCode = String((req.body || {}).code || '');
+  const rawHwidPresent = !!(req.body || {}).hwid;
+
   try {
     await checkAndIncrement(kv, req, rawCode);
+    log.step('ratelimit_pass', { codeProbe: maskCode(String(rawCode || '').toUpperCase()) });
   } catch (rlErr) {
-    // Log interno (visible en Vercel logs, nunca en el cliente)
-    console.warn('[activate] Rate limit hit', { ip: getIp(req), code: rawCode.slice(0, 8) });
+    log.warn('ratelimit_block', {
+      status: rlErr.status || 429,
+      reason: rlErr.message || String(rlErr),
+      codeProbe: maskCode(String(rawCode || '').toUpperCase()),
+    });
+    log.timing('request_total', t0, { outcome: String(rlErr.status || 429) });
     return sendError(res, rlErr.status || 429, rlErr.message);
   }
 
-  // ── 3. Validación de formato ───────────────────────────────────────────
-  let code, hwid;
+  let code;
+  let hwid;
   try {
     ({ code, hwid } = validateActivationInput(req.body));
+    log.step('validation_ok', {
+      codeMasked: maskCode(code),
+      hwidLen: hwid.length,
+      hwidHasDash: hwid.includes('-'),
+    });
   } catch (valErr) {
+    log.warn('validation_fail', {
+      status: valErr.status || 400,
+      reason: valErr.message || String(valErr),
+      rawHwidPresent,
+      codeProbe: maskCode(String(rawCode || '').toUpperCase()),
+    });
+    log.timing('request_total', t0, { outcome: String(valErr.status || 400) });
     return sendError(res, valErr.status || 400, valErr.message);
   }
 
-  // ── 4 + 5. HMAC del código + Lookup en KV ─────────────────────────────
   let entry;
+  const tKvGet = Date.now();
   try {
     entry = await kv.get(`code:${code}`);
+    log.timing('kv_get', tKvGet, {
+      found: !!entry,
+      revoked: !!(entry && entry.revocado),
+      activated: !!(entry && entry.activatedHwidHash),
+      empresa: entry && entry.empresa ? String(entry.empresa).slice(0, 80) : null,
+    });
   } catch (kvErr) {
-    console.error('[activate] KV error on get', kvErr);
+    log.error('kv_get_error', {
+      err: kvErr && kvErr.message ? kvErr.message : String(kvErr),
+      codeMasked: maskCode(code),
+    });
+    log.timing('request_total', t0, { outcome: '503' });
     return sendError(res, 503, 'Servicio no disponible. Intenta en unos momentos.');
   }
 
-  // Si el código no existe → respuesta genérica (no distingue entre "no existe" y "ya usado")
   if (!entry) {
+    log.warn('reject_no_entry', { codeMasked: maskCode(code), stage: 'lookup' });
     await recordCodeFailure(kv, code);
+    log.timing('request_total', t0, { outcome: '400_generic' });
     return sendError(res, 400, GENERIC_REJECT);
   }
 
-  // Verificación HMAC (previene códigos inyectados en KV por un atacante con acceso a la DB)
   if (!verifyCodeHmac(code, entry.hmac)) {
-    console.error('[activate] HMAC mismatch para código:', code.slice(0, 8));
+    log.error('reject_hmac_mismatch', { codeMasked: maskCode(code) });
     await recordCodeFailure(kv, code);
+    log.timing('request_total', t0, { outcome: '400_hmac' });
     return sendError(res, 400, GENERIC_REJECT);
   }
 
-  // ── 6. Expiración del código ───────────────────────────────────────────
   if (entry.expiraCodigo && new Date() > new Date(entry.expiraCodigo)) {
-    await recordCodeFailure(kv, code);
-    return sendError(res, 400, GENERIC_REJECT);
-  }
-
-  // ── 7. Anti-reactivación ───────────────────────────────────────────────
-  if (entry.revocado) {
-    return sendError(res, 400, GENERIC_REJECT);
-  }
-  if (entry.activatedHwidHash) {
-    // El código ya fue canjeado por otra PC
-    console.warn('[activate] Intento de doble activación', {
-      ip:       getIp(req),
-      code:     code.slice(0, 8),
-      newHwid:  hashHwid(hwid).slice(0, 12),
+    log.warn('reject_code_expired', {
+      codeMasked: maskCode(code),
+      expiraCodigo: entry.expiraCodigo,
     });
     await recordCodeFailure(kv, code);
+    log.timing('request_total', t0, { outcome: '400_expired_code' });
     return sendError(res, 400, GENERIC_REJECT);
   }
 
-  // ── 8. Firma Ed25519 ───────────────────────────────────────────────────
+  if (entry.revocado) {
+    log.warn('reject_revoked', { codeMasked: maskCode(code), empresa: entry.empresa });
+    log.timing('request_total', t0, { outcome: '400_revoked' });
+    return sendError(res, 400, GENERIC_REJECT);
+  }
+
+  if (entry.activatedHwidHash) {
+    const hwidHash = hashHwid(hwid);
+    log.warn('reject_already_activated', {
+      codeMasked: maskCode(code),
+      storedHwidPrefix: String(entry.activatedHwidHash).slice(0, 16),
+      attemptHwidPrefix: String(hwidHash).slice(0, 16),
+      empresa: entry.empresa,
+      activatedAt: entry.activatedAt || null,
+      activatedIpStored: entry.activatedIp ? String(entry.activatedIp).slice(0, 40) : null,
+      clientIp: getIp(req),
+    });
+    await recordCodeFailure(kv, code);
+    log.timing('request_total', t0, { outcome: '400_double' });
+    return sendError(res, 400, GENERIC_REJECT);
+  }
+
   const hwidHash = hashHwid(hwid);
   let token;
+  const tSign = Date.now();
   try {
     token = firmarToken({
       hwidHash,
@@ -107,21 +156,30 @@ module.exports = async function handler(req, res) {
       edition:   entry.edition  || 'profesional',
       expiraEn:  entry.expiraEn || null,
     });
+    log.timing('sign_token', tSign, {
+      edition: entry.edition || 'profesional',
+      licenciaExpiraEn: entry.expiraEn || null,
+      hwidHashPrefix: hwidHash.slice(0, 16),
+    });
   } catch (signErr) {
-    console.error('[activate] Error al firmar token:', signErr.message);
+    log.error('sign_failed', {
+      err: signErr && signErr.message ? signErr.message : String(signErr),
+      codeMasked: maskCode(code),
+    });
+    log.timing('request_total', t0, { outcome: '500_sign' });
     return sendError(res, 500, 'Error interno del servidor.');
   }
 
-  // ── 9. Commit atómico en KV ────────────────────────────────────────────
   const updatedEntry = {
     ...entry,
     activatedHwidHash: hwidHash,
     activatedAt:       new Date().toISOString(),
-    activatedIp:       getIp(req),   // solo para auditoría, nunca se devuelve al cliente
+    activatedIp:       getIp(req),
   };
+
+  const tKvCommit = Date.now();
   try {
     await kv.set(`code:${code}`, updatedEntry);
-    // Log de auditoría independiente (inmutable, solo append)
     await kv.lpush('audit:activations', JSON.stringify({
       code:       code.slice(0, 5) + '…',
       hwidHash:   hwidHash.slice(0, 12) + '…',
@@ -129,20 +187,30 @@ module.exports = async function handler(req, res) {
       ip:         getIp(req),
       ts:         new Date().toISOString(),
     }));
-    await kv.ltrim('audit:activations', 0, 9999); // max 10 000 registros
+    await kv.ltrim('audit:activations', 0, 9999);
+    log.timing('kv_commit', tKvCommit, {
+      codeMasked: maskCode(code),
+      auditTrimOk: true,
+    });
   } catch (kvErr) {
-    console.error('[activate] KV error on commit:', kvErr);
-    // Si el commit falla, no devolvemos el token (evita activar sin registrar)
+    log.error('kv_commit_error', {
+      err: kvErr && kvErr.message ? kvErr.message : String(kvErr),
+      codeMasked: maskCode(code),
+    });
+    log.timing('request_total', t0, { outcome: '503_commit' });
     return sendError(res, 503, 'No se pudo completar la activación. Intenta de nuevo.');
   }
 
-  // ── 10. Limpiar rate-limit del código (activación exitosa) ──────────────
   await clearCodeFailures(kv, code);
 
-  console.info('[activate] Activación exitosa', {
-    code:    code.slice(0, 8),
-    empresa: entry.empresa,
+  log.info('activation_success', {
+    codeMasked: maskCode(code),
+    empresa: entry.empresa || 'NexusCore',
+    edition: entry.edition || 'profesional',
+    expiraEn: entry.expiraEn || null,
+    tokenChars: token ? token.length : 0,
   });
+  log.timing('request_total', t0, { outcome: '200' });
 
   return sendOk(res, {
     token,

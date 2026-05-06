@@ -5,114 +5,135 @@
  *
  * Endpoint PRIVADO — solo lo llamas TÚ desde Postman, curl o tu panel.
  * Firma un payload Ed25519 con la clave privada que vive en Vercel.
- * El cliente solo recibe la clave resultante, nunca la clave privada.
  *
  * Autenticación: header  Authorization: Bearer <NEXUS_ADMIN_API_KEY>
- *
- * Body JSON:
- *   hwid        string  requerido   Hardware ID del equipo del cliente
- *   empresa     string  requerido   Nombre del negocio del cliente
- *   edition     string  opcional    "basico" | "profesional" | "enterprise"  (default: "profesional")
- *   expiraEn    string  opcional    "YYYY-MM-DD" — null / omitir = perpetua
  */
 
-const { createPrivateKey, sign } = require('crypto');
+const { createPrivateKey, sign, createHash } = require('crypto');
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+const { validateAdminAuth, sendError, sendOk } = require('../../lib/validate');
+const { createLogger, logServerMisconfig } = require('../../lib/logger');
 
 function b64url(buf) {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function sha256(str) {
-  return require('crypto').createHash('sha256').update(str).digest('hex');
+  return createHash('sha256').update(str).digest('hex');
 }
 
-// ── Handler principal ──────────────────────────────────────────────────────
-
 module.exports = async function handler(req, res) {
-  // Solo POST
+  const t0 = Date.now();
+  const log = createLogger(req, 'license.generate');
+
+  log.step('incoming');
+
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método no permitido' });
-  }
-
-  // Autenticación
-  const adminKey = process.env.NEXUS_ADMIN_API_KEY;
-  if (!adminKey) {
-    return res.status(500).json({ error: 'Servidor mal configurado: falta NEXUS_ADMIN_API_KEY' });
-  }
-  const auth = req.headers['authorization'] || '';
-  if (auth !== `Bearer ${adminKey}`) {
-    return res.status(401).json({ error: 'No autorizado' });
-  }
-
-  // Clave privada
-  const privatePem = process.env.NEXUS_LICENSE_PRIVATE_KEY;
-  if (!privatePem) {
-    return res.status(500).json({ error: 'Servidor mal configurado: falta NEXUS_LICENSE_PRIVATE_KEY' });
-  }
-
-  // Parsear body
-  const { hwid, empresa, edition, expiraEn } = req.body || {};
-  if (!hwid || !String(hwid).trim()) {
-    return res.status(400).json({ error: 'El campo "hwid" es obligatorio' });
-  }
-  if (!empresa || !String(empresa).trim()) {
-    return res.status(400).json({ error: 'El campo "empresa" es obligatorio' });
-  }
-
-  // Validar expiraEn si se provee
-  if (expiraEn) {
-    const d = new Date(expiraEn);
-    if (Number.isNaN(d.getTime())) {
-      return res.status(400).json({ error: 'expiraEn debe ser YYYY-MM-DD o null' });
-    }
-    if (d < new Date()) {
-      return res.status(400).json({ error: 'La fecha de expiración ya pasó' });
-    }
+    log.warn('method_not_allowed', { got: req.method });
+    log.timing('request_total', t0, { outcome: '405' });
+    return sendError(res, 405, 'Método no permitido.');
   }
 
   try {
-    // Construir payload
+    validateAdminAuth(req, 'license.generate');
+    log.step('admin_auth_ok');
+  } catch (e) {
+    log.timing('request_total', t0, { outcome: String(e.status || 401) });
+    return sendError(res, e.status || 401, e.message);
+  }
+
+  const privatePem = process.env.NEXUS_LICENSE_PRIVATE_KEY;
+  if (!privatePem || !String(privatePem).trim()) {
+    logServerMisconfig('license.generate', 'missing_NEXUS_LICENSE_PRIVATE_KEY');
+    log.timing('request_total', t0, { outcome: '500' });
+    return sendError(res, 500, 'Servidor mal configurado.');
+  }
+
+  const { hwid, empresa, edition, expiraEn } = req.body || {};
+
+  if (!hwid || !String(hwid).trim()) {
+    log.warn('validation_fail', { field: 'hwid' });
+    log.timing('request_total', t0, { outcome: '400' });
+    return sendError(res, 400, 'El campo "hwid" es obligatorio.');
+  }
+  if (!empresa || !String(empresa).trim()) {
+    log.warn('validation_fail', { field: 'empresa' });
+    log.timing('request_total', t0, { outcome: '400' });
+    return sendError(res, 400, 'El campo "empresa" es obligatorio.');
+  }
+
+  if (expiraEn) {
+    const d = new Date(expiraEn);
+    if (Number.isNaN(d.getTime())) {
+      log.warn('validation_fail', { field: 'expiraEn', reason: 'invalid_date' });
+      log.timing('request_total', t0, { outcome: '400' });
+      return sendError(res, 400, 'expiraEn debe ser YYYY-MM-DD o null.');
+    }
+    if (d < new Date()) {
+      log.warn('validation_fail', { field: 'expiraEn', reason: 'past' });
+      log.timing('request_total', t0, { outcome: '400' });
+      return sendError(res, 400, 'La fecha de expiración ya pasó.');
+    }
+  }
+
+  const hwidTrim = hwid.trim();
+  const empresaTrim = empresa.trim();
+  const editionVal = edition || 'profesional';
+
+  log.step('params_ready', {
+    hwidLen: hwidTrim.length,
+    empresaLen: empresaTrim.length,
+    edition: editionVal,
+    expiraMode: expiraEn ? 'dated' : 'perpetual',
+  });
+
+  const tSign = Date.now();
+  try {
     const payload = {
-      h:   sha256(hwid.trim()),          // hash del HWID (no reversible)
-      e:   empresa.trim(),
-      ed:  edition  || 'profesional',
-      ex:  expiraEn || null,             // null = perpetua
-      iat: Math.floor(Date.now() / 1000) // timestamp de emisión
+      h: sha256(hwidTrim),
+      e: empresaTrim,
+      ed: editionVal,
+      ex: expiraEn || null,
+      iat: Math.floor(Date.now() / 1000),
     };
 
     const payloadB64 = b64url(Buffer.from(JSON.stringify(payload)));
 
-    // Firmar con clave privada Ed25519
     const privKey = createPrivateKey(privatePem.replace(/\\n/g, '\n'));
     const signature = sign(null, Buffer.from(payloadB64), privKey);
-    const sigB64    = b64url(signature);
+    const sigB64 = b64url(signature);
 
     const licenseKey = `NC1.${payloadB64}.${sigB64}`;
 
-    // Registrar en log (Vercel lo captura en Functions → Logs)
-    console.log('[license:generate]', {
-      hwid:     hwid.trim().slice(0, 8) + '...',
-      empresa:  payload.e,
-      edition:  payload.ed,
-      expira:   payload.ex || 'perpetua',
-      emitida:  new Date().toISOString(),
+    log.timing('sign_license', tSign, {
+      payloadChars: payloadB64.length,
+      sigChars: sigB64.length,
+      licenseKeyChars: licenseKey.length,
     });
 
-    return res.status(200).json({
-      ok: true,
+    log.info('license_generated', {
+      empresa: payload.e,
+      edition: payload.ed,
+      expira: payload.ex || 'perpetua',
+      hwidProbe: `${hwidTrim.slice(0, 8)}…`,
+      iat: payload.iat,
+    });
+    log.timing('request_total', t0, { outcome: '200' });
+
+    return sendOk(res, {
       licenseKey,
       info: {
-        empresa:  payload.e,
-        edition:  payload.ed,
-        expira:   payload.ex || 'Perpetua',
-        emitida:  new Date(payload.iat * 1000).toISOString(),
+        empresa: payload.e,
+        edition: payload.ed,
+        expira: payload.ex || 'Perpetua',
+        emitida: new Date(payload.iat * 1000).toISOString(),
       },
     });
-
   } catch (err) {
-    console.error('[license:generate] Error al firmar:', err.message);
-    return res.status(500).json({ error: 'Error interno al generar la licencia' });
+    log.error('sign_failed', {
+      err: err && err.message ? err.message : String(err),
+    });
+    log.timing('request_total', t0, { outcome: '500' });
+    return sendError(res, 500, 'Error interno al generar la licencia.');
   }
 };

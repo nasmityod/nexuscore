@@ -21,6 +21,8 @@
  * Todas las claves tienen TTL → se limpian solas, sin mantenimiento manual.
  */
 
+const { logRateLimitHit } = require('./logger');
+
 const WINDOW_MINUTES    = 10;
 const MAX_PER_WINDOW    = 6;
 const MAX_PER_DAY       = 20;
@@ -52,6 +54,12 @@ async function checkAndIncrement(kv, req, code) {
 
   if (ipCount > MAX_PER_WINDOW) {
     const ttl = await kv.ttl(ipKey);
+    logRateLimitHit(req, 'ip_window', {
+      ip,
+      ipCount,
+      maxPerWindow: MAX_PER_WINDOW,
+      ttlSec: ttl || null,
+    });
     const err = new Error(
       `Demasiados intentos. Espera ${Math.ceil((ttl || 60) / 60)} minuto(s) antes de intentar de nuevo.`
     );
@@ -65,6 +73,12 @@ async function checkAndIncrement(kv, req, code) {
   if (ipdCount === 1) await kv.expire(ipdKey, 86400);
 
   if (ipdCount > MAX_PER_DAY) {
+    logRateLimitHit(req, 'ip_daily', {
+      ip,
+      ipdCount,
+      maxPerDay: MAX_PER_DAY,
+      dayKey: todayKey(),
+    });
     const err = new Error('Límite diario de intentos alcanzado. Intenta mañana.');
     err.status = 429;
     throw err;
@@ -75,6 +89,12 @@ async function checkAndIncrement(kv, req, code) {
     const codeKey   = `rl:code:${String(code).toUpperCase()}`;
     const codeCount = await kv.get(codeKey);
     if (Number(codeCount) >= MAX_CODE_FAILURES) {
+      const normalized = String(code).toUpperCase();
+      logRateLimitHit(req, 'code_failures', {
+        codeMasked: normalized.length <= 12 ? `${normalized.slice(0, 4)}…` : `${normalized.slice(0, 12)}…`,
+        failures: Number(codeCount),
+        maxFailures: MAX_CODE_FAILURES,
+      });
       const err = new Error(
         'Código bloqueado temporalmente por demasiados intentos fallidos. Espera 1 hora.'
       );

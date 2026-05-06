@@ -10,6 +10,8 @@
  *  - El formato del HWID se valida para evitar inyecciones o valores triviales.
  */
 
+const { logAdminAuthRejected, logServerMisconfig } = require('./logger');
+
 // Formato esperado del código: NC-XXXXX-XXXXX-XXXXX
 const CODE_REGEX = /^NC-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$/i;
 
@@ -50,10 +52,11 @@ function validateActivationInput(body) {
  * Verifica la clave de administración en tiempo constante.
  * Lanza un Error con .status = 401 si no autorizado.
  */
-function validateAdminAuth(req) {
+function validateAdminAuth(req, scope = 'admin') {
   const { timingSafeEqual, createHash } = require('crypto');
   const expectedKey = process.env.NEXUS_ADMIN_API_KEY;
   if (!expectedKey) {
+    logServerMisconfig(scope, 'missing_NEXUS_ADMIN_API_KEY');
     const e = new Error('Servidor mal configurado.'); e.status = 500; throw e;
   }
 
@@ -65,6 +68,7 @@ function validateAdminAuth(req) {
   const a = hash(provided);
   const b = hash(expectedKey);
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    logAdminAuthRejected(req, scope);
     const e = new Error('No autorizado.'); e.status = 401; throw e;
   }
 }

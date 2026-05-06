@@ -19,30 +19,63 @@
 const { kv }                                   = require('../../../lib/kv');
 const { generarCodigo, computeCodeHmac }       = require('../../../lib/crypto');
 const { validateAdminAuth, sendError, sendOk } = require('../../../lib/validate');
+const { createLogger }                         = require('../../../lib/logger');
 
 const EDITIONS_VALIDAS = ['basico', 'profesional', 'enterprise'];
 
 module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') return sendError(res, 405, 'Método no permitido.');
+  const t0 = Date.now();
+  const log = createLogger(req, 'admin.codes.create');
 
-  // ── Autenticación admin ────────────────────────────────────────────────
-  try { validateAdminAuth(req); }
-  catch (e) { return sendError(res, e.status || 401, e.message); }
+  log.step('incoming');
+
+  if (req.method !== 'POST') {
+    log.warn('method_not_allowed', { got: req.method });
+    log.timing('request_total', t0, { outcome: '405' });
+    return sendError(res, 405, 'Método no permitido.');
+  }
+
+  try {
+    validateAdminAuth(req, 'admin.codes.create');
+    log.step('admin_auth_ok');
+  }
+  catch (e) {
+    log.timing('request_total', t0, { outcome: String(e.status || 401) });
+    return sendError(res, e.status || 401, e.message);
+  }
 
   // ── Validación del body ────────────────────────────────────────────────
   const body = req.body || {};
 
   const empresa = String(body.empresa || '').trim().slice(0, 100);
-  if (!empresa) return sendError(res, 400, 'El campo "empresa" es obligatorio.');
+  if (!empresa) {
+    log.warn('validation_fail', { field: 'empresa' });
+    log.timing('request_total', t0, { outcome: '400' });
+    return sendError(res, 400, 'El campo "empresa" es obligatorio.');
+  }
 
   const edition = EDITIONS_VALIDAS.includes(body.edition) ? body.edition : 'profesional';
 
-  const expiraEn = body.expiraEn
-    ? validarFechaIso(body.expiraEn) : null;
-  const expiraCodigo = body.expiraCodigo
-    ? validarFechaIso(body.expiraCodigo) : null;
+  let expiraEn;
+  let expiraCodigo;
+  try {
+    expiraEn = body.expiraEn ? validarFechaIso(body.expiraEn) : null;
+    expiraCodigo = body.expiraCodigo ? validarFechaIso(body.expiraCodigo) : null;
+  } catch (fe) {
+    log.warn('validation_fail', { field: 'date', reason: fe.message });
+    log.timing('request_total', t0, { outcome: '400' });
+    return sendError(res, fe.status || 400, fe.message);
+  }
 
   const cantidad = Math.min(Math.max(parseInt(body.cantidad) || 1, 1), 50);
+
+  log.step('params_ready', {
+    empresaLen: empresa.length,
+    edition,
+    cantidad,
+    hasExpiraEn: !!expiraEn,
+    hasExpiraCodigo: !!expiraCodigo,
+  });
 
   // ── Generación de códigos ──────────────────────────────────────────────
   const codesGenerados = [];
@@ -74,10 +107,16 @@ module.exports = async function handler(req, res) {
     codesGenerados.push(code);
   }
 
+  const tKv = Date.now();
   try {
     await Promise.all(pipeline);
+    log.timing('kv_set_batch', tKv, { keysWritten: cantidad });
   } catch (kvErr) {
-    console.error('[create] KV error:', kvErr);
+    log.error('kv_set_batch_fail', {
+      err: kvErr && kvErr.message ? kvErr.message : String(kvErr),
+      cantidad,
+    });
+    log.timing('request_total', t0, { outcome: '503' });
     return sendError(res, 503, 'No se pudieron guardar los códigos. Intenta de nuevo.');
   }
 
@@ -86,8 +125,18 @@ module.exports = async function handler(req, res) {
     empresa, edition, cantidad,
     codes: codesGenerados.map(c => c.slice(0, 5) + '…'),
     ts:    new Date().toISOString(),
-  })).catch(console.error);
+  })).catch((err) => {
+    log.warn('audit_push_failed', { err: err && err.message ? err.message : String(err) });
+  });
   await kv.ltrim('audit:created', 0, 9999).catch(() => {});
+
+  log.info('codes_created', {
+    empresa,
+    edition,
+    cantidad,
+    codePrefixes: codesGenerados.map((c) => c.slice(0, 8)),
+  });
+  log.timing('request_total', t0, { outcome: '200' });
 
   return sendOk(res, {
     codes: codesGenerados,
