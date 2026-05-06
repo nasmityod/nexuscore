@@ -30,13 +30,21 @@
 const crypto = require('crypto');
 
 // ══════════════════════════════════════════════════════════════════════════
-//  CLAVE PÚBLICA  —  Generada con scripts/generarClaves.js
-//  Esta clave es pública por diseño. Permite verificar firmas pero
-//  NO permite crearlas. Actualizar si se rota el par de claves.
+//  CLAVE PÚBLICA Ed25519 (SPKI PEM). Puedes sobrescribir sin recompilar:
+//    NEXUS_LICENSE_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\\n...\\n-----END PUBLIC KEY-----"
+//  Debe ser la pareja EXACTA de NEXUS_LICENSE_PRIVATE_KEY en Vercel.
 // ══════════════════════════════════════════════════════════════════════════
-const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+const PUBLIC_KEY_PEM_DEFAULT = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEA1UzTkTmidawf5PyTeFoBzjNxWbzhIhORolI915bR2Uo=
 -----END PUBLIC KEY-----`;
+
+function effectivePublicKeyPem() {
+  const raw = process.env.NEXUS_LICENSE_PUBLIC_KEY;
+  if (raw && String(raw).trim()) {
+    return String(raw).trim().replace(/\\n/g, '\n');
+  }
+  return PUBLIC_KEY_PEM_DEFAULT;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -70,24 +78,41 @@ function verificarClave(clave, hwid) {
 
     const [, payloadB64, sigB64] = parts;
 
-    // Verificar firma Ed25519
-    const payloadBytes = Buffer.from(payloadB64);
-    const sigBytes     = fromB64url(sigB64);
-    const pubKey       = crypto.createPublicKey(PUBLIC_KEY_PEM);
-
-    const isValid = crypto.verify(null, payloadBytes, pubKey, sigBytes);
-    if (!isValid) {
-      return { ok: false, motivo: 'Firma de la licencia no válida' };
+    // Mensajes firmados en el servidor (ver license-server/lib/crypto.js):
+    //   - actualmente: UTF-8(JSON.stringify(payload))
+    //   - compatibilidad: UTF-8(payloadB64) cadena base64url (versiones anteriores)
+    let payloadBuf;
+    try {
+      payloadBuf = fromB64url(payloadB64);
+    } catch {
+      return { ok: false, motivo: 'Segmento payload de la licencia corrupto' };
     }
 
-    // Decodificar payload
-    const payload = JSON.parse(fromB64url(payloadB64).toString('utf8'));
+    const sigBytes = fromB64url(sigB64);
+    const pubKey = crypto.createPublicKey(effectivePublicKeyPem());
+    const msgAscii = Buffer.from(payloadB64, 'utf8');
+
+    const isValid =
+      crypto.verify(null, payloadBuf, pubKey, sigBytes)
+      || crypto.verify(null, msgAscii, pubKey, sigBytes);
+
+    if (!isValid) {
+      return { ok: false, motivo: 'Firma de la licencia no válida (clave pública local ≠ privada en Vercel o token corrupto)' };
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(payloadBuf.toString('utf8'));
+    } catch {
+      return { ok: false, motivo: 'Payload de licencia corrupto' };
+    }
+
     if (!payload || typeof payload !== 'object') {
       return { ok: false, motivo: 'Payload de licencia corrupto' };
     }
 
-    // Verificar que la clave sea para ESTE equipo
-    const hwidHash = sha256hex(String(hwid || '').trim());
+    // Verificar que la clave sea para ESTE equipo (mismo criterio que el servidor: HWID en mayúsculas)
+    const hwidHash = sha256hex(String(hwid || '').trim().toUpperCase());
     if (payload.h !== hwidHash) {
       return { ok: false, motivo: 'Esta licencia pertenece a otro equipo' };
     }

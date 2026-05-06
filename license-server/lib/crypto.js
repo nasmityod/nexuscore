@@ -79,9 +79,12 @@ function firmarToken({ hwidHash, empresa, edition, expiraEn }) {
     iat: Math.floor(Date.now() / 1000),
   };
 
-  const payloadB64 = toB64url(Buffer.from(JSON.stringify(payload)));
-  const privKey    = createPrivateKey(privatePem.replace(/\\n/g, '\n'));
-  const signature  = sign(null, Buffer.from(payloadB64), privKey);
+  const payloadJson = JSON.stringify(payload);
+  const payloadBuf  = Buffer.from(payloadJson, 'utf8');
+  const payloadB64  = toB64url(payloadBuf);
+  const privKey     = createPrivateKey(privatePem.replace(/\\n/g, '\n'));
+  // Firma estándar: sobre los bytes UTF-8 del JSON (no sobre la cadena base64url).
+  const signature   = sign(null, payloadBuf, privKey);
 
   return `NC1.${payloadB64}.${toB64url(signature)}`;
 }
