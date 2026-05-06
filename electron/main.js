@@ -312,7 +312,7 @@ function registerBasicIpc() {
   // URL del servidor de licencias (Vercel).
   // Cámbiala por tu URL real después de desplegar:  https://tu-proyecto.vercel.app
   const NEXUS_LICENSE_SERVER_URL = process.env.NEXUS_LICENSE_SERVER_URL
-    || 'https://nexus-license-server.vercel.app';
+    || 'https://nexuscore-iota.vercel.app';
 
   ipcMain.handle('license:get-server-url', () => NEXUS_LICENSE_SERVER_URL);
 

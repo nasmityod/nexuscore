@@ -238,8 +238,8 @@
       type="text"
       id="input-code"
       class="code-input"
-      maxlength="20"
-      placeholder="NC-XXXX-XXXX-XXXX"
+      maxlength="21"
+      placeholder="NC-XXXXX-XXXXX-XXXXX"
       autocomplete="off"
       spellcheck="false"
     >
@@ -275,7 +275,7 @@
 <script>
 (function () {
   var hwid        = '';
-  var serverUrl   = 'https://nexus-license-server.vercel.app'; // fallback
+  var serverUrl   = 'https://nexuscore-iota.vercel.app'; // fallback si no hay Electron
   var hwidEl      = document.getElementById('hwid-display');
   var codeEl      = document.getElementById('input-code');
   var btnActivar  = document.getElementById('btn-activar');
