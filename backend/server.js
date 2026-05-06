@@ -112,9 +112,12 @@ apiProtected.use('/configuracion', configuracionRoutes);
   apiProtected.use('/compras', comprasRoutes);
 apiProtected.use('/cashea', casheaRoutes);
 apiProtected.use('/devoluciones', devolucionesRoutes);
-apiProtected.use('/licencia', licenciaRoutes);
 
 app.use('/api', apiProtected);
+
+// Rutas de licencia: activar-inicial es pública (sin JWT); las demás usan
+// requirePermission dentro de licencia.routes.js.
+app.use('/api/licencia', licenciaRoutes);
 
 app.use(errorHandlerMiddleware);
 
