@@ -325,24 +325,25 @@
     });
   });
 
-  // ── Formatear código mientras escribe (NC-XXXX-XXXX-XXXX) ─────────────
+  // ── Formatear código mientras escribe (NC-XXXXX-XXXXX-XXXXX) ──────────
   codeEl.addEventListener('input', function () {
     var raw = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     var formatted = '';
     if (raw.startsWith('NC')) {
-      var rest = raw.slice(2);
+      var rest = raw.slice(2);             // hasta 15 chars (3 grupos de 5)
       formatted = 'NC';
-      for (var i = 0; i < rest.length && i < 12; i++) {
-        if (i % 4 === 0) formatted += '-';
+      for (var i = 0; i < rest.length && i < 15; i++) {
+        if (i % 5 === 0) formatted += '-'; // guión cada 5 caracteres
         formatted += rest[i];
       }
     } else {
-      formatted = raw.slice(0, 14);
+      formatted = raw.slice(0, 17);
     }
     codeEl.value = formatted;
 
+    // habilitar botón cuando el código tenga los 17 chars sin guiones (NC + 15)
     var clean = codeEl.value.replace(/-/g, '');
-    btnActivar.disabled = clean.length < 14;
+    btnActivar.disabled = clean.length < 17;
     hideAlerts();
   });
 
