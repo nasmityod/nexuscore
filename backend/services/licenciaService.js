@@ -53,8 +53,9 @@ function sha256hex(str) {
 }
 
 function fromB64url(s) {
-  const padded = s.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice((s.length * 6) % 8 === 0 ? 8 : (4 - ((s.length * 6) % 8) / 2));
-  return Buffer.from(padded, 'base64');
+  let b64 = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  const pad = (4 - (b64.length % 4)) % 4;
+  return Buffer.from(b64 + '='.repeat(pad), 'base64');
 }
 
 // ── Verificación asimétrica ────────────────────────────────────────────────
