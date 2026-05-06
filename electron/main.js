@@ -87,6 +87,9 @@ let appShuttingDown = false;
 let mainWindow = null;
 let splashWindow = null;
 
+/** Evita app.quit() cuando aún no existe la ventana principal (p. ej. al cerrar solo la activación). */
+let mainWindowLifecycleStarted = false;
+
 function getPreloadPath() {
   return path.join(__dirname, 'preload.js');
 }
@@ -153,6 +156,8 @@ let activationWindow = null;
 
 function createActivationWindow() {
   return new Promise((resolve) => {
+    let settled = false;
+
     activationWindow = new BrowserWindow({
       width:            520,
       height:           680,
@@ -182,15 +187,21 @@ function createActivationWindow() {
     // El renderer envía este evento cuando la activación es exitosa
     ipcMain.once('license:activated', () => {
       console.log(`${LOG_PREFIX} Licencia activada — abriendo aplicación principal.`);
+      settled = true;
       if (activationWindow && !activationWindow.isDestroyed()) {
         activationWindow.close();
-        activationWindow = null;
       }
+      activationWindow = null;
       resolve(true);
     });
 
     activationWindow.on('closed', () => {
       activationWindow = null;
+      // Cierre sin activar: no dejar la promesa colgada ni el proceso sin ventanas sin salir
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
     });
   });
 }
@@ -244,6 +255,7 @@ async function checkLicense() {
 }
 
 function createMainWindow() {
+  mainWindowLifecycleStarted = true;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -404,7 +416,12 @@ app.whenReady().then(async () => {
         await new Promise(resolve => setTimeout(resolve, 300));
         closeSplash();
         // Espera hasta que el usuario active correctamente
-        await createActivationWindow();
+        const activated = await createActivationWindow();
+        if (!activated) {
+          console.log(`${LOG_PREFIX} Activación cancelada o ventana cerrada — saliendo.`);
+          app.quit();
+          return;
+        }
       } else {
         console.log(`${LOG_PREFIX} Licencia válida — continuando.`);
       }
@@ -490,7 +507,11 @@ app.on('before-quit', (e) => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform === 'darwin') return;
+  if (!mainWindowLifecycleStarted) {
+    return;
+  }
+  app.quit();
 });
 
 // Manejo de excepciones no capturadas: loguea sin tumbar la app.
