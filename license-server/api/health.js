@@ -19,9 +19,9 @@ module.exports = async function handler(req, res) {
     kvOk = true;
   } catch (e) {
     const m = e && e.message ? String(e.message) : '';
-    if (m.includes('KV_REST_API') || m.includes('UPSTASH_REDIS_REST')) {
+    if (m.includes('KV_REST_API') || m.includes('Redis no configurado') || m.includes('UPSTASH_REDIS_REST')) {
       kvHint =
-        'Faltan KV_REST_API_URL + KV_REST_API_TOKEN (credenciales REST de Redis/Upstash). KV_REDIS_URL no basta.';
+        'Define credenciales: (1) KV_REST_API_URL + KV_REST_API_TOKEN, o (2) solo KV_REDIS_URL con redis://';
     }
   }
 
