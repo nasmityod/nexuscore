@@ -407,6 +407,13 @@
       setProgress(70, 'Guardando licencia en este equipo...');
       setDot(3, 'active');
 
+      // Vercel devuelve { token, empresa, edition, expiraEn, ... } plano; no usa data.info
+      var serverInfo = data.info || {
+        empresa: data.empresa,
+        edition: data.edition,
+        expira:  data.expiraEn != null && data.expiraEn !== '' ? data.expiraEn : null,
+      };
+
       return fetch('http://127.0.0.1:3000/api/licencia/activar-inicial', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -414,7 +421,7 @@
       }).then(function (r2) {
         return r2.json().then(function (d2) {
           if (!r2.ok) throw new Error(d2.error || 'No se pudo guardar la licencia localmente');
-          return { serverInfo: data.info, localInfo: d2.info };
+          return { serverInfo: serverInfo, localInfo: d2.info };
         });
       });
     })
@@ -425,7 +432,7 @@
       dot2.className = 'step-dot done';
       dot3.className = 'step-dot done';
 
-      var info = result.serverInfo;
+      var info = result.serverInfo || {};
       showSuccess(
         '¡Activado correctamente! · ' +
         (info.empresa ? info.empresa + ' · ' : '') +
