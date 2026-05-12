@@ -28,6 +28,14 @@
 
   function fUsdBcv(v) { return n(v).toFixed(1); }
 
+  function canDo(perm) {
+    if (!window.NexusAuth || typeof window.NexusAuth.getUser !== 'function') return false;
+    var u = window.NexusAuth.getUser();
+    if (!u) return false;
+    var p = u.permisos || {};
+    return p.all === true || p[perm] === true;
+  }
+
   /** Alineado con navbar: mismas tasas que ves arriba (inputs) o localStorage. */
   function round4t(nv) {
     if (window.PreciosServiceClient && window.PreciosServiceClient.redondearTasa4) {
@@ -165,8 +173,11 @@
         '<td style="text-align:right;color:#10b981">Bs. ' + (precios ? fBs(precios.precio_bs) : '—') + '</td>' +
         '<td class="inv-actions-cell">' +
         '<div class="inv-row-actions">' +
-        '<button type="button" class="inv-btn inv-btn-edit" onclick="InventarioPage.editarProducto(' + p.id + ')" title="Editar producto">✏️ Editar</button>' +
-        '<button type="button" class="inv-btn inv-btn-delete" onclick="InventarioPage.eliminarProducto(' + p.id + ',\'' + esc(p.nombre) + '\')" title="Eliminar producto">🗑️</button>' +
+        (canDo('inventario_edit')
+          ? '<button type="button" class="inv-btn inv-btn-edit" onclick="InventarioPage.editarProducto(' + p.id + ')" title="Editar producto">✏️ Editar</button>' +
+            '<button type="button" class="inv-btn inv-btn-delete" onclick="InventarioPage.eliminarProducto(' + p.id + ',\'' + esc(p.nombre) + '\')" title="Eliminar producto">🗑️</button>'
+          : '<button type="button" class="inv-btn inv-btn-edit" style="opacity:0.5;cursor:default" disabled title="Sin permiso para editar">✏️ Editar</button>'
+        ) +
         '</div></td></tr>';
     }).join('');
   }
@@ -217,10 +228,10 @@
           setValue(host, '#prod-nombre',    p.nombre || '');
           setValue(host, '#prod-barras',    p.codigo_barras || '');
           setValue(host, '#prod-codigo-interno', p.codigo_interno || '');
-          setValue(host, '#prod-stock',     p.stock_actual || 0);
-          setValue(host, '#prod-stock-min', p.stock_minimo || 1);
-          setValue(host, '#prod-costo',     p.costo_usd || '');
-          setValue(host, '#prod-ganancia',  p.margen_ganancia_pct || 30);
+          setValue(host, '#prod-stock', String(enteroParaInput(p.stock_actual, 0)));
+          setValue(host, '#prod-stock-min', String(Math.max(0, enteroParaInput(p.stock_minimo, 1))));
+          setValue(host, '#prod-costo',    decimalParaInput(p.costo_usd, 4, ''));
+          setValue(host, '#prod-ganancia', decimalParaInput(p.margen_ganancia_pct, 2, '30'));
 
           var catSel = host.querySelector('#prod-categoria');
           if (catSel && p.categoria_id) catSel.value = String(p.categoria_id);
@@ -249,9 +260,9 @@
     ['#prod-nombre','#prod-barras','#prod-codigo-interno','#prod-stock','#prod-stock-min',
      '#prod-costo','#prod-ganancia']
       .forEach(function (sel) { setValue(host, sel, ''); });
-    setValue(host, '#prod-stock-bultos', '0');
+    setValue(host, '#prod-stock-bultos', '');
     setValue(host, '#prod-unidades-bulto', '1');
-    setValue(host, '#prod-stock-cantidad', '0');
+    setValue(host, '#prod-stock-cantidad', '');
     actualizarVistaStockBulto(host);
     recalcularPreciosVista(host);
   }
@@ -261,9 +272,38 @@
     if (el) el.value = String(val);
   }
 
+  /** Campos tipo entero cuando el API trae DECIMAL (evita ver 100,0000 en el input). */
+  function enteroParaInput(raw, siInvalido) {
+    var x = Math.round(parseNumFormulario(raw));
+    return Number.isFinite(x) ? x : siInvalido;
+  }
+
+  /** Parseo flexible (API o copia/pega con coma decimal sin punto). */
+  function parseNumFormulario(raw) {
+    if (raw == null || raw === '') return NaN;
+    if (typeof raw === 'number') return raw;
+    var s = String(raw).trim().replace(/\s/g, '');
+    if (s.indexOf(',') !== -1 && s.indexOf('.') === -1) s = s.replace(',', '.');
+    return parseFloat(s);
+  }
+
+  /** Redondea y quita ceros sobrantes para <input type="number"> (valor interno con punto). */
+  function decimalParaInput(raw, maxDec, siInvalido) {
+    var x = parseNumFormulario(raw);
+    if (!Number.isFinite(x)) return siInvalido;
+    var m = Math.pow(10, maxDec);
+    x = Math.round(x * m) / m;
+    return String(parseFloat(x.toFixed(maxDec)));
+  }
+
   function getValue(host, sel) {
     var el = host.querySelector(sel);
     return el ? el.value.trim() : '';
+  }
+
+  /** Lee un input numérico (acepta coma decimal si el usuario la escribe). */
+  function getNumCampo(host, sel) {
+    return parseNumFormulario(getValue(host, sel));
   }
 
   function poblarSelectCategorias(host) {
@@ -276,8 +316,8 @@
   }
 
   function recalcularPreciosVista(host) {
-    var costo  = parseFloat(getValue(host, '#prod-costo')) || 0;
-    var margen = parseFloat(getValue(host, '#prod-ganancia'));
+    var costo  = getNumCampo(host, '#prod-costo') || 0;
+    var margen = getNumCampo(host, '#prod-ganancia');
     if (isNaN(margen)) margen = 0;
     var resEl  = host.querySelector('#precios-resultado');
     if (!resEl) return;
@@ -300,8 +340,8 @@
 
   function guardarProducto(host) {
     var nombre  = getValue(host, '#prod-nombre');
-    var costo   = parseFloat(getValue(host, '#prod-costo'));
-    var margen  = parseFloat(getValue(host, '#prod-ganancia'));
+    var costo   = getNumCampo(host, '#prod-costo');
+    var margen  = getNumCampo(host, '#prod-ganancia');
 
     if (!nombre) {
       toast('El nombre del producto es obligatorio', 'error');

@@ -71,6 +71,58 @@
     }
   }
 
+  function formatDesdeHace(segundos) {
+    var s = n(segundos);
+    if (s < 60) return 'abierta desde hace menos de 1 minuto';
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    if (h >= 24) {
+      var d = Math.floor(h / 24);
+      var hr = h % 24;
+      return 'abierta desde hace ' + d + (d === 1 ? ' día' : ' días') + (hr ? ' ' + hr + ' h' : '');
+    }
+    if (h > 0 && m > 0) return 'abierta desde hace ' + h + ' h ' + m + ' min';
+    if (h > 0) return 'abierta desde hace ' + h + (h === 1 ? ' hora' : ' horas');
+    return 'abierta desde hace ' + m + (m === 1 ? ' minuto' : ' minutos');
+  }
+
+  /** Cajas abiertas de otros (login → localStorage), solo supervisión / caja. */
+  function renderOtrosCajerosBanner() {
+    var el = q('[data-dash-otros-cajeros]');
+    if (!el) return;
+    var can =
+      window.NexusAuth &&
+      typeof window.NexusAuth.can === 'function' &&
+      (window.NexusAuth.can('usuarios_all') || window.NexusAuth.can('caja_operar'));
+    if (!can) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    var raw = null;
+    try {
+      raw = localStorage.getItem('nexus_cajas_abiertas_otros');
+    } catch (e) {}
+    var list = [];
+    try {
+      list = raw ? JSON.parse(raw) : [];
+    } catch (e2) {
+      list = [];
+    }
+    if (!Array.isArray(list) || !list.length) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    var parts = list.map(function (row) {
+      var name = row.cajero || row.username || 'Cajero';
+      return esc(name) + ' (' + formatDesdeHace(row.antiguedad_segundos) + ')';
+    });
+    el.innerHTML =
+      '<strong>Atención:</strong> los siguientes cajeros tienen caja abierta: ' + parts.join(', ') + '.';
+    el.hidden = false;
+  }
+
   /* ─── Hero KPIs ──────────────────────────────────────────────── */
   function renderKpis(kpis, gananciaHoy) {
     set('[data-dash-hoy-monto]', usd(kpis.ventas_hoy));
@@ -295,8 +347,14 @@
     // Caja activa
     apiFetch('/api/caja/sesion-activa')
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { renderCajaBanner(d); })
-      .catch(function () { renderCajaBanner(null); });
+      .then(function (d) {
+        renderCajaBanner(d);
+        renderOtrosCajerosBanner();
+      })
+      .catch(function () {
+        renderCajaBanner(null);
+        renderOtrosCajerosBanner();
+      });
 
     // Gráfica 7 días
     apiFetch('/api/reportes/ventas-periodo?dias=7')
@@ -337,6 +395,7 @@
       }
 
       renderSaludo();
+      renderOtrosCajerosBanner();
       runAll();
 
       // Botón actualizar manual
@@ -354,11 +413,18 @@
         else { clearInterval(refreshTimer); refreshTimer = null; }
       }, 60000);
 
+      // Bug-37: re-render the otros-cajeros banner whenever the session changes
+      // (logout clears nexus_cajas_abiertas_otros from localStorage, so the banner
+      // should go away immediately without waiting for the next full runAll()).
+      var onSession = function () { renderOtrosCajerosBanner(); };
+      window.addEventListener('nexus:session', onSession);
+
       // Cleanup al cambiar de ruta
       window.addEventListener('nexus:route', function cleanup() {
         clearInterval(refreshTimer);
         refreshTimer = null;
         destroyChart();
+        window.removeEventListener('nexus:session', onSession);
         window.removeEventListener('nexus:route', cleanup);
       }, { once: true });
     }

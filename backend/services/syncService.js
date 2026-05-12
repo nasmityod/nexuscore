@@ -236,6 +236,11 @@ class SyncService {
               'Respaldo omitido: versión de pg_dump distinta al servidor. Define NEXUS_PG_BIN_DIR en .env con el bin de la misma versión mayor que el servidor.',
               { dumpPath, error: msg.split('\n')[0] }
             );
+            await this.mergeState({
+              lastErrorCode: 'pg_dump_version_mismatch',
+              lastErrorAt: new Date().toISOString(),
+              lastErrorMessage: 'pg_dump versión incompatible con el servidor'
+            });
           } else {
             logger.error('Respaldo fallido: pg_dump reportó un error', { dumpPath, error: msg.split('\n')[0] });
           }
@@ -246,6 +251,13 @@ class SyncService {
 
     if (lastErr) {
       const msg = lastErr.message || String(lastErr);
+      if (isPgDumpVersionMismatch(msg)) {
+        await this.mergeState({
+          lastErrorCode: 'pg_dump_version_mismatch',
+          lastErrorAt: new Date().toISOString(),
+          lastErrorMessage: 'pg_dump versión incompatible con el servidor'
+        });
+      }
       return { ok: false, error: msg };
     }
 
@@ -254,7 +266,10 @@ class SyncService {
       await this.mergeState({
         lastSuccessAt,
         lastFile: fileName,
-        lastSource: source
+        lastSource: source,
+        lastErrorCode: null,
+        lastErrorAt: null,
+        lastErrorMessage: null
       });
       await this.rotateOldBackups(dir);
     } catch (e) {
@@ -266,7 +281,14 @@ class SyncService {
   }
 
   /**
-   * @returns {Promise<{ ultimoExitoEn: string|null, ultimoArchivo: string|null, directorio: string }>}
+   * @returns {Promise<{
+   *   lastSuccessAt: string|null,
+   *   lastFile: string|null,
+   *   directorio: string,
+   *   lastErrorCode: string|null,
+   *   lastErrorAt: string|null,
+   *   lastErrorMessage: string|null
+   * }>}
    */
   static async getBackupStatus() {
     const dir = this.getBackupDir();
@@ -274,13 +296,29 @@ class SyncService {
     try {
       const raw = await fs.readFile(statePath, 'utf8');
       const j = JSON.parse(raw);
+      const lastSuccessAt = j.lastSuccessAt != null ? String(j.lastSuccessAt) : null;
+      const lastErrorCode =
+        j.lastErrorCode !== undefined && j.lastErrorCode !== null ? String(j.lastErrorCode) : null;
       return {
-        ultimoExitoEn: j.lastSuccessAt || null,
-        ultimoArchivo: j.lastFile || null,
-        directorio: dir
+        lastSuccessAt,
+        lastFile: j.lastFile != null ? String(j.lastFile) : null,
+        directorio: dir,
+        lastErrorCode,
+        lastErrorAt: j.lastErrorAt != null ? String(j.lastErrorAt) : null,
+        lastErrorMessage:
+          j.lastErrorMessage !== undefined && j.lastErrorMessage !== null
+            ? String(j.lastErrorMessage)
+            : null
       };
     } catch (_e) {
-      return { ultimoExitoEn: null, ultimoArchivo: null, directorio: dir };
+      return {
+        lastSuccessAt: null,
+        lastFile: null,
+        directorio: dir,
+        lastErrorCode: null,
+        lastErrorAt: null,
+        lastErrorMessage: null
+      };
     }
   }
 }

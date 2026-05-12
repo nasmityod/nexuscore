@@ -233,10 +233,12 @@ async function obtenerResumenPendiente(fechaDesde, fechaHasta) {
   let totalVentaUsd = 0;
   let totalInicialUsd = 0;
   let totalPrestadoUsd = 0;
+  let totalNetoLiquidacionUsd = 0;
   rows.forEach((r) => {
     totalVentaUsd   += Number(r.venta_total_usd || 0);
     totalInicialUsd += Number(r.monto_inicial_usd || 0);
     totalPrestadoUsd += Number(r.monto_prestado_usd || 0);
+    totalNetoLiquidacionUsd += Number(r.neto_liquidacion_usd || 0);
   });
 
   const fechaMin = rows.length ? rows[rows.length - 1].fecha_venta : null;
@@ -261,6 +263,7 @@ async function obtenerResumenPendiente(fechaDesde, fechaHasta) {
       total_venta_usd:   round2(totalVentaUsd),
       total_inicial_usd: round2(totalInicialUsd),
       total_prestado_usd: round2(totalPrestadoUsd),
+      total_neto_liquidacion_usd: round2(totalNetoLiquidacionUsd),
       fecha_desde: fechaMin,
       fecha_hasta: fechaMax
     },
@@ -269,7 +272,7 @@ async function obtenerResumenPendiente(fechaDesde, fechaHasta) {
 }
 
 /**
- * Crea liquidación semanal y marca ventas pendientes en el rango (por fecha de creación Cashea).
+ * Crea liquidación en el rango de fechas de VENTA (fecha_venta), alineado con obtenerResumenPendiente.
  */
 async function procesarLiquidacion(payload) {
   const {
@@ -291,6 +294,9 @@ async function procesarLiquidacion(payload) {
 
   if (!d0 || !d1) throw new Error('semanaInicio y semanaFin deben ser fechas válidas');
 
+  // Bug-31: validate date range order
+  if (d0 > d1) throw new Error('semanaInicio no puede ser posterior a semanaFin');
+
   let recibido = Number(montoRecibido);
   if (!Number.isFinite(recibido)) throw new Error('montoRecibido inválido');
 
@@ -301,14 +307,21 @@ async function procesarLiquidacion(payload) {
   let advertencia;
 
   await db.tx(async (t) => {
+    /* Bug-30: lock and collect candidate IDs first (FOR UPDATE), then use those
+       exact IDs in both the totals calculation AND the UPDATE, so the two sets
+       are always identical even if new PENDIENTE rows arrive concurrently. */
     const candidates = await t.any(
-      `SELECT *
-       FROM ventas_cashea
-       WHERE estado_liquidacion = 'PENDIENTE'
-         AND created_at >= $1::date
-         AND created_at < ($2::date + INTERVAL '1 day')`,
+      `SELECT vc.*
+       FROM ventas_cashea vc
+       INNER JOIN ventas v ON v.id = vc.venta_id
+       WHERE vc.estado_liquidacion = 'PENDIENTE'
+         AND v.fecha_venta::date >= $1::date
+         AND v.fecha_venta::date <= $2::date
+       FOR UPDATE OF vc`,
       [d0, d1]
     );
+
+    const candidateIds = candidates.map((r) => r.id);
 
     let totalBruto = 0;
     let totalCom = 0;
@@ -341,17 +354,17 @@ async function procesarLiquidacion(payload) {
       [d0, d1, totalBruto, totalCom, totalNeto, n, refBan || null, notasOpt || null]
     );
 
-    await t.none(
-      `UPDATE ventas_cashea
-       SET estado_liquidacion = 'LIQUIDADO',
-           liquidado_at = NOW(),
-           liq_batch_id = $1,
-           pct_extra = COALESCE(pct_extra, 0)
-       WHERE estado_liquidacion = 'PENDIENTE'
-         AND created_at >= $2::date
-         AND created_at < ($3::date + INTERVAL '1 day')`,
-      [batchRow.id, d0, d1]
-    );
+    if (candidateIds.length > 0) {
+      await t.none(
+        `UPDATE ventas_cashea
+         SET estado_liquidacion = 'LIQUIDADO',
+             liquidado_at = NOW(),
+             liq_batch_id = $1,
+             pct_extra = COALESCE(pct_extra, 0)
+         WHERE id = ANY($2::int[])`,
+        [batchRow.id, candidateIds]
+      );
+    }
 
     dif = round2(recibido - totalNeto);
     advertencia = Math.abs(dif) > 0.10;

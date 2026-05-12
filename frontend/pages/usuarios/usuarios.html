@@ -3,7 +3,7 @@
 .usuarios-page .btn-primary{height:40px;padding:0 1.1rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.875rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem}
 .usuarios-page .btn-primary:hover{background:#2563eb}
 .usuarios-page .btn-secondary{height:40px;padding:0 .9rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem}
-.usuarios-page .btn-danger{height:36px;padding:0 .75rem;border-radius:var(--radius-md);background:transparent;border:1px solid rgba(239,68,68,.4);color:#ef4444;cursor:pointer;font-size:.8rem}
+.usuarios-page .btn-danger{height:36px;padding:.0 .75rem;border-radius:var(--radius-md);background:transparent;border:1px solid rgba(239,68,68,.4);color:#ef4444;cursor:pointer;font-size:.8rem}
 .usuarios-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
 .usuario-card{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.1rem}
 .usuario-card-header{display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem}
@@ -13,16 +13,38 @@
 .usuario-username{font-size:.78rem;color:var(--text-secondary)}
 .badge-rol{padding:.1rem .45rem;border-radius:var(--radius-sm);font-size:.7rem;font-weight:700;background:rgba(59,130,246,.15);color:#3b82f6}
 .badge-inactivo{background:rgba(239,68,68,.1);color:#ef4444}
+.badge-custom-perm{background:rgba(245,158,11,.15);color:#f59e0b}
 .usuario-card-acciones{display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;padding:1rem}
 .modal-overlay.is-open{display:flex}
 .modal-box{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-lg);max-width:500px;width:100%;padding:1.5rem;max-height:90vh;overflow-y:auto}
+.modal-box--wide{max-width:720px}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem}
 .modal-close{background:transparent;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-secondary)}
 .campo-grupo{margin-bottom:.9rem}
 .campo-grupo label{display:block;font-size:.83rem;font-weight:600;color:var(--text-secondary);margin-bottom:.3rem}
 .input-g{width:100%;height:42px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.93rem;box-sizing:border-box}
 .input-g:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
+
+/* Permissions panel */
+.permisos-panel{margin-top:1rem;border:1px solid var(--border-primary);border-radius:var(--radius-md);overflow:hidden}
+.permisos-panel-header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;background:var(--bg-tertiary);cursor:pointer;user-select:none;gap:.5rem}
+.permisos-panel-header:hover{background:var(--bg-hover,var(--bg-tertiary))}
+.permisos-panel-title{font-size:.85rem;font-weight:700;display:flex;align-items:center;gap:.4rem}
+.permisos-panel-body{padding:0 1rem 1rem}
+.permisos-toggle-row{display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,.06))}
+.permisos-toggle-row:last-child{border-bottom:none}
+.permisos-check{width:17px;height:17px;flex-shrink:0;accent-color:#3b82f6;cursor:pointer}
+.permisos-info{flex:1;min-width:0}
+.permisos-label{font-size:.83rem;font-weight:600;color:var(--text-primary)}
+.permisos-desc{font-size:.75rem;color:var(--text-secondary);margin-top:.1rem;line-height:1.4}
+.permisos-grupo-title{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#3b82f6;padding:.75rem 0 .25rem;opacity:.8}
+.permisos-custom-toggle{display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;padding:.6rem .75rem;background:rgba(59,130,246,.06);border-radius:var(--radius-sm);border:1px solid rgba(59,130,246,.15)}
+.permisos-custom-toggle label{font-size:.82rem;font-weight:600;cursor:pointer;flex:1}
+.permisos-desde-rol{font-size:.78rem;padding:.35rem .7rem;border-radius:var(--radius-sm);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-secondary);cursor:pointer;white-space:nowrap}
+.permisos-desde-rol:hover{border-color:#3b82f6;color:#3b82f6}
+.permisos-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 1.5rem}
+@media(max-width:540px){.permisos-grid{grid-template-columns:1fr}}
 </style>
 
 <div class="page-header">
@@ -42,7 +64,7 @@
 
 <!-- Modal Crear/Editar Usuario -->
 <div class="modal-overlay" id="modal-usuario">
-  <div class="modal-box">
+  <div class="modal-box" id="modal-usuario-box">
     <div class="modal-header">
       <h2 id="modal-usuario-titulo" style="font-size:1rem;font-weight:700;margin:0">Nuevo Usuario</h2>
       <button class="modal-close" id="btn-cerrar-modal-usuario">✕</button>
@@ -72,7 +94,11 @@
         <span>Usuario activo</span>
       </label>
     </div>
-    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:.5rem">
+
+    <!-- Permissions panel: only rendered if current user has usuarios_all -->
+    <div id="permisos-panel-wrap"></div>
+
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem">
       <button class="btn-secondary" id="btn-cancelar-modal-usuario">Cancelar</button>
       <button class="btn-primary" id="btn-guardar-usuario">💾 Guardar</button>
     </div>
@@ -122,9 +148,6 @@
         </div>
         <button class="btn-primary" id="btn-crear-rol" style="height:38px;white-space:nowrap">Crear Rol</button>
       </div>
-    </div>
-    <div style="margin-top:.75rem;padding:.65rem;background:var(--bg-tertiary);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-secondary)">
-      Los permisos detallados se configuran desde <strong>Configuración → Usuarios</strong>. Los permisos predefinidos son: <code>all</code> (admin total), <code>pos_sales</code>, <code>ventas_ver</code>, <code>ventas_anular</code>, <code>clientes_ver</code>, <code>clientes_edit</code>, <code>inventario_ver</code>, <code>inventario_edit</code>, <code>reportes_all</code>, <code>caja_operar</code>, <code>compras_all</code>, <code>config_read</code>, <code>usuarios_all</code>.
     </div>
     <div style="text-align:right;margin-top:1rem">
       <button class="btn-secondary" id="btn-cerrar-roles-2">Cerrar</button>

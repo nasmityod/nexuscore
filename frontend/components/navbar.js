@@ -253,10 +253,13 @@
     logoutBtn.textContent = 'Cerrar sesión';
     logoutBtn.addEventListener('click', () => {
       if (window.NexusAuth && typeof window.NexusAuth.logout === 'function') {
-        window.NexusAuth.logout();
-        window.NexusComponents &&
-          window.NexusComponents.showToast &&
-          window.NexusComponents.showToast('Sesión cerrada. Otro usuario puede iniciar sesión.', 'success');
+        void Promise.resolve(window.NexusAuth.logout()).then((cleared) => {
+          if (cleared) {
+            window.NexusComponents &&
+              window.NexusComponents.showToast &&
+              window.NexusComponents.showToast('Sesión cerrada. Otro usuario puede iniciar sesión.', 'success');
+          }
+        });
       }
     });
 

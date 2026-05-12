@@ -690,17 +690,22 @@ class PdfService {
        WHERE DATE(fecha_venta) = CURRENT_DATE`
     );
 
+    /* Bug-29: aggregate over JSONB pagos array (same logic as resumenCierre) instead of
+       the scalar metodo_pago header column which only works for single-method sales. */
     const montosEsperados = await db.one(
       `SELECT
-         COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo_usd' THEN total_usd ELSE 0 END), 0)::numeric AS efectivo_usd,
-         COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo_bs'  THEN total_bs  ELSE 0 END), 0)::numeric AS efectivo_bs,
-         COALESCE(SUM(CASE WHEN metodo_pago = 'zelle'            THEN total_usd ELSE 0 END), 0)::numeric AS zelle_usd,
-         COALESCE(SUM(CASE WHEN metodo_pago = 'transferencia_bs' THEN total_bs  ELSE 0 END), 0)::numeric AS transferencia_bs,
-         COALESCE(SUM(CASE WHEN metodo_pago = 'pago_movil'       THEN total_bs  ELSE 0 END), 0)::numeric AS pago_movil_bs,
-         COALESCE(SUM(CASE WHEN metodo_pago = 'punto'            THEN total_bs  ELSE 0 END), 0)::numeric AS punto_bs,
-         COALESCE(SUM(CASE WHEN metodo_pago = 'mixto'            THEN total_usd ELSE 0 END), 0)::numeric AS mixto_usd
-       FROM ventas
-       WHERE estado = 'completada' AND DATE(fecha_venta) = CURRENT_DATE`
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'efectivo_usd'), 0)::numeric AS efectivo_usd,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'efectivo_bs'),  0)::numeric AS efectivo_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'zelle'),            0)::numeric AS zelle_usd,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'transferencia_bs'), 0)::numeric AS transferencia_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'pago_movil'),       0)::numeric AS pago_movil_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'punto'),            0)::numeric AS punto_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'cashea'),           0)::numeric AS cashea_usd
+       FROM ventas v,
+            jsonb_array_elements(
+              CASE jsonb_typeof(v.pagos) WHEN 'array' THEN v.pagos ELSE '[]'::jsonb END
+            ) AS p(obj)
+       WHERE v.estado = 'completada' AND DATE(v.fecha_venta) = CURRENT_DATE`
     );
 
     const hoy = await db.one(`SELECT CURRENT_DATE AS d`);
@@ -808,17 +813,23 @@ class PdfService {
       [sesion.id]
     );
 
+    /* Bug-29: aggregate over JSONB pagos array so mixed-method sales are counted correctly. */
     const montosEsperados = await db.one(
       `SELECT
-         (sc.monto_inicial_usd + COALESCE(SUM(CASE WHEN v.metodo_pago = 'efectivo_usd' THEN v.total_usd ELSE 0 END), 0))::numeric AS efectivo_usd,
-         (sc.monto_inicial_bs  + COALESCE(SUM(CASE WHEN v.metodo_pago = 'efectivo_bs'  THEN v.total_bs  ELSE 0 END), 0))::numeric AS efectivo_bs,
-         COALESCE(SUM(CASE WHEN v.metodo_pago = 'zelle'            THEN v.total_usd ELSE 0 END), 0)::numeric AS zelle_usd,
-         COALESCE(SUM(CASE WHEN v.metodo_pago = 'transferencia_bs' THEN v.total_bs  ELSE 0 END), 0)::numeric AS transferencia_bs,
-         COALESCE(SUM(CASE WHEN v.metodo_pago = 'pago_movil'       THEN v.total_bs  ELSE 0 END), 0)::numeric AS pago_movil_bs,
-         COALESCE(SUM(CASE WHEN v.metodo_pago = 'punto'            THEN v.total_bs  ELSE 0 END), 0)::numeric AS punto_bs,
-         COALESCE(SUM(CASE WHEN v.metodo_pago = 'mixto'            THEN v.total_usd ELSE 0 END), 0)::numeric AS mixto_usd
+         (sc.monto_inicial_usd +
+           COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'efectivo_usd'), 0))::numeric AS efectivo_usd,
+         (sc.monto_inicial_bs +
+           COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'efectivo_bs'),  0))::numeric AS efectivo_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'zelle'),            0)::numeric AS zelle_usd,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'transferencia_bs'), 0)::numeric AS transferencia_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'pago_movil'),       0)::numeric AS pago_movil_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'punto'),            0)::numeric AS punto_bs,
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'cashea'),           0)::numeric AS cashea_usd
        FROM sesiones_caja sc
        LEFT JOIN ventas v ON v.sesion_caja_id = sc.id AND v.estado = 'completada'
+       LEFT JOIN LATERAL jsonb_array_elements(
+         CASE jsonb_typeof(v.pagos) WHEN 'array' THEN v.pagos ELSE '[]'::jsonb END
+       ) AS p(obj) ON TRUE
        WHERE sc.id = $1
        GROUP BY sc.id, sc.monto_inicial_usd, sc.monto_inicial_bs`,
       [sesion.id]

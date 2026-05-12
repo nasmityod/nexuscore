@@ -48,7 +48,13 @@ window.NexusRouter = (function () {
     if (h.startsWith('/')) h = h.slice(1);
     const part = h.split('/')[0];
     if (!part || part === '') return byHash.dashboard || routes[1];
-    return byHash[part] || byHash.dashboard || routes[1];
+    const found = byHash[part];
+    if (!found) {
+      // Normalise unknown hash to #/dashboard to avoid showing a blank route
+      if (window.location.hash !== '#/dashboard') window.location.hash = '#/dashboard';
+      return byHash.dashboard || routes[1];
+    }
+    return found;
   }
 
   const pageMounts = {
@@ -119,7 +125,31 @@ window.NexusRouter = (function () {
     return route;
   }
 
+  // Navigation concurrency guard: drop (or queue) a second navigate() while one is running.
+  let _navInProgress = false;
+  let _navPending = null; // { viewEl, options }
+
   async function navigate(viewEl, options) {
+    if (_navInProgress) {
+      // Remember the latest pending call and let the running one pick it up when done.
+      _navPending = { viewEl, options };
+      return;
+    }
+    _navInProgress = true;
+    try {
+      return await _navigateImpl(viewEl, options);
+    } finally {
+      _navInProgress = false;
+      if (_navPending) {
+        const p = _navPending;
+        _navPending = null;
+        // Use setTimeout(0) so the current call-stack fully unwinds first.
+        setTimeout(() => navigate(p.viewEl, p.options), 0);
+      }
+    }
+  }
+
+  async function _navigateImpl(viewEl, options) {
     let route = options && options.route ? options.route : getRouteFromHash();
     route = guardRoute(route);
     const skipTransition = options && options.skipTransition;
@@ -132,6 +162,12 @@ window.NexusRouter = (function () {
       await nextFrame();
     }
 
+    // Bug-25/26: call any registered page-cleanup hook before replacing the DOM.
+    // Pages register it as host._pageDestroy (or legacy aliases _posDestroy / _ventasDestroy).
+    if (viewEl._pageDestroy) { try { viewEl._pageDestroy(); } catch (_e) {} delete viewEl._pageDestroy; }
+    if (viewEl._posDestroy)   { try { viewEl._posDestroy();   } catch (_e) {} delete viewEl._posDestroy; }
+    if (viewEl._ventasDestroy){ try { viewEl._ventasDestroy();} catch (_e) {} delete viewEl._ventasDestroy; }
+
     const htmlPath = route.html;
     const res = await fetch(htmlPath, { cache: 'no-cache' });
     if (!res.ok) {
@@ -143,6 +179,12 @@ window.NexusRouter = (function () {
     }
 
     const text = await res.text();
+    if (viewEl._posDestroy) {
+      try {
+        viewEl._posDestroy();
+      } catch (_e) {}
+      delete viewEl._posDestroy;
+    }
     viewEl.innerHTML = text;
     dispatchPartialScripts(viewEl);
     const factory = pageMounts[route.id];
@@ -159,6 +201,19 @@ window.NexusRouter = (function () {
       await nextFrame();
       viewEl.classList.remove('is-transitioning');
       viewEl.classList.add('is-visible');
+    }
+
+    // Tras repintado / fin de transición: foco ventana Electron en login (evita race con el DOM)
+    if (route && route.hash === 'login') {
+      requestAnimationFrame(() => {
+        try {
+          if (window.nexusCore && window.nexusCore.focusWindow) {
+            Promise.resolve(window.nexusCore.focusWindow()).catch(() => {});
+          } else if (window.electronAPI) {
+            window.electronAPI.invoke('window:steal-focus').catch(() => {});
+          }
+        } catch (_e) {}
+      });
     }
 
     document.title = 'Nexus-Core — ' + route.title;
@@ -180,6 +235,29 @@ window.NexusRouter = (function () {
   }
 
   async function start(viewEl) {
+    if (!window.__nexusLoginMountedHook) {
+      window.__nexusLoginMountedHook = true;
+      window.addEventListener('nexus:login-mounted', (ev) => {
+        requestAnimationFrame(() => {
+          const host = ev.detail && ev.detail.host;
+          const userInput = host
+            ? host.querySelector('#login-user')
+            : document.querySelector('#login-user');
+          if (!userInput) return;
+          let attempts = 0;
+          const tryFocus = () => {
+            attempts += 1;
+            if (document.hasFocus()) {
+              userInput.focus();
+            } else if (attempts < 10) {
+              setTimeout(tryFocus, 100);
+            }
+          };
+          tryFocus();
+        });
+      });
+    }
+
     if (!window.location.hash || window.location.hash === '#') {
       window.location.hash = tokenPresent() ? '#/dashboard' : '#/login';
     }
@@ -198,14 +276,16 @@ window.NexusRouter = (function () {
 
     window.addEventListener('nexus:session', async () => {
       if (!tokenPresent()) {
-        if (getRouteFromHash().hash !== 'login') {
-          window.location.hash = '#/login';
-        } else {
-          await navigate(viewEl, { route: byHash.login, skipTransition: true });
-        }
+        // Always call navigate() explicitly so we don't depend on hashchange firing
+        // in the right order (it may already be #/login and hashchange won't fire again).
+        window.location.hash = '#/login';
+        await navigate(viewEl, { route: byHash.login, skipTransition: false });
         return;
       }
-      if (getRouteFromHash().hash === 'login') window.location.hash = '#/dashboard';
+      if (getRouteFromHash().hash === 'login') {
+        window.location.hash = '#/dashboard';
+        await navigate(viewEl, { route: byHash.dashboard, skipTransition: false });
+      }
     });
   }
 

@@ -20,6 +20,87 @@
   function fBs(v)  { return n(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function f4(v)   { return n(v).toFixed(4); }
 
+  /** Miles con punto y decimales con coma (igual que POS / NexusNumberStepper). */
+  function parseMontoVeLocal(s) {
+    var t = String(s == null ? '' : s).trim().replace(/\s/g, '');
+    if (!t) return NaN;
+    if (t.indexOf(',') >= 0) {
+      t = t.replace(/\./g, '').replace(',', '.');
+    } else {
+      t = t.replace(',', '.');
+      if (/^\d{1,3}(\.\d{3})+$/.test(t)) {
+        t = t.replace(/\./g, '');
+      }
+    }
+    return parseFloat(t);
+  }
+
+  function parseMontoVeCaja(raw) {
+    if (window.NexusNumberStepper && window.NexusNumberStepper.parseMontoVe)
+      return window.NexusNumberStepper.parseMontoVe(raw);
+    return parseMontoVeLocal(raw);
+  }
+
+  function decimalsFromMoneyStep(inp) {
+    var stepStr = inp.getAttribute('step');
+    if (stepStr == null || stepStr === '' || stepStr === 'any') return 2;
+    var st = parseFloat(String(stepStr));
+    if (!Number.isFinite(st) || st <= 0) return 2;
+    var p = String(stepStr).indexOf('.');
+    if (p < 0) return 0;
+    return Math.min(8, String(stepStr).length - p - 1);
+  }
+
+  function aplicarValorMontoNormalized(inp, parsed) {
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+    var dec = decimalsFromMoneyStep(inp);
+    if (inp.getAttribute('data-num-empty-if-zero') === 'true' && parsed === 0) {
+      inp.value = '';
+      return;
+    }
+    inp.value = parsed.toFixed(dec);
+  }
+
+  function montosVeInputs(host) {
+    return host.querySelectorAll(
+      '#apertura-monto-usd, #apertura-monto-bs, #conteo-usd, #conteo-zelle, #conteo-bs, #conteo-transf, #conteo-pm, #conteo-punto'
+    );
+  }
+
+  /** type=number rechaza formato es-VE al pegar; normalizamos a 84476.00 */
+  function adjuntarPegadoYBlurMontosVe(host) {
+    function dispararCuadreSiConteo(inp) {
+      var id = inp.id || '';
+      if (id.indexOf('conteo-') !== 0) return;
+      calcularDiferencias(host);
+    }
+    montosVeInputs(host).forEach(function (inp) {
+      inp.addEventListener('paste', function (e) {
+        var txt = e.clipboardData && e.clipboardData.getData('text/plain');
+        if (!txt || !/\S/.test(txt)) return;
+        var pv = parseMontoVeCaja(txt.trim());
+        if (!Number.isFinite(pv) || pv < 0) return;
+        e.preventDefault();
+        aplicarValorMontoNormalized(inp, pv);
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        dispararCuadreSiConteo(inp);
+      });
+      inp.addEventListener('blur', function () {
+        var raw = String(inp.value || '').trim();
+        if (raw === '') return;
+        if (/[.,]$/.test(raw)) return;
+        var pv = parseMontoVeCaja(raw);
+        if (!Number.isFinite(pv) || pv < 0) return;
+        var antes = inp.value;
+        aplicarValorMontoNormalized(inp, pv);
+        if (String(inp.value) !== String(antes)) {
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          dispararCuadreSiConteo(inp);
+        }
+      });
+    });
+  }
+
   // ─── Verificar sesión activa ───────────────────────────────────────────────
   function verificarSesion(host) {
     return apiFetch('/api/caja/sesion-activa')
@@ -117,8 +198,7 @@
         if (!d) return;
         state.resumen = d;
         renderResumenSistema(host, d);
-        // Rellenar los campos de conteo con los valores esperados como punto de partida
-        rellenarConteoConEsperado(host, d.montosEsperados || {});
+        rellenarConteoConEsperado();
         calcularDiferencias(host);
       })
       .catch(function () {});
@@ -160,10 +240,14 @@
       var filtrados = metodos.filter(function (m) { return n(m.total_usd) > 0 || n(m.total_bs) > 0; });
       tablaMetodos.innerHTML = filtrados.length
         ? filtrados.map(function (m) {
+            var totalUsd = n(m.total_usd);
+            var totalBs  = n(m.total_bs);
             return '<tr>' +
               '<td style="padding:.4rem">' + formatMetodoPago(m.metodo) + '</td>' +
               '<td style="text-align:right;padding:.4rem">' + (m.num_ventas || 0) + '</td>' +
-              '<td style="text-align:right;padding:.4rem;font-weight:600">$' + fUsd(m.total_usd) + '</td>' +
+              '<td style="text-align:right;padding:.4rem;font-weight:600">$' + fUsd(totalUsd) +
+                (totalBs > 0 ? ' <small style="color:var(--text-secondary)">/ Bs. ' + fBs(totalBs) + '</small>' : '') +
+              '</td>' +
               '</tr>';
           }).join('')
         : '<tr><td colspan="3" style="text-align:center;color:var(--text-secondary)">Sin ventas registradas</td></tr>';
@@ -183,19 +267,10 @@
     setHint('conteo-punto',  me.punto_bs,        'Bs. ');
   }
 
-  function rellenarConteoConEsperado(host, me) {
-    // Si el cajero aún no ha escrito nada, pre-llenar con el valor esperado
-    // para que solo corrija si hay diferencia
-    function llenar(id, val) {
-      var el = host.querySelector('#' + id);
-      if (el && (el.value === '' || el.value === '0')) el.value = n(val).toFixed(2);
-    }
-    llenar('conteo-usd',    me.efectivo_usd);
-    llenar('conteo-zelle',  me.zelle_usd);
-    llenar('conteo-bs',     me.efectivo_bs);
-    llenar('conteo-transf', me.transferencia_bs);
-    llenar('conteo-pm',     me.pago_movil_bs);
-    llenar('conteo-punto',  me.punto_bs);
+  function rellenarConteoConEsperado() {
+    // Los campos de conteo se dejan vacíos intencionalmente.
+    // El cajero debe ingresar manualmente lo que tiene físicamente.
+    // Los hints del sistema ya muestran el monto esperado como referencia.
   }
 
   function formatMetodoPago(metodo) {
@@ -377,6 +452,7 @@
   // ─── Mount ─────────────────────────────────────────────────────────────────
   window.CajaPage = {
     mount: function (host) {
+      adjuntarPegadoYBlurMontosVe(host);
       verificarSesion(host);
 
       host.querySelector('#btn-abrir-caja') &&

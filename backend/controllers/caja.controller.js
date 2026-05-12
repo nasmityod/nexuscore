@@ -5,10 +5,12 @@ const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { registrarAuditoria, clientIp } = require('../middleware/audit.middleware');
 const SyncService = require('../services/syncService');
 const PreciosService = require('../services/preciosService');
+const { hasPermission } = require('../middleware/permissions.middleware');
 
 // ─── GET /api/caja/sesion-activa ──────────────────────────────────────────────
 async function sesionActiva(req, res) {
-  const sesion = await db.oneOrNone(
+  // Buscar primero la sesión propia del usuario
+  let sesion = await db.oneOrNone(
     `SELECT sc.*, c.nombre AS caja_nombre, u.nombre_completo AS cajero
      FROM sesiones_caja sc
      JOIN cajas c ON c.id = sc.caja_id
@@ -17,6 +19,20 @@ async function sesionActiva(req, res) {
      ORDER BY sc.fecha_apertura DESC LIMIT 1`,
     [req.user.id]
   );
+
+  // Usuarios con pos_sales pero sin caja_operar (vendedores) pueden vender
+  // usando cualquier sesión de caja abierta en el sistema.
+  // Se les retorna la sesión disponible para que el POS les habilite el cobro.
+  if (!sesion && !hasPermission(req.user, 'caja_operar') && hasPermission(req.user, 'pos_sales')) {
+    sesion = await db.oneOrNone(
+      `SELECT sc.*, c.nombre AS caja_nombre, u.nombre_completo AS cajero
+       FROM sesiones_caja sc
+       JOIN cajas c ON c.id = sc.caja_id
+       JOIN usuarios u ON u.id = sc.usuario_id
+       WHERE sc.estado = 'abierta' AND sc.fecha_cierre IS NULL
+       ORDER BY sc.fecha_apertura DESC LIMIT 1`
+    );
+  }
 
   // Información secundaria: ¿hay cajas abiertas de OTROS usuarios?
   const otrasAbiertas = await db.any(
@@ -226,11 +242,11 @@ async function resumenCierre(req, res) {
        COALESCE(SUM(
          CASE WHEN (pago->>'moneda') IN ('USD','USD_BCV','cashea')
               THEN (pago->>'monto')::numeric ELSE 0 END
-       ), 0)::numeric AS total_usd_pagado,
+       ), 0)::numeric AS total_usd,
        COALESCE(SUM(
          CASE WHEN (pago->>'moneda') = 'BS'
               THEN (pago->>'monto')::numeric ELSE 0 END
-       ), 0)::numeric AS total_bs_pagado
+       ), 0)::numeric AS total_bs
      FROM ventas v,
      LATERAL jsonb_array_elements(
        CASE jsonb_typeof(v.pagos)
@@ -241,7 +257,7 @@ async function resumenCierre(req, res) {
      WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'
        AND pago->>'metodo' IS NOT NULL
      GROUP BY pago->>'metodo'
-     ORDER BY total_usd_pagado DESC`,
+     ORDER BY total_usd DESC`,
     [sesion.id]
   );
 

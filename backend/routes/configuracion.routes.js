@@ -21,7 +21,7 @@ router.post('/impresora/prueba', requirePermission('config_write'), async (req, 
   } catch (err) { next(err); }
 });
 
-router.get('/respaldo', requirePermission('config_write'), async (req, res, next) => {
+router.get('/respaldo', requirePermission('config_read'), async (req, res, next) => {
   try {
     const status = await SyncService.getBackupStatus();
     res.json(status);
@@ -39,8 +39,8 @@ router.post('/respaldo/manual', requirePermission('config_write'), async (req, r
     }
     res.json({
       ok: true,
-      ultimoExitoEn: r.lastSuccessAt,
-      ultimoArchivo: r.fileName,
+      lastSuccessAt: r.lastSuccessAt,
+      lastFile: r.fileName,
       mensaje: 'Respaldo de seguridad generado con éxito'
     });
   } catch (err) {

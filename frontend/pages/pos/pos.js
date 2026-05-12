@@ -449,6 +449,9 @@
       pendingIdempotencyKey: null // se genera al abrir cobro y se reusa en reintentos
     };
 
+    /** Evita avalancha de toasts y redirecciones si varios requests devuelven 401 a la vez. */
+    var session401ToastShown = false;
+
     /**
      * Guarda el carrito actual en localStorage para recuperación tras cierre forzado.
      * Se invoca: (a) al recibir 401, (b) en beforeunload, (c) periódicamente.
@@ -705,19 +708,22 @@
           showToast('Base de datos no disponible. Verifica PostgreSQL e intenta de nuevo.', 'danger');
         }
         if (res.status === 401) {
-          // Guardar el carrito antes de redirigir al login.
-          if (state.cart && state.cart.length > 0) {
-            saveEmergencyCart();
-            showToast(
-              'Sesión expirada — el carrito se guardó localmente. Inicia sesión y recupéralo.',
-              'warning'
-            );
-          } else {
-            showToast('Sesión expirada. Vuelve a iniciar sesión.', 'warning');
+          if (!session401ToastShown) {
+            session401ToastShown = true;
+            // Guardar el carrito antes de redirigir al login.
+            if (state.cart && state.cart.length > 0) {
+              saveEmergencyCart();
+              showToast(
+                'Sesión expirada — el carrito se guardó localmente. Inicia sesión y recupéralo.',
+                'warning'
+              );
+            } else {
+              showToast('Sesión expirada. Vuelve a iniciar sesión.', 'warning');
+            }
+            setTimeout(function () {
+              window.location.hash = '#/login';
+            }, 2000);
           }
-          setTimeout(function () {
-            window.location.hash = '#/login';
-          }, 2000);
         }
         return res;
       });
@@ -734,15 +740,18 @@
         var restoredLines = dump.lines.map(function (ln) {
           return restoreLineFromPayload(ln, lid);
         });
-        var savedTasas = dump.tasas && dump.tasas.bcv && dump.tasas.usd
-          ? { bcv: Number(dump.tasas.bcv), usd: Number(dump.tasas.usd) }
-          : null;
+        // Bug-23: always use CURRENT tasas when recalculating the restored cart.
+        // Saved tasas may be stale (saved hours / days ago).  Payments from the
+        // emergency cart may no longer match, so we clear them and ask the user
+        // to re-enter them after reviewing.
+        var currentTasas = getTasas();
         restoredLines.forEach(function (l) {
-          recalcLine(l, savedTasas || getTasas());
+          recalcLine(l, currentTasas);
         });
         state.cart = restoredLines;
         state.nextLineId = lid.v;
-        state.payments = Array.isArray(dump.payments) ? dump.payments.slice() : [];
+        // Discard stale payment amounts — tasas may have changed
+        state.payments = [];
         if (elGlobalDisc && dump.globalDiscPct != null) {
           elGlobalDisc.value = String(dump.globalDiscPct);
         }
@@ -750,7 +759,7 @@
         renderCart();
         renderTotals();
         showToast(
-          'Carrito de emergencia restaurado (' + state.cart.length + ' artículo/s). Verifica antes de cobrar.',
+          'Carrito de emergencia restaurado (' + state.cart.length + ' artículo/s). Precios recalculados con tasas actuales — revisa y vuelve a ingresar los pagos.',
           'warning'
         );
       } catch (_e) { /* silencioso */ }
@@ -992,8 +1001,16 @@
           : '<span style="opacity:0.85">Solicite a un supervisor que abra la sesión de caja.</span>');
     }
 
-    function onNexusSessionPos() {
+    function onNexusSessionPos(ev) {
       applyVendedorPanel();
+      var u = ev && ev.detail && ev.detail.user;
+      if (!u) {
+        state.cajaAbierta = false;
+        state.sesionCajaId = null;
+        applyCajaUiGate();
+        return;
+      }
+      session401ToastShown = false;
       void refreshSesionCaja().then(applyCajaUiGate);
     }
     window.addEventListener('nexus:session', onNexusSessionPos);
@@ -1002,7 +1019,18 @@
     });
 
     function onVisOrFocusRefreshCaja() {
-      if (document.visibilityState !== 'hidden') void refreshSesionCaja().then(applyCajaUiGate);
+      if (document.visibilityState === 'hidden') return;
+      if (
+        window.NexusAuth &&
+        typeof window.NexusAuth.getAccessToken === 'function' &&
+        !window.NexusAuth.getAccessToken()
+      ) {
+        state.cajaAbierta = false;
+        state.sesionCajaId = null;
+        applyCajaUiGate();
+        return;
+      }
+      void refreshSesionCaja().then(applyCajaUiGate);
     }
     document.addEventListener('visibilitychange', onVisOrFocusRefreshCaja);
     window.addEventListener('focus', onVisOrFocusRefreshCaja);
@@ -2407,6 +2435,11 @@
           showToast('El carrito está vacío', 'warning');
           return;
         }
+        // Bug-21: refresh IVA from server every time cobro opens so stale config won't mismatch
+        void loadImpuestoIvaVentas().then(function () {
+          renderTotals();
+          refreshCobroMontosYFooter();
+        });
         void refreshSesionCaja();
         cobroState.rowAmounts = {};
         COBRO_TABLA_ORDEN.forEach(function (m) {
@@ -2687,6 +2720,10 @@
                 'Stock insuficiente. Otro usuario pudo haber vendido el último ítem. Revisa el carrito.',
                 'danger'
               );
+            } else if (es === 401) {
+              closeCobroModal();
+              // Sin toast aquí: apiFetch ya muestra sesión expirada; el carrito se mantiene.
+              // pendingIdempotencyKey queda para reintento seguro (anti doble cobro).
             } else if (es === 503 || ec === 'DB_UNAVAILABLE' || ec === 'DB_BUSY') {
               showToast(
                 'Base de datos ocupada. La venta NO se registró. Reintenta en unos segundos.',

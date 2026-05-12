@@ -142,6 +142,9 @@ const SCHEMA_PATCH_019_CLAVE = 'schema_patch_019_stock_constraints';
 const SCHEMA_PATCH_020_CLAVE = 'schema_patch_020_sesiones_huerfanas';
 const SCHEMA_PATCH_021_CLAVE = 'schema_patch_021_idempotency_ventas';
 const SCHEMA_PATCH_022_CLAVE = 'schema_patch_022_anulacion_credito_reversa';
+const SCHEMA_PATCH_023_CLAVE = 'schema_patch_023_roles_perm_dashboard_merge';
+const SCHEMA_PATCH_024_CLAVE = 'schema_patch_024_fix_idempotency_index';
+const SCHEMA_PATCH_025_CLAVE = 'schema_patch_025_usuario_permisos_override';
 
 /**
  * Parches SQL idempotentes post-bootstrap (BD ya inicializada).
@@ -760,6 +763,30 @@ async function runPatch022AnulacionCreditoReversa(db) {
   );
 }
 
+async function runPatch023RolesPermDashboardMerge(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_023_CLAVE,
+    '023_roles_perm_dashboard_merge.sql',
+    'Parche 023: merge matriz permisos en roles sin clave dashboard'
+  );
+}
+
+async function runPatch024FixIdempotencyIndex(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_024_CLAVE,
+    '024_fix_idempotency_index.sql',
+    'Parche 024: índice idempotency_key por (usuario_id, key) en lugar de global'
+  );
+}
+
+async function runPatch025UsuarioPermisosOverride(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_025_CLAVE,
+    '025_usuario_permisos_override.sql',
+    'Parche 025: columna permisos_override por usuario'
+  );
+}
+
 /**
  * Cleanup al arrancar el backend: cerrar sesiones de caja huérfanas
  * (más de 24h abiertas sin cierre explícito).
@@ -885,6 +912,9 @@ module.exports = {
   runPatch020SesionesHuerfanas,
   runPatch021IdempotencyVentas,
   runPatch022AnulacionCreditoReversa,
+  runPatch023RolesPermDashboardMerge,
+  runPatch024FixIdempotencyIndex,
+  runPatch025UsuarioPermisosOverride,
   cleanupSesionesHuerfanas,
   ensureSemillaAdminSiFalta
 };

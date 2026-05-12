@@ -12,9 +12,12 @@
   var TASA_DECIMALES = 4;
 
   function redondearTasa4(valor) {
-    var n = Number(valor);
-    if (Number.isNaN(n)) return NaN;
-    return Math.round(n * 10000) / 10000;
+    var num =
+      typeof valor === 'string'
+        ? Number(String(valor).trim().replace(/\s/g, '').replace(',', '.'))
+        : Number(valor);
+    if (Number.isNaN(num)) return NaN;
+    return Math.round(num * 10000) / 10000;
   }
 
   function assertTasasPositivas(tasaBcv, tasaUsd) {

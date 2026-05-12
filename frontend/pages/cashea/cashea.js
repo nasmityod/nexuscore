@@ -13,6 +13,18 @@
   function fUsd(v) { return '$' + n(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function fFecha(v) { return v ? new Date(v).toLocaleDateString('es-VE') : '—'; }
 
+  /** YYYY-MM-DD para rangos de liquidación (API Cashea). */
+  function toYmd(ev) {
+    if (!ev) return null;
+    try {
+      var d = new Date(ev);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toISOString().slice(0, 10);
+    } catch (_e) {
+      return null;
+    }
+  }
+
   function mount(host) {
 
     /* ── Tabs ── */
@@ -40,6 +52,9 @@
       apiFetch('/api/cashea/pendientes')
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
+          window._casheaFechaDesde = null;
+          window._casheaFechaHasta = null;
+          window._casheaTotalNetoUsd = null;
           if (!d) return;
           var res = d.resumen || {};
           setText('ckpi-ventas-pendientes', res.total_ventas || 0);
@@ -52,6 +67,25 @@
           var tbody = host.querySelector('#cashea-pendientes-tbody');
           if (!tbody) return;
           var ventas = d.ventas || [];
+          var mind = null;
+          var maxd = null;
+          ventas.forEach(function (v) {
+            var y = toYmd(v.fecha_venta);
+            if (!y) return;
+            if (mind == null || y < mind) mind = y;
+            if (maxd == null || y > maxd) maxd = y;
+          });
+          if (mind != null && maxd != null) {
+            window._casheaFechaDesde = mind;
+            window._casheaFechaHasta = maxd;
+          } else if (res.fecha_desde && res.fecha_hasta) {
+            window._casheaFechaDesde = toYmd(res.fecha_desde);
+            window._casheaFechaHasta = toYmd(res.fecha_hasta);
+          }
+          if (res.total_neto_liquidacion_usd != null && res.total_neto_liquidacion_usd !== '') {
+            window._casheaTotalNetoUsd = Number(res.total_neto_liquidacion_usd);
+          }
+
           if (!ventas.length) {
             tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">No hay ventas Cashea pendientes de liquidar</td></tr>';
             return;
@@ -76,15 +110,32 @@
     var btnLiquidar = host.querySelector('#btn-liquidar-todos');
     if (btnLiquidar) btnLiquidar.addEventListener('click', function () {
       if (!confirm('¿Confirmas la liquidación de todas las ventas Cashea pendientes?')) return;
+      if (!window._casheaFechaDesde || !window._casheaFechaHasta) {
+        toast('No hay rango de fechas para liquidar. Abre la pestaña Pendientes y espera a que cargue.', 'error');
+        return;
+      }
+      var montoNeto = window._casheaTotalNetoUsd;
+      if (montoNeto == null || Number.isNaN(Number(montoNeto))) {
+        toast('No se pudo obtener el total neto pendiente. Recarga la pestaña Pendientes.', 'error');
+        return;
+      }
       btnLiquidar.disabled = true;
       apiFetch('/api/cashea/liquidar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({
+          semanaInicio: window._casheaFechaDesde,
+          semanaFin: window._casheaFechaHasta,
+          montoRecibido: Number(montoNeto)
+        })
       })
         .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error || 'Error'); }); })
         .then(function (d) {
-          toast('Liquidación registrada: ' + (d.ventasLiquidadas || 0) + ' ventas — Total: ' + fUsd(d.totalVentaUsd), 'success');
+          var b = d.batch || {};
+          toast(
+            'Liquidación registrada: ' + (b.cantidad_ventas || 0) + ' ventas — Total neto: ' + fUsd(b.total_neto_usd),
+            'success'
+          );
           cargarPendientes();
         })
         .catch(function (e) { toast(e.message, 'error'); })
@@ -187,7 +238,28 @@
     function setChk(id, v) { var el = host.querySelector('#' + id); if (el) el.checked = v; }
 
     /* ── Carga inicial ── */
-    cargarPendientes();
+    var userPerms = (window.NexusAuth && typeof window.NexusAuth.getUser === 'function')
+      ? ((window.NexusAuth.getUser() || {}).permisos || {})
+      : {};
+    var esCasheaAdmin = userPerms.all === true || userPerms.cashea_admin === true;
+
+    if (!esCasheaAdmin) {
+      // Ocultar tabs que requieren cashea_admin
+      tabs.forEach(function (t) {
+        var tid = t.getAttribute('data-tab');
+        if (tid === 'pendientes' || tid === 'liquidaciones') t.style.display = 'none';
+      });
+      panels.forEach(function (p) {
+        if (p.id === 'panel-cashea-pendientes' || p.id === 'panel-cashea-liquidaciones') {
+          p.style.display = 'none';
+        }
+      });
+      // Activar tab de configuración/calculadora directamente
+      var firstVisible = host.querySelector('.cashea-tab:not([style*="none"])');
+      if (firstVisible) activarTab(firstVisible.getAttribute('data-tab'));
+    } else {
+      cargarPendientes();
+    }
   }
 
   window.CasheaPage = { mount: mount };

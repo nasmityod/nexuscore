@@ -99,7 +99,8 @@
     ) {
       return 'BS';
     }
-    if (/_usd$/.test(m) || m === 'zelle' || m === 'credito') return 'USD';
+    if (/_usd$/.test(m) || m === 'zelle') return 'USD';
+    if (m === 'credito') return 'USD_BCV';
     return 'USD';
   }
 
@@ -121,6 +122,7 @@
       .toUpperCase()
       .replace(/\s+/g, '');
     if (mu === 'USD' || mu === '$') return '$ ' + formatUsd(monto);
+    if (mu === 'USD_BCV') return '$ ' + formatUsd(monto) + ' BCV';
     return formatBs(monto) + ' Bs';
   }
 

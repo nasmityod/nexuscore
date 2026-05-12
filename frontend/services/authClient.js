@@ -49,12 +49,14 @@
   /**
    * Devuelve true si el token está vencido o es inválido.
    * Aplica un margen de 30s para tokens "casi" vencidos (clock skew).
+   * Si el token no tiene campo exp lo tratamos como expirado para ser
+   * más estrictos y forzar al servidor a emitir siempre tokens con exp.
    */
   function isTokenExpired(token) {
     if (!token) return true;
     var payload = decodeJwtPayload(token);
     if (!payload) return true;
-    if (!payload.exp) return false; // sin exp = no vence
+    if (!payload.exp) return true; // sin exp → tratar como caducado
     var nowSec = Math.floor(Date.now() / 1000);
     return payload.exp <= (nowSec + 30);
   }
@@ -82,18 +84,44 @@
   }
 
   function clearSession() {
+    var hadSession = false;
     try {
+      hadSession = !!(localStorage.getItem(TOKEN_KEY) || localStorage.getItem(USER_KEY));
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
       localStorage.removeItem('nexus_usuario_id');
+      // Also clear POS/dashboard keys so stale data from a previous user never leaks
+      localStorage.removeItem('nexus_cajas_abiertas_otros');
+      localStorage.removeItem('nexus_pos_emergency_cart');
+      localStorage.removeItem('nexus_tasas_local');
     } catch (e) {}
-    window.dispatchEvent(new CustomEvent('nexus:session', { detail: { user: null } }));
+    // Solo emitir si había algo que limpiar. Si no, evita bucles: 401 → clearSession →
+    // nexus:session → listeners (ej. POS) que vuelven a llamar APIs sin token → 401…
+    if (hadSession) {
+      window.dispatchEvent(new CustomEvent('nexus:session', { detail: { user: null } }));
+    }
   }
 
   function authHeaders() {
     var t = getAccessToken();
     if (!t) return {};
     return { Authorization: 'Bearer ' + t };
+  }
+
+  // Debounce flag: only the first 401 in a given tick triggers clearSession/redirect.
+  // Resets to false once the microtask queue drains.
+  var _401HandledThisTick = false;
+
+  function handle401() {
+    if (_401HandledThisTick) return;
+    _401HandledThisTick = true;
+    Promise.resolve().then(function () { _401HandledThisTick = false; });
+    clearSession();
+    try {
+      var fragment = String(window.location.hash || '').replace(/^#\/?/, '');
+      var first = fragment.split('/')[0];
+      if (first !== 'login') window.location.hash = '#/login';
+    } catch (_e) {}
   }
 
   function authFetch(url, init) {
@@ -104,12 +132,7 @@
     // sintético para que el llamador maneje el caso uniformemente.
     var t = getAccessToken();
     if (t && isTokenExpired(t)) {
-      clearSession();
-      try {
-        var fragment0 = String(window.location.hash || '').replace(/^#\/?/, '');
-        var first0 = fragment0.split('/')[0];
-        if (first0 !== 'login') window.location.hash = '#/login';
-      } catch (_e) {}
+      handle401();
       return Promise.resolve(
         new Response(JSON.stringify({ error: 'Token expirado' }), {
           status: 401,
@@ -121,12 +144,7 @@
     var h = Object.assign({}, init.headers || {}, authHeaders());
     return fetch(url, Object.assign({}, init, { headers: h })).then(function (res) {
       if (res.status === 401) {
-        clearSession();
-        try {
-          var fragment = String(window.location.hash || '').replace(/^#\/?/, '');
-          var first = fragment.split('/')[0];
-          if (first !== 'login') window.location.hash = '#/login';
-        } catch (_e) {}
+        handle401();
       }
       return res;
     });
@@ -200,16 +218,56 @@
     });
   }
 
+  /**
+   * Cierra sesión en el cliente.
+   * Flujo en dos pasos para no auditar LOGOUT si el usuario cancela la advertencia de caja:
+   *   1. POST /logout          → puede devolver advertencia:'caja_abierta' (sin audit)
+   *   2. POST /logout?confirm=1 → sí registra audit y confirma cierre
+   * @returns {Promise<boolean>} true si se limpió la sesión, false si el usuario canceló.
+   */
   function logout() {
     var token = getAccessToken();
-    clearSession(); // limpia localStorage PRIMERO
-    if (token) {
-      // Notifica al servidor (auditoría). Fire-and-forget.
-      fetch(apiBase() + '/api/auth/logout', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + token }
-      }).catch(function () {});
+    if (!token) {
+      clearSession();
+      return Promise.resolve(true);
     }
+
+    var headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + token
+    };
+
+    return fetch(apiBase() + '/api/auth/logout', {
+      method: 'POST',
+      headers: headers
+    })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; });
+      })
+      .then(function (data) {
+        if (data && data.advertencia === 'caja_abierta') {
+          var ok = window.confirm(
+            'Tienes una caja abierta. ¿Deseas cerrar sesión de todas formas? La caja quedará abierta hasta que inicies sesión y la cierres.'
+          );
+          if (!ok) return false;
+          // User confirmed — call again with ?confirm=1 so the server audits the logout
+          return fetch(apiBase() + '/api/auth/logout?confirm=1', {
+            method: 'POST',
+            headers: headers
+          })
+            .catch(function () { /* ignore network errors on confirm */ })
+            .then(function () {
+              clearSession();
+              return true;
+            });
+        }
+        clearSession();
+        return true;
+      })
+      .catch(function () {
+        clearSession();
+        return true;
+      });
   }
 
   /**
@@ -234,7 +292,14 @@
         clearSession();
         return false;
       }
-      if (!res.ok) return false;
+      if (!res.ok) {
+        // 5xx: servidor caído — no limpiar sesión; asumir token local intacto (modo degradado).
+        // 4xx ≠ 401: error extraño / rechazo — limpiar para evitar bucles con token inválido.
+        if (res.status >= 400 && res.status < 500 && res.status !== 401) {
+          clearSession();
+        }
+        return false;
+      }
       return res.json().then(function (data) {
         if (data && data.valid && data.user) {
           // Refresca el objeto user en localStorage con datos actuales del servidor

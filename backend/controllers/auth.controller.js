@@ -10,6 +10,7 @@ const {
 } = require('../middleware/auth.middleware');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { clientIp, registrarAuditoria } = require('../middleware/audit.middleware');
+const { resolvedPermissions } = require('../middleware/permissions.middleware');
 
 async function login(req, res) {
   const body = req.body || {};
@@ -41,15 +42,38 @@ async function login(req, res) {
 
   await db.none(`UPDATE usuarios SET ultimo_acceso = NOW() WHERE id = $1`, [user.id]);
 
+  // Fetch per-user override if the column exists (migration 025).
+  // Falls back to {} silently so login works even before the migration runs.
+  let overrideRaw = {};
+  try {
+    const ovRow = await db.oneOrNone(
+      `SELECT permisos_override FROM usuarios WHERE id = $1`, [user.id]
+    );
+    if (ovRow && ovRow.permisos_override) {
+      overrideRaw = typeof ovRow.permisos_override === 'string'
+        ? JSON.parse(ovRow.permisos_override)
+        : ovRow.permisos_override;
+    }
+  } catch (_migPending) { /* column not yet added — ignore */ }
+
+  const hasOverride = Object.keys(overrideRaw).length > 0;
+
+  const permisosEfectivos = resolvedPermissions({
+    permisos: hasOverride ? overrideRaw : user.rol_permisos,
+    rol_nombre: user.rol_nombre
+  });
+
   const tokenUser = {
     id: user.id,
     username: user.username,
     nombre_completo: user.nombre_completo,
     rol_id: user.rol_id,
     rol_nombre: user.rol_nombre,
-    permisos: user.rol_permisos
+    permisos: permisosEfectivos
   };
   const token = signAccessToken(tokenUser);
+
+  // TODO: implementar token blacklist o refresh token rotativo para invalidar sesiones previas del mismo usuario.
 
   await registrarAuditoria(db, {
     usuario_id: user.id,
@@ -82,7 +106,7 @@ async function login(req, res) {
       nombre_completo: user.nombre_completo,
       rol_id: user.rol_id,
       rol_nombre: user.rol_nombre,
-      permisos: user.rol_permisos
+      permisos: permisosEfectivos
     },
     cajas_abiertas_otros: cajasOtros
   });
@@ -105,27 +129,54 @@ async function verify(req, res) {
   });
 }
 
+/**
+ * POST /api/auth/logout
+ * Query param ?confirm=1 means the client already showed the caja-abierta warning
+ * and the user chose to proceed.  Without it, the endpoint only checks for open caja
+ * and returns the advertencia WITHOUT writing the audit record yet.
+ * The audit is only written once confirm=1 arrives (or when there is no caja warning).
+ */
 async function logout(req, res) {
-  // En arquitectura stateless JWT no hay blacklist.
-  // El cliente ya limpió localStorage antes de llamar aquí.
-  // Registramos auditoría si hay token válido.
   const token = getBearerToken(req);
+  const confirmed = req.query.confirm === '1' || req.body?.confirmed === true;
+  const payload = { ok: true };
+
   if (token) {
     try {
       const decoded = verifyAccessToken(token);
+      const sub = decoded.sub;
+      const usuarioId =
+        typeof sub === 'number' ? sub : parseInt(String(sub), 10);
+
+      const sesAbierta = await db.oneOrNone(
+        `SELECT id FROM sesiones_caja
+         WHERE estado = 'abierta' AND fecha_cierre IS NULL AND usuario_id = $1
+         LIMIT 1`,
+        [usuarioId]
+      );
+
+      if (sesAbierta && !confirmed) {
+        // Return the warning without auditing — the client will confirm via ?confirm=1
+        payload.advertencia = 'caja_abierta';
+        payload.sesion_caja_id = sesAbierta.id;
+        return res.json(payload);
+      }
+
+      // No warning, or client already confirmed → audit the logout now
       await registrarAuditoria(db, {
-        usuario_id: decoded.sub,
+        usuario_id: usuarioId,
         accion: 'LOGOUT',
         tabla_afectada: 'usuarios',
-        registro_id: decoded.sub,
+        registro_id: usuarioId,
         datos_nuevos: { username: decoded.username },
         ip_address: clientIp(req)
       });
     } catch (_e) {
-      // Token ya expirado al hacer logout — no es error
+      // Token inválido o expirado — respuesta mínima
     }
   }
-  res.json({ ok: true });
+
+  res.json(payload);
 }
 
 module.exports = {

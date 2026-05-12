@@ -14,11 +14,14 @@ async function list(req, res) {
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const q      = req.query.q ? String(req.query.q).trim() : '';
 
-  const params = [limit, offset];
-  let where = '';
+  // Bug-35: build WHERE + params explicitly for both the main query and the count
+  // query instead of doing a fragile placeholder replace with regex.
+  const baseWhere = `d.estado != 'anulada'`;
+  const searchParams = [];
+  let searchClause = '';
   if (q) {
-    where = ` AND (d.numero_devolucion ILIKE $3 OR c.nombre ILIKE $3)`;
-    params.push(`%${q}%`);
+    searchClause = ` AND (d.numero_devolucion ILIKE $1 OR c.nombre ILIKE $1)`;
+    searchParams.push(`%${q}%`);
   }
 
   const rows = await db.any(`
@@ -26,24 +29,25 @@ async function list(req, res) {
            d.motivo, d.metodo_reembolso, d.creado_en,
            v.numero_venta,
            c.nombre AS cliente_nombre,
-           u.nombre AS cajero_nombre
+           u.nombre_completo AS cajero_nombre
     FROM devoluciones d
     LEFT JOIN ventas v    ON v.id = d.venta_id
     LEFT JOIN clientes c  ON c.id = d.cliente_id
     LEFT JOIN usuarios u  ON u.id = d.cajero_id
-    WHERE d.estado != 'anulada' ${where}
+    WHERE ${baseWhere}${searchClause}
     ORDER BY d.creado_en DESC
-    LIMIT $1 OFFSET $2
-  `, params);
+    LIMIT $${searchParams.length + 1} OFFSET $${searchParams.length + 2}
+  `, [...searchParams, limit, offset]);
 
-  const total = await db.one(
-    `SELECT COUNT(*)::int AS n FROM devoluciones d
+  const totalRow = await db.one(
+    `SELECT COUNT(*)::int AS n
+     FROM devoluciones d
      LEFT JOIN clientes c ON c.id = d.cliente_id
-     WHERE d.estado != 'anulada' ${where.replace(/\$3/g, '$1')}`,
-    q ? [`%${q}%`] : []
+     WHERE ${baseWhere}${searchClause}`,
+    searchParams
   );
 
-  res.json({ devoluciones: rows, total: total.n });
+  res.json({ devoluciones: rows, total: totalRow.n });
 }
 
 /* ─── GET BY ID ──────────────────────────────────────────────────────────── */
@@ -55,7 +59,7 @@ async function getById(req, res) {
     SELECT d.*,
            v.numero_venta,
            c.nombre AS cliente_nombre, c.cedula_rif AS cliente_cedula, c.telefono AS cliente_telefono,
-           u.nombre AS cajero_nombre
+           u.nombre_completo AS cajero_nombre
     FROM devoluciones d
     LEFT JOIN ventas v   ON v.id = d.venta_id
     LEFT JOIN clientes c ON c.id = d.cliente_id
@@ -83,36 +87,66 @@ async function create(req, res) {
   if (!['devolucion', 'cambio'].includes(tipo)) {
     throw httpError(400, 'Tipo inválido (devolucion | cambio)');
   }
+  // Bug-34: precio must come from the original sale, not the client
+  if (venta_id == null || venta_id === '') {
+    throw httpError(400, 'venta_id es obligatorio para fijar precios desde la venta original');
+  }
 
   const result = await db.tx(async (t) => {
+    // Bug-33: advisory lock to prevent concurrent DEV-AAAA-NNNNNN races
+    await t.one(`SELECT pg_advisory_xact_lock(hashtext('devoluciones_numero'))`);
+
     // Verificar venta original
-    let venta = null;
-    if (venta_id) {
-      venta = await t.oneOrNone(
-        `SELECT id, cliente_id, estado, total_usd FROM ventas WHERE id = $1`,
-        [Number(venta_id)]
-      );
-      if (!venta) throw httpError(404, 'Venta no encontrada');
-      if (venta.estado === 'anulada') throw httpError(400, 'No se puede devolver una venta anulada');
-    }
+    const venta = await t.oneOrNone(
+      `SELECT id, cliente_id, estado, total_usd FROM ventas WHERE id = $1`,
+      [Number(venta_id)]
+    );
+    if (!venta) throw httpError(404, 'Venta no encontrada');
+    if (venta.estado === 'anulada') throw httpError(400, 'No se puede devolver una venta anulada');
+
+    // Bug-34: load sale line details to get authoritative prices and quantities
+    const detallesVenta = await t.any(
+      `SELECT producto_id, cantidad, precio_unitario_usd
+       FROM detalles_ventas WHERE venta_id = $1`,
+      [Number(venta_id)]
+    );
+    const ventaLineMap = new Map();
+    detallesVenta.forEach((d) => {
+      const pid = Number(d.producto_id);
+      ventaLineMap.set(pid, {
+        cantidadVendida: Number(d.cantidad),
+        precioUsd: Number(d.precio_unitario_usd)
+      });
+    });
 
     // Validar y normalizar líneas
     let totalUsd = 0;
     const lineasNorm = [];
     for (const l of lineas) {
-      const productoId   = Number(l.producto_id);
-      const cantidad     = Number(l.cantidad);
-      const precioUsd    = Number(l.precio_unitario_usd) || 0;
+      const productoId = Number(l.producto_id);
+      const cantidad   = Number(l.cantidad);
       if (!productoId || productoId < 1) throw httpError(400, 'producto_id inválido en línea');
       if (!cantidad || cantidad <= 0)     throw httpError(400, 'cantidad inválida en línea');
 
       const prod = await t.oneOrNone(
-        `SELECT id, nombre, precio_usd FROM productos WHERE id = $1`,
+        `SELECT id, nombre FROM productos WHERE id = $1`,
         [productoId]
       );
       if (!prod) throw httpError(404, `Producto ${productoId} no encontrado`);
 
-      const subtotal = parseFloat((precioUsd * cantidad).toFixed(4));
+      // Bug-34: price from venta, not from client body
+      const ventaLine = ventaLineMap.get(productoId);
+      if (!ventaLine) {
+        throw httpError(400, `El producto "${prod.nombre}" no está en la venta #${venta_id}`);
+      }
+      if (cantidad > ventaLine.cantidadVendida) {
+        throw httpError(
+          400,
+          `No se puede devolver ${cantidad} unidades de "${prod.nombre}": solo se vendieron ${ventaLine.cantidadVendida}`
+        );
+      }
+      const precioUsd = ventaLine.precioUsd;
+      const subtotal  = parseFloat((precioUsd * cantidad).toFixed(4));
       totalUsd += subtotal;
       lineasNorm.push({
         producto_id: productoId,
@@ -122,16 +156,40 @@ async function create(req, res) {
         subtotal_usd: subtotal
       });
 
-      // Restituir stock
+      // Bug-32/36: lock the row, capture previous stock, update, then audit
+      const prevRow = await t.one(
+        `SELECT stock_actual FROM productos WHERE id = $1 FOR UPDATE`,
+        [productoId]
+      );
+      const prevStock = parseFloat(prevRow.stock_actual);
+      const newStock  = prevStock + cantidad;
+
       await t.none(
-        `UPDATE productos SET stock = stock + $1, actualizado_en = NOW() WHERE id = $2`,
-        [cantidad, productoId]
+        `UPDATE productos SET stock_actual = $1, actualizado_en = NOW() WHERE id = $2`,
+        [newStock, productoId]
+      );
+
+      await t.none(
+        `INSERT INTO ajustes_inventario (
+           producto_id, tipo, cantidad,
+           cantidad_anterior, cantidad_nueva,
+           referencia_id, referencia_tipo, usuario_id, motivo
+         ) VALUES ($1, 'entrada_devolucion', $2, $3, $4, $5, 'devolucion', $6, $7)`,
+        [
+          productoId,
+          cantidad,
+          prevStock,
+          newStock,
+          Number(venta_id),
+          req.user?.id || null,
+          motivo || 'Devolución'
+        ]
       );
     }
 
     totalUsd = parseFloat(totalUsd.toFixed(4));
 
-    // Número de devolución: DEV-AAAA-NNNNNN
+    // Bug-33: sequential number with advisory lock already held above
     const year   = new Date().getFullYear();
     const seqRow = await t.one(
       `SELECT COALESCE(MAX(
@@ -151,8 +209,8 @@ async function create(req, res) {
       RETURNING *
     `, [
       numDev,
-      venta_id ? Number(venta_id) : null,
-      venta ? venta.cliente_id : null,
+      Number(venta_id),
+      venta.cliente_id,
       req.user?.id || null,
       tipo,
       motivo || null,
@@ -180,12 +238,38 @@ async function anular(req, res) {
     if (!dev) throw httpError(404, 'Devolución no encontrada');
     if (dev.estado === 'anulada') throw httpError(400, 'Ya está anulada');
 
-    // Deshacer stock restituido
+    // Bug-32/36: use stock_actual and record in ajustes_inventario
     const lineas = Array.isArray(dev.lineas) ? dev.lineas : JSON.parse(dev.lineas || '[]');
     for (const l of lineas) {
+      const qty = Number(l.cantidad);
+      const pid = Number(l.producto_id);
+
+      const prevRow = await t.one(
+        `SELECT stock_actual FROM productos WHERE id = $1 FOR UPDATE`, [pid]
+      );
+      const prevStock = parseFloat(prevRow.stock_actual);
+      const newStock  = Math.max(0, prevStock - qty);
+
       await t.none(
-        `UPDATE productos SET stock = GREATEST(0, stock - $1), actualizado_en = NOW() WHERE id = $2`,
-        [Number(l.cantidad), Number(l.producto_id)]
+        `UPDATE productos SET stock_actual = $1, actualizado_en = NOW() WHERE id = $2`,
+        [newStock, pid]
+      );
+
+      await t.none(
+        `INSERT INTO ajustes_inventario (
+           producto_id, tipo, cantidad,
+           cantidad_anterior, cantidad_nueva,
+           referencia_id, referencia_tipo, usuario_id, motivo
+         ) VALUES ($1, 'salida_anulacion_devolucion', $2, $3, $4, $5, 'devolucion', $6, $7)`,
+        [
+          pid,
+          qty,
+          prevStock,
+          newStock,
+          id,
+          req.user?.id || null,
+          'Anulación de devolución'
+        ]
       );
     }
 

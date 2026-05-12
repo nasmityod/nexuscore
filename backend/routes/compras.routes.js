@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../config/database');
-const { asyncHandler } = require('../utils/asyncHandler');
+const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { registrarAuditoria } = require('../middleware/audit.middleware');
 const { requirePermission } = require('../middleware/permissions.middleware');
 
@@ -25,15 +25,27 @@ router.get('/', asyncHandler(async (req, res) => {
   const estado = req.query.estado ? String(req.query.estado) : null;
   const q      = req.query.q ? String(req.query.q).trim() : '';
 
-  const params  = [limit, offset];
-  const conds   = [];
+  const filterParams = [];
+  const filterConditions = [];
+  let fp = 0;
   if (estado && ['pendiente','recibida','cancelada','parcial'].includes(estado)) {
-    conds.push(`c.estado = $${params.push(estado)}`);
+    fp += 1;
+    filterConditions.push(`c.estado = $${fp}`);
+    filterParams.push(estado);
   }
   if (q) {
-    conds.push(`(p.nombre ILIKE $${params.push('%'+q+'%')} OR c.numero_compra ILIKE $${params.push('%'+q+'%')})`);
+    fp += 1;
+    const pNom = fp;
+    filterParams.push(`%${q}%`);
+    fp += 1;
+    const pNum = fp;
+    filterParams.push(`%${q}%`);
+    filterConditions.push(`(p.nombre ILIKE $${pNom} OR c.numero_compra ILIKE $${pNum})`);
   }
-  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const where = filterConditions.length ? 'WHERE ' + filterConditions.join(' AND ') : '';
+  const limPh = fp + 1;
+  const offPh = fp + 2;
+  const listParams = [...filterParams, limit, offset];
 
   const rows = await db.any(
     `SELECT c.id, c.numero_compra, c.fecha_compra, c.estado,
@@ -49,13 +61,13 @@ router.get('/', asyncHandler(async (req, res) => {
      LEFT JOIN proveedores p ON p.id = c.proveedor_id
      JOIN usuarios u         ON u.id = c.usuario_id
      ${where}
-     ORDER BY c.fecha_compra DESC LIMIT $1 OFFSET $2`,
-    params
+     ORDER BY c.fecha_compra DESC LIMIT $${limPh} OFFSET $${offPh}`,
+    listParams
   );
 
   const totalRow = await db.one(
     `SELECT COUNT(*)::int AS total FROM compras c LEFT JOIN proveedores p ON p.id=c.proveedor_id ${where}`,
-    params.slice(2)
+    filterParams
   );
 
   // Alertas de órdenes pendientes viejas (>7 días)
@@ -182,7 +194,12 @@ router.post('/:id/recibir', asyncHandler(async (req, res) => {
          FROM productos WHERE id = $1 FOR UPDATE`,
         [det.producto_id]
       );
-      if (!prod) continue;
+      if (!prod) {
+        throw httpError(
+          400,
+          `Producto ID ${det.producto_id} no encontrado — operación cancelada`
+        );
+      }
 
       const stockActual   = parseFloat(prod.stock_actual) || 0;
       const costoActual   = parseFloat(prod.costo_promedio_ponderado_usd) || parseFloat(det.costo_unitario_usd);

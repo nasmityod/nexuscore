@@ -6,7 +6,8 @@ const { db } = require('../config/database');
 const bcrypt = require('bcryptjs');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { registrarAuditoria } = require('../middleware/audit.middleware');
-const { requirePermission, hasPermission } = require('../middleware/permissions.middleware');
+const { requirePermission, hasPermission, normalizePermisos } = require('../middleware/permissions.middleware');
+const { FALLBACK_BY_ROLE } = require('../constants/rolePermissions');
 
 /** Cualquier usuario autenticado puede cambiar su propia contraseña (validación dentro del handler). */
 router.post('/:id/cambiar-password', asyncHandler(async (req, res) => {
@@ -43,17 +44,38 @@ router.post('/:id/cambiar-password', asyncHandler(async (req, res) => {
 
 router.use(requirePermission('usuarios_all'));
 
+/**
+ * Best-effort fetch of permisos_override for one or many user rows.
+ * Returns a Map<id, object>.  Silently returns empty map if column doesn't exist yet.
+ */
+async function fetchOverrides(userIds) {
+  const map = new Map();
+  if (!userIds || !userIds.length) return map;
+  try {
+    const rows = await db.any(
+      `SELECT id, COALESCE(permisos_override, '{}'::jsonb) AS permisos_override
+       FROM usuarios WHERE id = ANY($1::int[])`,
+      [userIds]
+    );
+    rows.forEach((r) => map.set(r.id, r.permisos_override || {}));
+  } catch (_e) { /* migration 025 not applied yet — return empty map */ }
+  return map;
+}
+
 // GET /api/usuarios
 router.get('/', asyncHandler(async (req, res) => {
   const rows = await db.any(
     `SELECT u.id, u.username, u.nombre_completo, u.activo,
+            u.rol_id,
             u.ultimo_acceso, u.creado_en,
             r.nombre AS rol
      FROM usuarios u
      LEFT JOIN roles r ON r.id = u.rol_id
      ORDER BY u.nombre_completo`
   );
-  res.json(rows);
+  const overrides = await fetchOverrides(rows.map((r) => r.id));
+  const out = rows.map((r) => ({ ...r, permisos_override: overrides.get(r.id) || {} }));
+  res.json(out);
 }));
 
 // GET /api/usuarios/roles
@@ -68,9 +90,16 @@ router.post('/roles', requirePermission('usuarios_all'), asyncHandler(async (req
   if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
   const existing = await db.oneOrNone(`SELECT id FROM roles WHERE LOWER(nombre) = LOWER($1)`, [nombre]);
   if (existing) return res.status(409).json({ error: 'Ya existe un rol con ese nombre' });
+  const nombreLc = String(nombre).trim().toLowerCase();
+  const preset = FALLBACK_BY_ROLE[nombreLc] || {};
+  const permObj = normalizePermisos(permisos);
+  const mergedPerm =
+    Object.keys(permObj).length === 0 && Object.keys(preset).length > 0
+      ? { ...preset }
+      : { ...preset, ...permObj };
   const row = await db.one(
     `INSERT INTO roles (nombre, permisos) VALUES ($1, $2::jsonb) RETURNING id, nombre`,
-    [String(nombre).trim().toLowerCase(), JSON.stringify(permisos || {})]
+    [nombreLc, JSON.stringify(mergedPerm)]
   );
   res.status(201).json(row);
 }));
@@ -84,7 +113,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const row = await db.oneOrNone(
     `SELECT u.id, u.username, u.nombre_completo, u.activo, u.rol_id,
             u.ultimo_acceso, u.creado_en,
-            r.nombre AS rol
+            r.nombre AS rol,
+            COALESCE(r.permisos, '{}'::jsonb) AS rol_permisos
      FROM usuarios u
      LEFT JOIN roles r ON r.id = u.rol_id
      WHERE u.id = $1`,
@@ -93,7 +123,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
   if (!row) {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
-  res.json(row);
+  const overrides = await fetchOverrides([userId]);
+  res.json({ ...row, permisos_override: overrides.get(userId) || {} });
 }));
 
 async function resolverRolId(body, fallbackActual = null) {
@@ -133,13 +164,28 @@ router.post('/', asyncHandler(async (req, res) => {
 
   const rolIdFinal = await resolverRolId(req.body, null);
 
+  const permisosOverride =
+    req.body.permisos_override != null && typeof req.body.permisos_override === 'object'
+      ? req.body.permisos_override
+      : {};
+
   const hash = await bcrypt.hash(password, 10);
+  // Insert without permisos_override first (always works), then apply override if column exists
   const user = await db.one(
     `INSERT INTO usuarios (username, password_hash, nombre_completo, rol_id)
      VALUES ($1, $2, $3, $4)
      RETURNING id, username, nombre_completo, activo`,
     [username.trim().toLowerCase(), hash, nombreCompleto, rolIdFinal]
   );
+
+  if (Object.keys(permisosOverride).length > 0) {
+    try {
+      await db.none(
+        `UPDATE usuarios SET permisos_override = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(permisosOverride), user.id]
+      );
+    } catch (_e) { /* migration 025 not applied yet — skip */ }
+  }
 
   await registrarAuditoria(db, {
     usuario_id: req.user.id,
@@ -190,8 +236,25 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     values.push(activo);
   }
 
-  if (updates.length === 0) {
+  // permisos_override is saved separately (best-effort) after the main UPDATE
+  // so the main PATCH never crashes if column doesn't exist yet.
+  const permOverridePatch =
+    req.body.permisos_override !== undefined ? req.body.permisos_override : undefined;
+
+  if (updates.length === 0 && permOverridePatch === undefined) {
     return res.status(400).json({ error: 'No hay cambios para guardar' });
+  }
+
+  // If only permisos_override changed, apply it and return current user data
+  if (updates.length === 0 && permOverridePatch !== undefined) {
+    const po = permOverridePatch === null ? {} : permOverridePatch;
+    try {
+      await db.none(
+        `UPDATE usuarios SET permisos_override = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(po), userId]
+      );
+    } catch (_e) { /* migration 025 not applied yet */ }
+    return res.json({ id: user.id, username: user.username, nombre_completo: user.nombre_completo, activo: user.activo });
   }
 
   values.push(userId);
@@ -200,6 +263,21 @@ router.patch('/:id', asyncHandler(async (req, res) => {
      RETURNING id, username, nombre_completo, activo`,
     values
   );
+
+  // Apply permisos_override separately (best-effort) so PATCH never crashes
+  // if migration 025 hasn't run yet.
+  if (permOverridePatch !== undefined) {
+    const po = permOverridePatch === null ? {} : permOverridePatch;
+    if (typeof po !== 'object') {
+      return res.status(400).json({ error: 'permisos_override debe ser un objeto JSON' });
+    }
+    try {
+      await db.none(
+        `UPDATE usuarios SET permisos_override = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(po), userId]
+      );
+    } catch (_e) { /* migration 025 not applied yet — skip */ }
+  }
 
   res.json(updated);
 }));

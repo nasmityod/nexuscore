@@ -50,9 +50,10 @@
     </ul>
     <div id="login-forgot-admin" style="display:none;margin-top:.5rem">
       <p style="font-size:.82rem;font-weight:600;margin:0 0 .5rem">Reinicio rápido de contraseña (admin)</p>
-      <input type="text" id="forgot-username" placeholder="Nombre de usuario" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
+      <input type="text" id="forgot-username" placeholder="Usuario a restablecer" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
       <input type="password" id="forgot-nueva-pass" placeholder="Nueva contraseña (mín. 4 caracteres)" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
-      <input type="password" id="forgot-admin-pass" placeholder="Tu contraseña de admin" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
+      <input type="text" id="forgot-admin-user" placeholder="Tu usuario de administrador" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
+      <input type="password" id="forgot-admin-pass" placeholder="Tu contraseña de administrador" style="width:100%;box-sizing:border-box;height:38px;padding:0 .75rem;margin-bottom:.5rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.88rem">
       <button type="button" id="btn-forgot-submit" style="height:38px;padding:0 1rem;background:#3b82f6;color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:.85rem;font-weight:600">Restablecer contraseña</button>
       <p id="forgot-msg" style="font-size:.82rem;margin-top:.5rem;display:none"></p>
     </div>
@@ -102,18 +103,19 @@
 
         if (btnForgotSubmit) {
           btnForgotSubmit.addEventListener('click', function () {
-            var uname    = (host.querySelector('#forgot-username') || {}).value || '';
-            var newPass  = (host.querySelector('#forgot-nueva-pass') || {}).value || '';
-            var adminPas = (host.querySelector('#forgot-admin-pass') || {}).value || '';
-            if (!uname || !newPass || !adminPas) {
+            var uname      = (host.querySelector('#forgot-username') || {}).value || '';
+            var newPass    = (host.querySelector('#forgot-nueva-pass') || {}).value || '';
+            var adminUser  = (host.querySelector('#forgot-admin-user') || {}).value || '';
+            var adminPas   = (host.querySelector('#forgot-admin-pass') || {}).value || '';
+            if (!uname || !newPass || !adminUser || !adminPas) {
               if (forgotMsg) { forgotMsg.style.display = 'block'; forgotMsg.style.color = '#ef4444'; forgotMsg.textContent = 'Completa todos los campos'; }
               return;
             }
             var apiBase = (window.NexusAuth && window.NexusAuth.apiBase) ? window.NexusAuth.apiBase() : 'http://127.0.0.1:3000';
-            // Primero autenticamos al admin, luego reseteamos la contraseña del usuario objetivo
+            // Autenticamos con el usuario administrador (cualquier cuenta con permiso usuarios_all)
             fetch(apiBase + '/api/auth/login', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: 'admin', password: adminPas })
+              body: JSON.stringify({ username: adminUser.trim().toLowerCase(), password: adminPas })
             })
               .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error || 'Admin incorrecto'); }); })
               .then(function (d) {
@@ -140,7 +142,10 @@
           });
         }
 
-        if (!form || !window.NexusAuth) return;
+        if (!form || !window.NexusAuth) {
+          window.dispatchEvent(new CustomEvent('nexus:login-mounted', { detail: { host } }));
+          return;
+        }
         form.addEventListener('submit', function (ev) {
           ev.preventDefault();
           var u = (host.querySelector('#login-user') || {}).value || '';
@@ -154,6 +159,8 @@
               errEl.style.display = 'block';
             });
         });
+
+        window.dispatchEvent(new CustomEvent('nexus:login-mounted', { detail: { host } }));
       }
     };
   </script>

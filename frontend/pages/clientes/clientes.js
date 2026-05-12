@@ -108,7 +108,7 @@
       var el = document.getElementById('cliente-' + f);
       if (el) el.value = '';
     });
-    document.getElementById('cliente-limite').value = '0';
+    document.getElementById('cliente-limite').value = '';
     var modal = document.getElementById('modal-cliente');
     if (modal) modal.style.display = 'flex';
     setTimeout(function () { var el = document.getElementById('cliente-nombre'); if (el) el.focus(); }, 100);
@@ -124,7 +124,9 @@
     document.getElementById('cliente-telefono').value  = c.telefono || '';
     document.getElementById('cliente-email').value     = c.email || '';
     document.getElementById('cliente-direccion').value = c.direccion || '';
-    document.getElementById('cliente-limite').value    = c.limite_credito_usd || '0';
+    var lim = parseFloat(c.limite_credito_usd);
+    document.getElementById('cliente-limite').value =
+      Number.isFinite(lim) && lim > 0 ? String(lim) : '';
     document.getElementById('cliente-notas').value     = c.notas || '';
     var modal = document.getElementById('modal-cliente');
     if (modal) modal.style.display = 'flex';

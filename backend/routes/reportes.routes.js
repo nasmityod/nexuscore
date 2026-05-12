@@ -18,6 +18,16 @@ router.use((req, res, next) => {
   if (isCierrePdf) {
     return requireAnyPermission('reportes_all', 'caja_operar')(req, res, next);
   }
+
+  // Endpoints ligeros que el dashboard usa para sus KPIs y gráficas.
+  // Cualquier rol con permiso de dashboard puede consultarlos (no solo reportes_all).
+  const isDashboardLite =
+    req.method === 'GET' &&
+    (req.path === '/analytics/dashboard' || req.path === '/ventas-periodo');
+  if (isDashboardLite) {
+    return requireAnyPermission('reportes_all', 'dashboard')(req, res, next);
+  }
+
   return requirePermission('reportes_all')(req, res, next);
 });
 

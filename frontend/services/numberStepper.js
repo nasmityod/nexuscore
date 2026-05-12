@@ -46,6 +46,10 @@ window.NexusNumberStepper = (function () {
     if (input.classList.contains('cobro-su-pago-input')) {
       return next > 0 ? formatBsVe(next) : '';
     }
+    /** Campo muestra vacío cuando el valor es 0 — el placeholder indica formato (ej. 0,00). */
+    if (input.getAttribute('data-num-empty-if-zero') === 'true') {
+      if (!(Number.isFinite(next) && next > 0)) return '';
+    }
     var dec = decimalsFromStep(input.getAttribute('step'));
     if (dec !== null) {
       return next.toFixed(dec);
@@ -211,5 +215,5 @@ window.NexusNumberStepper = (function () {
     });
   }
 
-  return { init: init };
+  return { init: init, parseMontoVe: parseMontoVe };
 })();

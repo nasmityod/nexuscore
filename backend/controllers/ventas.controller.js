@@ -7,12 +7,17 @@ const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { registrarAuditoria, clientIp } = require('../middleware/audit.middleware');
 
 async function nextNumeroVenta(t) {
-  const year = new Date().getFullYear();
+  // Use the DB server's local date so year rolls over at midnight business time,
+  // not at JS runtime's UTC offset.  The TZ is set via the PG session/server config.
+  const yearRow = await t.one(`SELECT EXTRACT(YEAR FROM NOW())::int AS y`);
+  const year = yearRow.y;
   const prefix = `VEN-${year}-`;
 
   // Advisory lock: garantiza un solo hilo a la vez, evitando colisiones de
   // numero_venta entre cajas concurrentes sin necesidad de SEQUENCE por año.
-  await t.none(`SELECT pg_advisory_xact_lock(hashtext('ventas_numero_venta'))`);
+  // IMPORTANTE: no usar .none() — en PostgreSQL este SELECT devuelve una fila
+  // (función void) y pg-promise lanza "No return data was expected".
+  await t.one(`SELECT pg_advisory_xact_lock(hashtext('ventas_numero_venta'))`);
 
   // Intenta usar la SEQUENCE del parche 016 si existe.
   const seqExists = await t.oneOrNone(
@@ -100,6 +105,46 @@ function precioUnitarioUsdServidor(producto, tasaBcv, tasaUsd) {
     throw httpError(400, `Producto "${producto.nombre}": ${e.message}`);
   }
   return round4(pr.precio_usd_efectivo);
+}
+
+/**
+ * Ref. USD BCV por unidad — misma tabla que PreciosServiceClient/recalcLine usa en el POS.
+ */
+function precioUsdBcvPorUnidad(producto, tasaBcv, tasaUsd) {
+  const manualRaw = producto.precio_manual_usd;
+  const manual =
+    manualRaw != null && String(manualRaw).trim() !== ''
+      ? parseFloat(String(manualRaw).replace(/\s/g, '').replace(',', '.'))
+      : null;
+  if (manual != null && !Number.isNaN(manual) && manual > 0) {
+    try {
+      return round4(
+        PreciosService.aplicarCadenaPorPrecioEfectivo(manual, tasaBcv, tasaUsd).precio_usd_bcv
+      );
+    } catch (e) {
+      throw httpError(400, `Producto "${producto.nombre}": ${e.message}`);
+    }
+  }
+  const costo = parseFloat(producto.costo_usd);
+  const margen = parseFloat(producto.margen_ganancia_pct);
+  if (!costo || costo <= 0 || Number.isNaN(costo)) {
+    throw httpError(
+      400,
+      `Producto "${producto.nombre}": sin costo USD ni precio manual válido para fijar precio`
+    );
+  }
+  let pr;
+  try {
+    pr = PreciosService.calcularPrecios(
+      costo,
+      Number.isNaN(margen) ? 0 : margen,
+      tasaBcv,
+      tasaUsd
+    );
+  } catch (e) {
+    throw httpError(400, `Producto "${producto.nombre}": ${e.message}`);
+  }
+  return round4(pr.precio_usd_bcv);
 }
 
 function buildVentasListFilters(req, startParamIndex) {
@@ -200,43 +245,32 @@ async function create(req, res) {
   /* ── Idempotency key: protección contra doble-clic / reintentos automáticos ──
      El cliente debe generar un UUID antes de enviar el POST. Si el servidor
      recibe la misma key dos veces, devuelve la venta original sin duplicar.
-     Si la key viene vacía/null, la venta NO es idempotente (modo legacy). */
+     Si la key viene vacía/null, la venta NO es idempotente (modo legacy).
+     El check se hace DENTRO de la transacción para evitar la ventana de carrera
+     entre el SELECT de duplicado y el INSERT de la venta real. */
   const idempotency_key =
     body.idempotency_key != null && String(body.idempotency_key).trim() !== ''
       ? String(body.idempotency_key).trim().slice(0, 64)
       : null;
 
-  if (idempotency_key) {
-    const ventaPrevia = await db.oneOrNone(
-      `SELECT v.*, c.nombre AS cliente_nombre
-       FROM ventas v LEFT JOIN clientes c ON c.id = v.cliente_id
-       WHERE v.idempotency_key = $1 AND v.usuario_id = $2`,
-      [idempotency_key, usuario_id]
-    );
-    if (ventaPrevia) {
-      const detallesPrev = await db.any(
-        `SELECT d.*, p.nombre AS producto_nombre FROM detalles_ventas d
-         JOIN productos p ON p.id = d.producto_id WHERE d.venta_id = $1 ORDER BY d.id`,
-        [ventaPrevia.id]
-      );
-      // 200 OK (no 201) para indicar que NO se creó nada nuevo.
-      return res.status(200).json({ ...ventaPrevia, detalles: detallesPrev, idempotent_replay: true });
-    }
-  }
-
-  const sesionAbiertaUsuario = await db.oneOrNone(
-    `SELECT id, estado, usuario_id, fecha_cierre
-     FROM sesiones_caja
-     WHERE estado = 'abierta' AND fecha_cierre IS NULL AND usuario_id = $1
-     ORDER BY fecha_apertura DESC
-     LIMIT 1`,
-    [usuario_id]
-  );
+  // Usar la sesión resuelta por el middleware cajaAbierta.
+  // Para usuarios con caja_operar, el middleware ya exige su propia sesión.
+  // Para vendedores (sin caja_operar), el middleware permite usar cualquier sesión abierta.
+  const sesionAbiertaUsuario = req.sesionCajaAbierta || null;
   if (!sesionAbiertaUsuario) {
     throw httpError(403, 'Debe realizar la apertura de caja antes de vender');
   }
 
   const sesion_caja_id = Number(sesionAbiertaUsuario.id);
+  const sesionEsPropia = Number(sesionAbiertaUsuario.usuario_id) === usuario_id;
+
+  // Bug-16 guard: si el cliente envió sesion_caja_id, verificar que coincide con la sesión autorizada.
+  if (body.sesion_caja_id != null && body.sesion_caja_id !== '') {
+    const clientSesId = Number(body.sesion_caja_id);
+    if (!Number.isNaN(clientSesId) && clientSesId > 0 && clientSesId !== sesion_caja_id) {
+      throw httpError(403, 'sesion_caja_id no coincide con la sesión de caja abierta del usuario');
+    }
+  }
 
   const cliente_id =
     body.cliente_id != null && body.cliente_id !== '' ? Number(body.cliente_id) : null;
@@ -271,14 +305,41 @@ async function create(req, res) {
   }
 
   const result = await db.tx(async (t) => {
-    /* ── 1) Sesión de caja abierta y propiedad del usuario (anti-suplantación) ── */
-    const sesCheck = await t.oneOrNone(
-      `SELECT id FROM sesiones_caja
-       WHERE id = $1 AND usuario_id = $2 AND estado = 'abierta' AND fecha_cierre IS NULL`,
-      [sesion_caja_id, usuario_id]
-    );
+    /* ── 0) Idempotency: check-or-create inside the transaction ── */
+    if (idempotency_key) {
+      const ventaPrevia = await t.oneOrNone(
+        `SELECT v.*, c.nombre AS cliente_nombre
+         FROM ventas v LEFT JOIN clientes c ON c.id = v.cliente_id
+         WHERE v.idempotency_key = $1 AND v.usuario_id = $2`,
+        [idempotency_key, usuario_id]
+      );
+      if (ventaPrevia) {
+        const detallesPrev = await t.any(
+          `SELECT d.*, p.nombre AS producto_nombre FROM detalles_ventas d
+           JOIN productos p ON p.id = d.producto_id WHERE d.venta_id = $1 ORDER BY d.id`,
+          [ventaPrevia.id]
+        );
+        // Signal a replay by returning a special object; handled outside the tx.
+        return { _idempotentReplay: true, venta: ventaPrevia, detalles: detallesPrev };
+      }
+    }
+
+    /* ── 1) Verificar que la sesión de caja sigue abierta ── */
+    // Si la sesión es propia del usuario, verificar también que el usuario_id coincide.
+    // Si es sesión compartida (vendedor usa la caja de un cajero), solo verificar que está abierta.
+    const sesCheck = sesionEsPropia
+      ? await t.oneOrNone(
+          `SELECT id FROM sesiones_caja
+           WHERE id = $1 AND usuario_id = $2 AND estado = 'abierta' AND fecha_cierre IS NULL`,
+          [sesion_caja_id, usuario_id]
+        )
+      : await t.oneOrNone(
+          `SELECT id FROM sesiones_caja
+           WHERE id = $1 AND estado = 'abierta' AND fecha_cierre IS NULL`,
+          [sesion_caja_id]
+        );
     if (!sesCheck) {
-      throw httpError(403, 'Sesión de caja cerrada o no válida para este usuario');
+      throw httpError(403, 'Sesión de caja cerrada o no válida');
     }
 
     let tasas;
@@ -304,12 +365,18 @@ async function create(req, res) {
 
     const numero_venta = await nextNumeroVenta(t);
 
-    /* ── 2) Líneas: precio unitario recalculado en servidor (ignora precio_unitario_usd del cliente) ── */
+    /* ── 2) Líneas: precio unitario recalculado en servidor (ignora precio_unitario_usd del cliente) ──
+       Sort items by producto_id ASC before locking to prevent deadlocks when two concurrent
+       transactions lock the same products in different orders. */
+    const sortedItems = items.slice().sort((a, b) => Number(a.producto_id) - Number(b.producto_id));
     const lineSnapshots = [];
-    let sumLineNet = 0;
 
-    for (let i = 0; i < items.length; i += 1) {
-      const it = items[i];
+    let sumLineNet = 0;
+    /** Suma líneas — ref USD BCV (antes desc. cabecera), igual lógica que cartTotals.uBcv en POS. */
+    let sumLineNetBcvUsd = 0;
+
+    for (let i = 0; i < sortedItems.length; i += 1) {
+      const it = sortedItems[i];
       const producto_id = Number(it.producto_id);
       const cantidad = Number(it.cantidad);
       if (!producto_id || producto_id < 1 || !cantidad || cantidad <= 0) {
@@ -339,6 +406,10 @@ async function create(req, res) {
       }
 
       const lineNet = round4(cantidad * precio_unitario_usd * (1 - desc_line / 100));
+
+      const precio_usd_bcv = precioUsdBcvPorUnidad(producto, tasa_bcv, tasa_usd_calle);
+      const lineNetBcvUsd = round4(cantidad * precio_usd_bcv * (1 - desc_line / 100));
+      sumLineNetBcvUsd += lineNetBcvUsd;
 
       const costo_unitario_usd =
         parseFloat(producto.costo_promedio_ponderado_usd) ||
@@ -398,6 +469,20 @@ async function create(req, res) {
     iva_monto_usd = round4(iva_monto_usd);
     const total_usd = round4(discountedNet + iva_monto_usd);
 
+    /** Bs cobro operativo (cadena BCV) — igual criterio que cartTotals.totalBsBcv en POS. */
+    const refUsdBcvCabServidor = round4(sumLineNetBcvUsd * factorBruto);
+    let total_bs_bcv_operativo = null;
+    if (refUsdBcvCabServidor > 0 && tasa_bcv > 0) {
+      try {
+        total_bs_bcv_operativo = PreciosService.totalBolivaresDesdeRefUsdBcv(
+          refUsdBcvCabServidor,
+          tasa_bcv
+        );
+      } catch (_e) {
+        total_bs_bcv_operativo = null;
+      }
+    }
+
     /* ── 3) Totales USD/Bs vs lo declarado por el POS (detección de manipulación) ── */
     if (Math.abs(total_usd - total_usd_cliente_declarado) > EPS_USD_PRECIOS) {
       throw httpError(400, 'Inconsistencia de Precios');
@@ -424,7 +509,45 @@ async function create(req, res) {
     }
     const residualPagosUsd = round4(round4(sumaPagosUsd) - round4(total_usd));
     if (Math.abs(residualPagosUsd) > EPS_USD_PAGOS) {
-      throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
+      const bsPayments = pagosArr.filter(
+        (p) => p && String(p.moneda || '').toUpperCase() === 'BS'
+      );
+      const usdPayments = pagosArr.filter(
+        (p) => p && String(p.moneda || '').toUpperCase() === 'USD'
+      );
+
+      const EPS_BS_CADENA = 1.0; // tolerancia por redondeo cadena BCV
+
+      const soloBS =
+        bsPayments.length === pagosArr.length &&
+        pagosArr.length > 0 &&
+        total_bs_bcv_operativo != null;
+
+      // Pago mixto USD + Bs: el POS calcula el remanente Bs desde la cadena BCV operativa,
+      // por lo que sumUSD×tasa_calle + sumBs ≈ total_bs_bcv_operativo (no desde tasa calle pura).
+      const mixtoUsdBs =
+        !soloBS &&
+        bsPayments.length > 0 &&
+        usdPayments.length > 0 &&
+        total_bs_bcv_operativo != null;
+
+      if (soloBS) {
+        const sumBs = round2(bsPayments.reduce((s, p) => s + (Number(p.monto) || 0), 0));
+        if (Math.abs(sumBs - total_bs_bcv_operativo) > EPS_BS_CADENA) {
+          throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
+        }
+      } else if (mixtoUsdBs) {
+        const sumUsdDirect = round2(usdPayments.reduce((s, p) => s + (Number(p.monto) || 0), 0));
+        const sumBsDirect  = round2(bsPayments.reduce((s, p) => s + (Number(p.monto) || 0), 0));
+        // Reconstruir el total en Bs BCV: la parte USD se convierte a Bs a tasa calle,
+        // la parte Bs se usa directamente (ya está en Bs BCV operativo).
+        const totalBsReconstruido = round2(sumUsdDirect * tasa_usd_calle + sumBsDirect);
+        if (Math.abs(totalBsReconstruido - total_bs_bcv_operativo) > EPS_BS_CADENA) {
+          throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
+        }
+      } else {
+        throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
+      }
     }
 
     const tasa_cambio_aplicada = round4(tasa_usd_calle);
@@ -499,6 +622,9 @@ async function create(req, res) {
       (p) => p && String(p.metodo || '').toLowerCase() === 'credito'
     );
     if (creditoPago) {
+      if (!cliente_id) {
+        throw httpError(400, 'Para ventas a crédito debe seleccionar un cliente');
+      }
       const montoCreditoUsdBcv = round4(Number(creditoPago.monto) || 0);
       if (montoCreditoUsdBcv <= 0) {
         throw httpError(400, 'El monto del pago a crédito debe ser mayor a 0');
@@ -551,6 +677,11 @@ async function create(req, res) {
 
     return ventaRow;
   });
+
+  // Idempotent replay: return the existing sale without touching inventario/stock again
+  if (result && result._idempotentReplay) {
+    return res.status(200).json({ ...result.venta, detalles: result.detalles, idempotent_replay: true });
+  }
 
   const full = await db.one(
     `SELECT v.*, c.nombre AS cliente_nombre FROM ventas v
@@ -762,6 +893,18 @@ async function createSuspendida(req, res) {
     body.sesion_caja_id != null && body.sesion_caja_id !== ''
       ? Number(body.sesion_caja_id)
       : null;
+
+  // Bug-17: validate sesion_caja_id belongs to this user if provided
+  if (sesion_caja_id != null) {
+    const sesCheck = await db.oneOrNone(
+      `SELECT id FROM sesiones_caja
+       WHERE id = $1 AND usuario_id = $2 AND estado = 'abierta' AND fecha_cierre IS NULL`,
+      [sesion_caja_id, usuario_id]
+    );
+    if (!sesCheck) {
+      throw httpError(403, 'sesion_caja_id no corresponde a la sesión de caja abierta del usuario');
+    }
+  }
 
   const lines = Array.isArray(body.lines) ? body.lines : Array.isArray(body.items) ? body.items : [];
   if (lines.length === 0) throw httpError(400, 'No hay líneas para suspender');

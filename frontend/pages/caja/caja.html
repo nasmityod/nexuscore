@@ -109,11 +109,11 @@
     <div class="apertura-grid">
       <div>
         <label class="campo-label">💵 ¿Cuántos dólares en efectivo tienes para empezar?</label>
-        <input type="number" id="apertura-monto-usd" class="input-caja" step="0.01" min="0" placeholder="Ej: 50.00" value="0">
+        <input type="number" id="apertura-monto-usd" class="input-caja" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
       </div>
       <div>
         <label class="campo-label">🇻🇪 ¿Cuántos bolívares en efectivo tienes para empezar?</label>
-        <input type="number" id="apertura-monto-bs" class="input-caja" step="0.01" min="0" placeholder="Ej: 15000.00" value="0">
+        <input type="number" id="apertura-monto-bs" class="input-caja" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
       </div>
       <div>
         <label class="campo-label">💱 Tasa BCV de hoy</label>
@@ -216,14 +216,14 @@
       <div class="conteo-fila">
         <div class="conteo-fila-label">Billetes en efectivo USD</div>
         <div class="conteo-fila-input">
-          <input type="number" id="conteo-usd" step="0.01" min="0" placeholder="Cuenta los billetes" value="0">
+          <input type="number" id="conteo-usd" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
           <span class="conteo-hint" data-hint="conteo-usd"></span>
         </div>
       </div>
       <div class="conteo-fila">
         <div class="conteo-fila-label">Zelle recibido (USD)</div>
         <div class="conteo-fila-input">
-          <input type="number" id="conteo-zelle" step="0.01" min="0" placeholder="0.00" value="0">
+          <input type="number" id="conteo-zelle" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
           <span class="conteo-hint" data-hint="conteo-zelle"></span>
         </div>
       </div>
@@ -235,28 +235,28 @@
       <div class="conteo-fila">
         <div class="conteo-fila-label">Billetes en efectivo Bs</div>
         <div class="conteo-fila-input">
-          <input type="number" id="conteo-bs" step="0.01" min="0" placeholder="Cuenta los billetes" value="0">
+          <input type="number" id="conteo-bs" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
           <span class="conteo-hint" data-hint="conteo-bs"></span>
         </div>
       </div>
       <div class="conteo-fila">
         <div class="conteo-fila-label">Transferencias recibidas (Bs)</div>
         <div class="conteo-fila-input">
-          <input type="number" id="conteo-transf" step="0.01" min="0" placeholder="0.00" value="0">
+          <input type="number" id="conteo-transf" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
           <span class="conteo-hint" data-hint="conteo-transf"></span>
         </div>
       </div>
       <div class="conteo-fila">
         <div class="conteo-fila-label">Pagos Móviles recibidos (Bs)</div>
         <div class="conteo-fila-input">
-          <input type="number" id="conteo-pm" step="0.01" min="0" placeholder="0.00" value="0">
+          <input type="number" id="conteo-pm" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
           <span class="conteo-hint" data-hint="conteo-pm"></span>
         </div>
       </div>
       <div class="conteo-fila">
         <div class="conteo-fila-label">Punto de venta (Bs)</div>
         <div class="conteo-fila-input">
-          <input type="number" id="conteo-punto" step="0.01" min="0" placeholder="0.00" value="0">
+          <input type="number" id="conteo-punto" step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
           <span class="conteo-hint" data-hint="conteo-punto"></span>
         </div>
       </div>
