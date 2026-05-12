@@ -275,6 +275,7 @@
 <script>
 (function () {
   var hwid        = '';
+  var hwidCompat  = null;
   var serverUrl   = 'https://nexuscore-iota.vercel.app'; // fallback si no hay Electron
   var hwidEl      = document.getElementById('hwid-display');
   var codeEl      = document.getElementById('input-code');
@@ -293,20 +294,34 @@
 
   // ── Cargar HWID e URL del servidor ─────────────────────────────────────
   function init() {
-    var hwidPromise = window.nexusCore && typeof window.nexusCore.getHardwareId === 'function'
-      ? window.nexusCore.getHardwareId()
-      : Promise.resolve('HWID-UNAVAILABLE');
+    var bundlePromise;
+    if (window.nexusCore && typeof window.nexusCore.getHardwareIdBundle === 'function') {
+      bundlePromise = window.nexusCore.getHardwareIdBundle().then(function (b) {
+        hwid = (b && b.hwid) || 'HWID-UNKNOWN';
+        hwidCompat = b && b.hwidCompat ? b.hwidCompat : null;
+      });
+    } else if (window.nexusCore && typeof window.nexusCore.getHardwareId === 'function') {
+      bundlePromise = window.nexusCore.getHardwareId().then(function (id) {
+        hwid = id || 'HWID-UNKNOWN';
+        hwidCompat = null;
+      });
+    } else {
+      bundlePromise = Promise.resolve().then(function () {
+        hwid = 'HWID-UNAVAILABLE';
+        hwidCompat = null;
+      });
+    }
 
     var urlPromise = window.nexusLicense && typeof window.nexusLicense.getServerUrl === 'function'
       ? window.nexusLicense.getServerUrl()
       : Promise.resolve(serverUrl);
 
-    Promise.all([hwidPromise, urlPromise]).then(function (results) {
-      hwid      = results[0] || 'HWID-UNKNOWN';
+    Promise.all([bundlePromise, urlPromise]).then(function (results) {
       serverUrl = results[1] || serverUrl;
       hwidEl.textContent = hwid;
     }).catch(function () {
       hwid = 'HWID-ERROR';
+      hwidCompat = null;
       hwidEl.textContent = hwid;
       hwidEl.style.color = '#f85149';
     });
@@ -414,10 +429,13 @@
         expira:  data.expiraEn != null && data.expiraEn !== '' ? data.expiraEn : null,
       };
 
+      var payloadInicial = { clave: data.token, hwid: hwid };
+      if (hwidCompat && hwidCompat !== hwid) payloadInicial.hwid_compat = hwidCompat;
+
       return fetch('http://127.0.0.1:3000/api/licencia/activar-inicial', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clave: data.token, hwid: hwid })
+        body: JSON.stringify(payloadInicial)
       }).then(function (r2) {
         return r2.json().then(function (d2) {
           if (!r2.ok) throw new Error(d2.error || 'No se pudo guardar la licencia localmente');

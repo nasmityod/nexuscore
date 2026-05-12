@@ -322,13 +322,26 @@
       .then(function (data) {
         var el = document.getElementById('respaldo-status');
         if (!el) return;
+        var bannerPg = '';
+        if (data.lastErrorCode === 'pg_dump_version_mismatch') {
+          bannerPg =
+            '<div style="color:#A32D2D;background:#FCEBEB;padding:10px;border-radius:6px;margin-bottom:10px">' +
+            '⚠️ Respaldos automáticos desactivados — versión de pg_dump incompatible con PostgreSQL. ' +
+            'Define NEXUS_PG_BIN_DIR en .env apuntando al bin de PostgreSQL 18.' +
+            '</div>';
+        }
+        var estado = '';
         if (data.lastSuccessAt) {
-          el.innerHTML = '✅ Último respaldo exitoso: <strong>' + new Date(data.lastSuccessAt).toLocaleString('es-VE') + '</strong>';
+          estado =
+            '✅ Último respaldo exitoso: <strong>' +
+            new Date(data.lastSuccessAt).toLocaleString('es-VE') +
+            '</strong>';
           el.style.background = 'rgba(16,185,129,.08)';
         } else {
-          el.innerHTML = '⚠️ No hay respaldos registrados todavía';
+          estado = '⚠️ No hay respaldos registrados todavía';
           el.style.background = 'rgba(245,158,11,.08)';
         }
+        el.innerHTML = bannerPg + estado;
       }).catch(function () {});
   }
 
@@ -339,7 +352,7 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.ok) {
-          toast('✅ Respaldo creado: ' + (data.ultimoArchivo || ''), 'success');
+          toast('✅ Respaldo creado: ' + (data.lastFile || ''), 'success');
           cargarEstadoRespaldo();
         } else {
           toast(data.error || 'No se pudo crear el respaldo', 'error');
@@ -352,17 +365,30 @@
   }
 
   /* ─── LICENCIA ─── */
-  var _hwid = '';
+  var _hwidBundle = null;
+
+  function obtenerHwidBundle() {
+    if (_hwidBundle) return Promise.resolve(_hwidBundle);
+    if (window.electronAPI && window.electronAPI.invoke) {
+      return window.electronAPI.invoke('app:get-hardware-id-bundle').then(function (b) {
+        _hwidBundle = {
+          hwid: (b && b.hwid) || 'HWID-UNKNOWN',
+          hwidCompat: b && b.hwidCompat ? b.hwidCompat : null
+        };
+        return _hwidBundle;
+      }).catch(function () {
+        _hwidBundle = { hwid: 'HWID-UNKNOWN', hwidCompat: null };
+        return _hwidBundle;
+      });
+    }
+    return Promise.resolve({ hwid: 'HWID-UNKNOWN', hwidCompat: null }).then(function (b) {
+      _hwidBundle = b;
+      return b;
+    });
+  }
 
   function obtenerHwid() {
-    if (_hwid) return Promise.resolve(_hwid);
-    if (window.electronAPI && window.electronAPI.invoke) {
-      return window.electronAPI.invoke('app:get-hardware-id').then(function (id) {
-        _hwid = id || 'HWID-UNKNOWN';
-        return _hwid;
-      }).catch(function () { _hwid = 'HWID-UNKNOWN'; return _hwid; });
-    }
-    return Promise.resolve('HWID-UNKNOWN');
+    return obtenerHwidBundle().then(function (b) { return b.hwid; });
   }
 
   function cargarLicencia() {
@@ -374,10 +400,16 @@
       verEl.textContent = window._APP_VERSION ? 'v' + window._APP_VERSION : '—';
     }
 
-    obtenerHwid().then(function (hwid) {
+    obtenerHwidBundle().then(function (bundle) {
+      var hwid = bundle.hwid;
+      var compat = bundle.hwidCompat;
       var hwidEl = document.getElementById('lic-hwid');
       if (hwidEl) hwidEl.textContent = hwid;
-      return apiFetch('/api/licencia/estado?hwid=' + encodeURIComponent(hwid));
+      var q = '/api/licencia/estado?hwid=' + encodeURIComponent(hwid);
+      if (compat && compat !== hwid) {
+        q += '&hwid_compat=' + encodeURIComponent(compat);
+      }
+      return apiFetch(q);
     }).then(function (r) {
       return r.ok ? r.json() : {};
     }).then(function (data) {
@@ -429,11 +461,15 @@
     var clave = claveInput ? claveInput.value.trim() : '';
     if (!clave) { toast('Ingresa la clave de licencia', 'error'); return; }
 
-    obtenerHwid().then(function (hwid) {
+    obtenerHwidBundle().then(function (bundle) {
+      var body = { clave: clave, hwid: bundle.hwid };
+      if (bundle.hwidCompat && bundle.hwidCompat !== bundle.hwid) {
+        body.hwid_compat = bundle.hwidCompat;
+      }
       return apiFetch('/api/licencia/activar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clave: clave, hwid: hwid })
+        body: JSON.stringify(body)
       });
     }).then(function (r) {
       return r.json().then(function (d) {

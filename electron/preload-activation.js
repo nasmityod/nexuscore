@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('nexusCore', {
   getHardwareId: () => ipcRenderer.invoke('app:get-hardware-id'),
+  getHardwareIdBundle: () => ipcRenderer.invoke('app:get-hardware-id-bundle'),
   getVersion:    () => ipcRenderer.invoke('app:get-version'),
 });
 

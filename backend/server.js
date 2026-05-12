@@ -16,7 +16,11 @@ const {
   runPatch013SearchPerformance, runPatch014IvaDefaultZero, runPatch015VentasTotalBsDescMax,
   runPatch016CreditoSequence, runPatch017Devoluciones, runPatch018CarteraMissingColumns,
   runPatch019StockConstraints, runPatch020SesionesHuerfanas, runPatch021IdempotencyVentas,
-  runPatch022AnulacionCreditoReversa, cleanupSesionesHuerfanas,
+  runPatch022AnulacionCreditoReversa,
+  runPatch023RolesPermDashboardMerge,
+  runPatch024FixIdempotencyIndex,
+  runPatch025UsuarioPermisosOverride,
+  cleanupSesionesHuerfanas,
   ensureSemillaAdminSiFalta
 } = require('./config/migrations');
 const { logger } = require('./config/logger');
@@ -208,6 +212,18 @@ async function start() {
     if (patch022.ran) {
       logger.info('Parche 022 aplicado: estado anulada en cuentas_cobrar');
     }
+    const patch023 = await runPatch023RolesPermDashboardMerge(db);
+    if (patch023.ran) {
+      logger.info('Parche 023 aplicado: permisos de roles sin dashboard (merge matriz)');
+    }
+    const patch024 = await runPatch024FixIdempotencyIndex(db);
+    if (patch024.ran) {
+      logger.info('Parche 024 aplicado: índice idempotency_key por (usuario_id, key)');
+    }
+    const patch025 = await runPatch025UsuarioPermisosOverride(db);
+    if (patch025.ran) {
+      logger.info('Parche 025 aplicado: columna permisos_override en usuarios');
+    }
     const adminSeed = await ensureSemillaAdminSiFalta(db);
     if (adminSeed.ran) {
       if (adminSeed.created) {
@@ -237,8 +253,16 @@ async function start() {
     throw err;
   }
 
-  server = app.listen(PORT, '127.0.0.1', () => {
-    logger.info(`Nexus-Core backend en http://127.0.0.1:${PORT}`);
+  // Importante: async start() debe esperar el evento 'listening'. Si resolvemos antes,
+  // Electron puede llamar a /api/licencia/estado demasiado pronto y fallar con ECONNREFUSED,
+  // mostrando la activación aunque la licencia esté en la BD.
+  await new Promise((resolve, reject) => {
+    server = app.listen(PORT, '127.0.0.1');
+    server.once('listening', () => {
+      logger.info(`Nexus-Core backend en http://127.0.0.1:${PORT}`);
+      resolve();
+    });
+    server.once('error', reject);
   });
   return server;
 }
