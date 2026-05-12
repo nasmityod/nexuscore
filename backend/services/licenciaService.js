@@ -150,15 +150,22 @@ function verificarClave(clave, hwid) {
 /**
  * Lee el estado de la licencia almacenada en la base de datos.
  * Nunca necesita internet — todo se verifica localmente.
+ *
+ * @param {string|string[]} hwid - HWID actual o lista (estable + legado) para compatibilidad
+ *   cuando cambia el orden de interfaces de red entre arranques.
  */
 async function obtenerEstadoLicencia(db, hwid) {
+  const hwidListRaw = Array.isArray(hwid) ? hwid : [hwid];
+  const hwidList = [...new Set(hwidListRaw.map((h) => String(h || '').trim()).filter(Boolean))];
+  const primary = hwidList[0] || 'unknown';
+
   const [claveRow] = await Promise.all([
     db.oneOrNone(`SELECT valor FROM configuracion WHERE clave = 'licencia_clave' LIMIT 1`),
   ]);
 
   const base = {
     activada: false,
-    hwid_actual: hwid,
+    hwid_actual: primary,
     empresa: null,
     expira: null,
     edition: null,
@@ -169,20 +176,26 @@ async function obtenerEstadoLicencia(db, hwid) {
     return { ...base, motivo: 'Sin licencia registrada. Ingresa tu clave de activación.' };
   }
 
-  const result = verificarClave(claveRow.valor, hwid);
-  if (!result.ok) {
-    return { ...base, motivo: result.motivo, clave_presente: true };
+  const toTry = hwidList.length ? hwidList : ['unknown'];
+  let lastMotivo = null;
+  for (const h of toTry) {
+    const result = verificarClave(claveRow.valor, h);
+    if (result.ok) {
+      return {
+        ...base,
+        activada: true,
+        hwid_actual: h,
+        empresa:  result.info.empresa,
+        expira:   result.info.expira,
+        edition:  result.info.edition,
+        emitida:  result.info.emitida,
+        motivo:   null,
+      };
+    }
+    lastMotivo = result.motivo;
   }
 
-  return {
-    ...base,
-    activada: true,
-    empresa:  result.info.empresa,
-    expira:   result.info.expira,
-    edition:  result.info.edition,
-    emitida:  result.info.emitida,
-    motivo:   null,
-  };
+  return { ...base, motivo: lastMotivo, clave_presente: true };
 }
 
 // ── Activación (escribe en BD) ─────────────────────────────────────────────
@@ -213,4 +226,21 @@ async function activarLicencia(db, clave, hwid) {
   return result.info;
 }
 
-module.exports = { verificarClave, obtenerEstadoLicencia, activarLicencia };
+/**
+ * Activa probando varios HWID (estable + legado) sin exponer MAC en el backend.
+ */
+async function activarLicenciaConHwids(db, clave, hwids) {
+  const list = [...new Set(hwids.map((h) => String(h || '').trim()).filter(Boolean))];
+  if (!list.length) throw new Error('El Hardware ID es obligatorio');
+  let lastErr = null;
+  for (const h of list) {
+    try {
+      return await activarLicencia(db, clave, h);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('No se pudo activar la licencia');
+}
+
+module.exports = { verificarClave, obtenerEstadoLicencia, activarLicencia, activarLicenciaConHwids };

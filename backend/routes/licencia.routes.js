@@ -7,13 +7,31 @@ const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const licenciaService = require('../services/licenciaService');
 const { requirePermission } = require('../middleware/permissions.middleware');
 
+function hwidsFromBody(body) {
+  const { hwid, hwid_compat } = body || {};
+  const list = [];
+  const a = hwid && String(hwid).trim();
+  const b = hwid_compat && String(hwid_compat).trim();
+  if (a) list.push(a);
+  if (b && !list.includes(b)) list.push(b);
+  return list;
+}
+
 /**
  * GET /api/licencia/estado
  * Devuelve el estado de la licencia almacenada (verificación local, sin internet).
  */
 router.get('/estado', asyncHandler(async (req, res) => {
-  const hwid = req.query.hwid || req.headers['x-hardware-id'] || 'unknown';
-  const estado = await licenciaService.obtenerEstadoLicencia(db, hwid);
+  const q = req.query.hwid || req.headers['x-hardware-id'];
+  const compat = req.query.hwid_compat;
+  const list = [];
+  if (q && String(q).trim()) list.push(String(q).trim());
+  if (compat && String(compat).trim()) {
+    const c = String(compat).trim();
+    if (!list.includes(c)) list.push(c);
+  }
+  const hwids = list.length ? list : ['unknown'];
+  const estado = await licenciaService.obtenerEstadoLicencia(db, hwids);
   res.json(estado);
 }));
 
@@ -23,11 +41,12 @@ router.get('/estado', asyncHandler(async (req, res) => {
  * Solo administradores pueden activar (cuando ya hay sesión iniciada).
  */
 router.post('/activar', requirePermission('usuarios_all'), asyncHandler(async (req, res) => {
-  const { clave, hwid } = req.body || {};
+  const { clave } = req.body || {};
+  const hwids = hwidsFromBody(req.body);
   if (!clave || !String(clave).trim()) throw httpError(400, 'La clave de licencia es obligatoria');
-  if (!hwid  || !String(hwid).trim())  throw httpError(400, 'El Hardware ID es obligatorio');
+  if (!hwids.length) throw httpError(400, 'El Hardware ID es obligatorio');
 
-  const info = await licenciaService.activarLicencia(db, String(clave).trim(), String(hwid).trim());
+  const info = await licenciaService.activarLicenciaConHwids(db, String(clave).trim(), hwids);
   res.json({ ok: true, info, message: `Licencia activada correctamente para ${info.empresa}` });
 }));
 
@@ -47,11 +66,12 @@ router.post('/activar-inicial', asyncHandler(async (req, res) => {
     throw httpError(409, 'Ya existe una licencia activada en este sistema');
   }
 
-  const { clave, hwid } = req.body || {};
+  const { clave } = req.body || {};
+  const hwids = hwidsFromBody(req.body);
   if (!clave || !String(clave).trim()) throw httpError(400, 'La clave de licencia es obligatoria');
-  if (!hwid  || !String(hwid).trim())  throw httpError(400, 'El Hardware ID es obligatorio');
+  if (!hwids.length) throw httpError(400, 'El Hardware ID es obligatorio');
 
-  const info = await licenciaService.activarLicencia(db, String(clave).trim(), String(hwid).trim());
+  const info = await licenciaService.activarLicenciaConHwids(db, String(clave).trim(), hwids);
   res.json({ ok: true, info, message: `Licencia activada correctamente para ${info.empresa}` });
 }));
 

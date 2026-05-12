@@ -207,47 +207,132 @@ function createActivationWindow() {
 }
 
 /**
+ * HWID estable (MACs ordenadas + CPU + hostname) y variante legado (primera MAC según orden del SO).
+ * Las licencias antiguas usan solo la primera interfaz; si Windows cambia el orden entre reinicios,
+ * el HWID legado ya no coincide — por eso intentamos ambos al validar.
+ */
+function computeHardwareIdCandidates() {
+  const os     = require('os');
+  const crypto = require('crypto');
+  const ifaces = os.networkInterfaces();
+  const cpus   = os.cpus();
+  const cpuModel = cpus.length > 0 ? cpus[0].model : 'unknown';
+  const hostname = os.hostname();
+
+  let macLegacy = '';
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
+      if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+        macLegacy = iface.mac;
+        break;
+      }
+    }
+    if (macLegacy) break;
+  }
+  const rawLegacy = `${macLegacy}|${cpuModel}|${hostname}`;
+  const hwidLegacy = crypto.createHash('sha256').update(rawLegacy).digest('hex').slice(0, 24).toUpperCase();
+
+  const macSet = new Set();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
+      if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+        macSet.add(iface.mac.toLowerCase());
+      }
+    }
+  }
+  const sortedMacs = [...macSet].sort();
+  const rawStable = `${sortedMacs.join(',')}|${cpuModel}|${hostname}`;
+  const hwidStable = crypto.createHash('sha256').update(rawStable).digest('hex').slice(0, 24).toUpperCase();
+
+  if (hwidStable === hwidLegacy) return [hwidStable];
+  return [hwidStable, hwidLegacy];
+}
+
+function licenciaEstadoPath(ids) {
+  const primary = ids[0];
+  const compat = ids[1];
+  if (compat && compat !== primary) {
+    return `/api/licencia/estado?hwid=${encodeURIComponent(primary)}&hwid_compat=${encodeURIComponent(compat)}`;
+  }
+  return `/api/licencia/estado?hwid=${encodeURIComponent(primary)}`;
+}
+
+/**
  * Comprueba la licencia contra el backend local.
  * Retorna true si está activada, false en caso contrario.
  */
 async function checkLicense() {
   try {
-    const os     = require('os');
-    const crypto = require('crypto');
-    const ifaces = os.networkInterfaces();
-    let mac = '';
-    for (const name of Object.keys(ifaces)) {
-      for (const iface of ifaces[name]) {
-        if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-          mac = iface.mac;
-          break;
-        }
-      }
-      if (mac) break;
-    }
-    const cpuModel = os.cpus().length > 0 ? os.cpus()[0].model : 'unknown';
-    const raw  = `${mac}|${cpuModel}|${os.hostname()}`;
-    const hwid = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 24).toUpperCase();
-
+    const ids = computeHardwareIdCandidates();
+    const pathQuery = licenciaEstadoPath(ids);
     const http = require('http');
-    const resp = await new Promise((resolve, reject) => {
-      const req = http.request(
-        { hostname: '127.0.0.1', port: 3000, path: `/api/licencia/estado?hwid=${hwid}`, method: 'GET' },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            try { resolve(JSON.parse(data)); }
-            catch (_e) { resolve({ activada: false }); }
-          });
-        }
-      );
-      req.on('error', reject);
-      req.setTimeout(5000, () => { req.destroy(); reject(new Error('timeout')); });
-      req.end();
-    });
+    const hwidLog = ids.filter(Boolean).join('+');
 
-    return resp && resp.activada === true;
+    let lastNetErr = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const resp = await new Promise((resolve, reject) => {
+          const req = http.request(
+            {
+              hostname: '127.0.0.1',
+              port: 3000,
+              path: pathQuery,
+              method: 'GET',
+              timeout: 8000
+            },
+            (res) => {
+              let data = '';
+              res.on('data', (chunk) => { data += chunk; });
+              res.on('end', () => {
+                try { resolve(JSON.parse(data)); }
+                catch (_e) { resolve({ activada: false, motivo: 'Respuesta JSON inválida del backend' }); }
+              });
+            }
+          );
+          req.on('error', reject);
+          req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('timeout'));
+          });
+          req.end();
+        });
+
+        if (resp && resp.activada === true) {
+          const exp = resp.expira != null && resp.expira !== '' ? resp.expira : '—';
+          const emp = resp.empresa != null && resp.empresa !== '' ? resp.empresa : '—';
+          console.log(
+            `${LOG_PREFIX} [licencia] estado=activa hwid=${resp.hwid_actual || ids[0]} expira=${exp} empresa=${emp}`
+          );
+          return true;
+        }
+
+        const motivo = resp && resp.motivo ? String(resp.motivo) : '(sin motivo en respuesta)';
+        console.warn(`${LOG_PREFIX} [licencia] estado=inactiva hwids=${hwidLog} motivo=${motivo}`);
+        if (/expirada/i.test(motivo)) {
+          console.warn(
+            `${LOG_PREFIX} [licencia] Licencia expirada (campo ex del token) — solicita una nueva clave al distribuidor ` +
+            `(servidor de licencias configurado en NEXUS_LICENSE_SERVER_URL / build).`
+          );
+        } else if (resp && resp.clave_presente && /otro equipo/i.test(motivo)) {
+          console.warn(
+            `${LOG_PREFIX} [licencia] La clave guardada en BD es de otro equipo. ` +
+            `Actualizar solo licencia_hwid en PostgreSQL no sirve: el token NC1 lleva el hash fijo en el payload. ` +
+            `Reactiva con un código emitido para este HWID o usa la BD del equipo original.`
+          );
+        }
+        return false;
+      } catch (e) {
+        lastNetErr = e;
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+      }
+    }
+
+    console.warn(
+      `${LOG_PREFIX} [licencia] estado=error hwids=${hwidLog} ` +
+      `sin respuesta HTTP tras reintentos: ${lastNetErr && lastNetErr.message}`
+    );
+    return false;
   } catch (e) {
     console.warn(`${LOG_PREFIX} checkLicense error:`, e.message);
     return false;
@@ -330,29 +415,37 @@ function registerBasicIpc() {
 
   ipcMain.handle('app:get-path', (_evt, name) => app.getPath(name));
 
-  // Hardware ID para licenciamiento: combinación de MAC address + CPU model
+  ipcMain.handle('window:focus', () => {
+    if (mainWindow) {
+      mainWindow.focus();
+      mainWindow.webContents.focus();
+    }
+  });
+
+  ipcMain.handle('window:steal-focus', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    app.focus({ steal: true });
+    mainWindow.focus();
+    mainWindow.webContents.focus();
+  });
+
   ipcMain.handle('app:get-hardware-id', async () => {
     try {
-      const os    = require('os');
-      const crypto = require('crypto');
-      const ifaces = os.networkInterfaces();
-      // Tomar la primera MAC no-loopback
-      let mac = '';
-      for (const name of Object.keys(ifaces)) {
-        for (const iface of ifaces[name]) {
-          if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-            mac = iface.mac;
-            break;
-          }
-        }
-        if (mac) break;
-      }
-      const cpus = os.cpus();
-      const cpuModel = cpus.length > 0 ? cpus[0].model : 'unknown';
-      const raw = `${mac}|${cpuModel}|${os.hostname()}`;
-      return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 24).toUpperCase();
+      return computeHardwareIdCandidates()[0];
     } catch (e) {
       return 'HWID-UNKNOWN';
+    }
+  });
+
+  ipcMain.handle('app:get-hardware-id-bundle', async () => {
+    try {
+      const ids = computeHardwareIdCandidates();
+      return {
+        hwid: ids[0],
+        hwidCompat: ids.length > 1 ? ids[1] : null
+      };
+    } catch (e) {
+      return { hwid: 'HWID-UNKNOWN', hwidCompat: null };
     }
   });
 
