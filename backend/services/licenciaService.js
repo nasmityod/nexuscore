@@ -11,12 +11,13 @@
  *
  * FORMATO DE CLAVE:
  *   NC1.{payload_base64url}.{firma_base64url}
- *   payload = JSON({ h, e, ed, ex, iat })
+ *   payload = JSON({ h, e, ed, ex, iat, esTrial? })
  *     h   = SHA-256(HWID)   vincula la licencia a este equipo
  *     e   = empresa
  *     ed  = edition
- *     ex  = "YYYY-MM-DD" | null (perpetua)
+ *     ex  = ISO 8601 | null (perpetua)
  *     iat = unix timestamp de emisión
+ *     esTrial = boolean (período de prueba)
  *
  * FLUJO:
  *   1. Primer arranque → app pide HWID al usuario.
@@ -28,6 +29,7 @@
  */
 
 const crypto = require('crypto');
+const { logger } = require('../config/logger');
 
 // ══════════════════════════════════════════════════════════════════════════
 //  CLAVE PÚBLICA Ed25519 (SPKI PEM). Puedes sobrescribir sin recompilar:
@@ -56,6 +58,41 @@ function fromB64url(s) {
   let b64 = String(s).replace(/-/g, '+').replace(/_/g, '/');
   const pad = (4 - (b64.length % 4)) % 4;
   return Buffer.from(b64 + '='.repeat(pad), 'base64');
+}
+
+/**
+ * Compara reloj local con tiempo público (solo trials). Sin red: ok false → no bloquear.
+ */
+async function verificarTiempoExterno() {
+  const TIMEOUT_MS = 3000;
+  const ENDPOINTS = [
+    'https://worldtimeapi.org/api/ip',
+    'https://timeapi.io/api/Time/current/zone?timeZone=UTC',
+  ];
+
+  for (const url of ENDPOINTS) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+      const data = await res.json();
+      let tiempoRed = null;
+      if (data.unixtime != null) {
+        tiempoRed = Number(data.unixtime) * 1000;
+      } else {
+        const dt = data.dateTime || data.currentDateTime;
+        if (dt) tiempoRed = new Date(dt).getTime();
+      }
+      if (!tiempoRed || Number.isNaN(tiempoRed)) continue;
+      const deriva = Math.abs(tiempoRed - Date.now());
+      return { ok: true, derivaMs: deriva, fuente: url };
+    } catch (_e) {
+      continue;
+    }
+  }
+  return { ok: false, derivaMs: null, fuente: null };
 }
 
 // ── Verificación asimétrica ────────────────────────────────────────────────
@@ -137,6 +174,7 @@ function verificarClave(clave, hwid) {
         edition: payload.ed || 'profesional',
         emitida: payload.iat ? new Date(payload.iat * 1000).toISOString() : null,
         hwid_ok: true,
+        esTrial: !!payload.esTrial,
       },
     };
 
@@ -180,19 +218,70 @@ async function obtenerEstadoLicencia(db, hwid) {
   let lastMotivo = null;
   for (const h of toTry) {
     const result = verificarClave(claveRow.valor, h);
-    if (result.ok) {
-      return {
-        ...base,
-        activada: true,
-        hwid_actual: h,
-        empresa:  result.info.empresa,
-        expira:   result.info.expira,
-        edition:  result.info.edition,
-        emitida:  result.info.emitida,
-        motivo:   null,
-      };
+    if (!result.ok) {
+      lastMotivo = result.motivo;
+      continue;
     }
-    lastMotivo = result.motivo;
+
+    const esTrial = !!result.info.esTrial;
+
+    if (esTrial) {
+      const activadaRow = await db.oneOrNone(
+        `SELECT valor FROM configuracion WHERE clave = 'licencia_activada_en' LIMIT 1`
+      );
+      if (activadaRow && activadaRow.valor) {
+        const activadaEn = new Date(activadaRow.valor);
+        const ahora = new Date();
+        const SLACK_MS = 15 * 60 * 1000;
+        if (!Number.isNaN(activadaEn.getTime()) && ahora < activadaEn - SLACK_MS) {
+          return {
+            ...base,
+            activada: false,
+            motivo:
+              'El reloj del sistema está configurado en el pasado. Corrige la fecha y hora del equipo.',
+          };
+        }
+      }
+
+      const tiempoCheck = await verificarTiempoExterno();
+      if (tiempoCheck.ok) {
+        const LIMITE_MS = 10 * 60 * 1000;
+        if (tiempoCheck.derivaMs > LIMITE_MS) {
+          return {
+            ...base,
+            activada: false,
+            motivo:
+              'El reloj del sistema difiere del tiempo real en más de 10 minutos. Corrige la fecha y hora del equipo para continuar usando el período de prueba.',
+          };
+        }
+      } else {
+        logger.warn(
+          '[licencia] No se pudo verificar tiempo externo — continuando con reloj local (trial)'
+        );
+      }
+    }
+
+    const expiraDate =
+      result.info.expira && result.info.expira !== 'Perpetua'
+        ? new Date(result.info.expira)
+        : null;
+    const horasRestantes =
+      expiraDate && !Number.isNaN(expiraDate.getTime())
+        ? Math.max(0, Math.round((expiraDate - new Date()) / (1000 * 60 * 60)))
+        : null;
+
+    return {
+      ...base,
+      activada: true,
+      hwid_actual: h,
+      empresa: result.info.empresa,
+      expira: result.info.expira,
+      edition: result.info.edition,
+      emitida: result.info.emitida,
+      esTrial,
+      horasRestantes,
+      motivo: null,
+    };
   }
 
   return { ...base, motivo: lastMotivo, clave_presente: true };
@@ -216,11 +305,16 @@ async function activarLicencia(db, clave, hwid) {
       [k, v, 'sistema', desc]
     );
 
-    await upsert('licencia_clave',    clave,                   'Clave de activación (Ed25519)');
-    await upsert('licencia_hwid',     hwid,                    'Hardware ID registrado');
-    await upsert('licencia_empresa',  result.info.empresa,     'Empresa de la licencia');
-    await upsert('licencia_edition',  result.info.edition,     'Edición de la licencia');
-    await upsert('licencia_expira',   result.info.expira,      'Fecha de expiración');
+    await upsert('licencia_clave', clave, 'Clave de activación (Ed25519)');
+    await upsert('licencia_hwid', hwid, 'Hardware ID registrado');
+    await upsert('licencia_empresa', result.info.empresa, 'Empresa de la licencia');
+    await upsert('licencia_edition', result.info.edition, 'Edición de la licencia');
+    await upsert('licencia_expira', result.info.expira, 'Fecha de expiración');
+    await upsert(
+      'licencia_activada_en',
+      new Date().toISOString(),
+      'Marca de tiempo local de última activación (anti-retroceso de reloj en trial)'
+    );
   });
 
   return result.info;
@@ -243,4 +337,9 @@ async function activarLicenciaConHwids(db, clave, hwids) {
   throw lastErr || new Error('No se pudo activar la licencia');
 }
 
-module.exports = { verificarClave, obtenerEstadoLicencia, activarLicencia, activarLicenciaConHwids };
+module.exports = {
+  verificarClave,
+  obtenerEstadoLicencia,
+  activarLicencia,
+  activarLicenciaConHwids,
+};

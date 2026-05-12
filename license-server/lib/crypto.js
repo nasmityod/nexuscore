@@ -67,7 +67,7 @@ function verifyCodeHmac(code, storedHmac) {
  * Genera un token firmado NC1.{payload_b64url}.{firma_b64url}
  * Solo funciona con NEXUS_LICENSE_PRIVATE_KEY correcto.
  */
-function firmarToken({ hwidHash, empresa, edition, expiraEn }) {
+function firmarToken({ hwidHash, empresa, edition, expiraEn, esTrial }) {
   const privatePem = process.env.NEXUS_LICENSE_PRIVATE_KEY;
   if (!privatePem) throw new Error('Servidor mal configurado: falta NEXUS_LICENSE_PRIVATE_KEY');
 
@@ -77,6 +77,7 @@ function firmarToken({ hwidHash, empresa, edition, expiraEn }) {
     ed:  String(edition  || 'profesional'),
     ex:  expiraEn || null,
     iat: Math.floor(Date.now() / 1000),
+    esTrial: !!(esTrial),
   };
 
   const payloadJson = JSON.stringify(payload);

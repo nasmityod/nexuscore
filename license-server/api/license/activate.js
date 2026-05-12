@@ -28,6 +28,17 @@ const { checkAndIncrement, recordCodeFailure,
 const { validateActivationInput, sendError, sendOk }  = require('../../lib/validate');
 const { createLogger, maskCode }                      = require('../../lib/logger');
 
+/** true si el registro KV marca período de prueba (tolerante a string/número por serialización). */
+function entryEsTrial(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  const v = entry.esTrial;
+  if (v === true || v === 1) return true;
+  if (typeof v === 'string' && (v.toLowerCase() === 'true' || v === '1')) return true;
+  const tipo = entry.tipoLicencia != null ? String(entry.tipoLicencia).toLowerCase() : '';
+  if (tipo === 'trial' || tipo === 'prueba') return true;
+  return false;
+}
+
 const GENERIC_REJECT = 'Código no válido o ya utilizado.';
 
 module.exports = async function handler(req, res) {
@@ -147,6 +158,17 @@ module.exports = async function handler(req, res) {
   }
 
   const hwidHash = hashHwid(hwid);
+  const esTrial = entryEsTrial(entry);
+  /** Duración de prueba gratuita (solo si esTrial). Vercel: NEXUS_TRIAL_HOURS (default 24, máx 720). */
+  const trialHours = (() => {
+    const n = parseInt(process.env.NEXUS_TRIAL_HOURS, 10);
+    if (!Number.isFinite(n) || n < 1) return 24;
+    return Math.min(n, 720);
+  })();
+  const expiraEn = esTrial
+    ? new Date(Date.now() + trialHours * 60 * 60 * 1000).toISOString()
+    : entry.expiraEn || null;
+
   let token;
   const tSign = Date.now();
   try {
@@ -154,12 +176,15 @@ module.exports = async function handler(req, res) {
       hwidHash,
       empresa:   entry.empresa  || 'NexusCore',
       edition:   entry.edition  || 'profesional',
-      expiraEn:  entry.expiraEn || null,
+      expiraEn,
+      esTrial,
     });
     log.timing('sign_token', tSign, {
       edition: entry.edition || 'profesional',
-      licenciaExpiraEn: entry.expiraEn || null,
+      licenciaExpiraEn: expiraEn || null,
       hwidHashPrefix: hwidHash.slice(0, 16),
+      esTrial,
+      trialHours: esTrial ? trialHours : undefined,
     });
   } catch (signErr) {
     log.error('sign_failed', {
@@ -207,7 +232,9 @@ module.exports = async function handler(req, res) {
     codeMasked: maskCode(code),
     empresa: entry.empresa || 'NexusCore',
     edition: entry.edition || 'profesional',
-    expiraEn: entry.expiraEn || null,
+    expiraEn: expiraEn || null,
+    esTrial,
+    trialHours: esTrial ? trialHours : undefined,
     tokenChars: token ? token.length : 0,
   });
   log.timing('request_total', t0, { outcome: '200' });
@@ -216,7 +243,9 @@ module.exports = async function handler(req, res) {
     token,
     empresa:  entry.empresa  || 'NexusCore',
     edition:  entry.edition  || 'profesional',
-    expiraEn: entry.expiraEn || null,
+    expiraEn: expiraEn || null,
+    esTrial,
+    trialHours: esTrial ? trialHours : null,
     message:  'Licencia activada correctamente.',
   });
 };

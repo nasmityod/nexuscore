@@ -53,23 +53,25 @@ router.post('/activar', requirePermission('usuarios_all'), asyncHandler(async (r
 /**
  * POST /api/licencia/activar-inicial
  * Igual que /activar pero SIN autenticación JWT.
- * Solo funciona si NO hay licencia activa en la BD (primera vez).
- * Esto permite que la pantalla de activación llame al backend local
- * antes de que el usuario haya iniciado sesión en la app.
+ * Solo se rechaza si ya hay una licencia **válida y activa** para este equipo (409).
+ * Si la clave guardada está expirada o inválida, se permite sustituirla (misma pantalla
+ * de activación tras trial vencido — el cliente final no usa SQL ni Configuración).
  */
 router.post('/activar-inicial', asyncHandler(async (req, res) => {
-  // Seguridad: solo se permite si todavía no hay licencia guardada
-  const claveGuardada = await db.oneOrNone(
-    `SELECT valor FROM configuracion WHERE clave = 'licencia_clave' LIMIT 1`
-  );
-  if (claveGuardada?.valor) {
-    throw httpError(409, 'Ya existe una licencia activada en este sistema');
-  }
-
   const { clave } = req.body || {};
   const hwids = hwidsFromBody(req.body);
   if (!clave || !String(clave).trim()) throw httpError(400, 'La clave de licencia es obligatoria');
   if (!hwids.length) throw httpError(400, 'El Hardware ID es obligatorio');
+
+  const claveGuardada = await db.oneOrNone(
+    `SELECT valor FROM configuracion WHERE clave = 'licencia_clave' LIMIT 1`
+  );
+  if (claveGuardada?.valor) {
+    const estado = await licenciaService.obtenerEstadoLicencia(db, hwids);
+    if (estado.activada) {
+      throw httpError(409, 'Ya existe una licencia activada en este sistema');
+    }
+  }
 
   const info = await licenciaService.activarLicenciaConHwids(db, String(clave).trim(), hwids);
   res.json({ ok: true, info, message: `Licencia activada correctamente para ${info.empresa}` });

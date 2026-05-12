@@ -259,7 +259,7 @@ function licenciaEstadoPath(ids) {
 
 /**
  * Comprueba la licencia contra el backend local.
- * Retorna true si está activada, false en caso contrario.
+ * @returns {{ ok: boolean, estado: object | null }}
  */
 async function checkLicense() {
   try {
@@ -304,7 +304,7 @@ async function checkLicense() {
           console.log(
             `${LOG_PREFIX} [licencia] estado=activa hwid=${resp.hwid_actual || ids[0]} expira=${exp} empresa=${emp}`
           );
-          return true;
+          return { ok: true, estado: resp };
         }
 
         const motivo = resp && resp.motivo ? String(resp.motivo) : '(sin motivo en respuesta)';
@@ -321,7 +321,7 @@ async function checkLicense() {
             `Reactiva con un código emitido para este HWID o usa la BD del equipo original.`
           );
         }
-        return false;
+        return { ok: false, estado: null };
       } catch (e) {
         lastNetErr = e;
         await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
@@ -332,10 +332,10 @@ async function checkLicense() {
       `${LOG_PREFIX} [licencia] estado=error hwids=${hwidLog} ` +
       `sin respuesta HTTP tras reintentos: ${lastNetErr && lastNetErr.message}`
     );
-    return false;
+    return { ok: false, estado: null };
   } catch (e) {
     console.warn(`${LOG_PREFIX} checkLicense error:`, e.message);
-    return false;
+    return { ok: false, estado: null };
   }
 }
 
@@ -500,7 +500,24 @@ app.whenReady().then(async () => {
       await new Promise(resolve => setTimeout(resolve, 200));
 
       updateSplashStatus('Verificando licencia...', 85);
-      const licenciaOk = await checkLicense();
+      const { ok: licenciaOk, estado: licenciaEstado } = await checkLicense();
+
+      if (licenciaOk && licenciaEstado && licenciaEstado.esTrial) {
+        const hrs = licenciaEstado.horasRestantes;
+        console.warn(
+          `${LOG_PREFIX} [licencia] MODO PRUEBA — Vence en ${hrs != null ? hrs : '?'}h (${licenciaEstado.expira || '—'})`
+        );
+        if (hrs != null && hrs <= 6) {
+          await dialog.showMessageBox({
+            type: 'warning',
+            title: 'Licencia de prueba por vencer',
+            message: `Tu período de prueba vence en ${hrs} hora(s).`,
+            detail:
+              'Contacta a tu proveedor para activar la licencia completa y continuar usando el sistema sin interrupciones.',
+            buttons: ['Entendido'],
+          });
+        }
+      }
 
       if (!licenciaOk) {
         // ── Sin licencia válida: mostrar pantalla de activación ──────────

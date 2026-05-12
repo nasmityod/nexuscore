@@ -10,6 +10,7 @@
  *   edition      string  (opcional)     "basico" | "profesional" | "enterprise"
  *   expiraEn     string  (opcional)     ISO 8601, fecha de expiración de la LICENCIA
  *   expiraCodigo string  (opcional)     ISO 8601, fecha límite para CANJEAR el código
+ *   esTrial      boolean (opcional)     Si true: período de prueba desde activación (horas = NEXUS_TRIAL_HOURS en Vercel, default 24; ignora expiraEn del KV al firmar)
  *   cantidad     number  (opcional)     Cuántos códigos generar en lote (max 50)
  *
  * Retorna:
@@ -69,12 +70,15 @@ module.exports = async function handler(req, res) {
 
   const cantidad = Math.min(Math.max(parseInt(body.cantidad) || 1, 1), 50);
 
+  const esTrial = body.esTrial === true || body.esTrial === 'true';
+
   log.step('params_ready', {
     empresaLen: empresa.length,
     edition,
     cantidad,
     hasExpiraEn: !!expiraEn,
     hasExpiraCodigo: !!expiraCodigo,
+    esTrial,
   });
 
   // ── Generación de códigos ──────────────────────────────────────────────
@@ -90,6 +94,9 @@ module.exports = async function handler(req, res) {
       edition,
       expiraEn:          expiraEn || null,
       expiraCodigo:      expiraCodigo || null,
+      esTrial,
+      /** Redundante: algunos almacenes/clones serializan mal booleanos; activate también lee esto. */
+      tipoLicencia:      esTrial ? 'trial' : 'full',
       hmac,                         // firma del código — verifica integridad en KV
       activatedHwidHash: null,
       activatedAt:       null,
@@ -144,6 +151,8 @@ module.exports = async function handler(req, res) {
     edition,
     expiraEn:      expiraEn     || null,
     expiraCodigo:  expiraCodigo || null,
+    esTrial,
+    tipoLicencia:  esTrial ? 'trial' : 'full',
     message:       `${cantidad} código(s) generado(s) para "${empresa}".`,
   });
 };

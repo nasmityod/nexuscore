@@ -423,6 +423,11 @@
       var secActEl   = document.getElementById('lic-activar-seccion');
       var secGenEl   = document.getElementById('lic-generar-seccion');
 
+      var prevBanner = document.getElementById('lic-banner-trial');
+      if (prevBanner && prevBanner.parentNode) {
+        prevBanner.parentNode.removeChild(prevBanner);
+      }
+
       if (data.activada) {
         if (iconoEl)   iconoEl.textContent = '✅';
         if (labelEl)   labelEl.textContent = 'Licencia ACTIVA';
@@ -434,6 +439,25 @@
         if (hwidRegEl) hwidRegEl.textContent = data.hwid_registrado || data.hwid_actual || '—';
         // Ocultar sección activar si ya está activa
         if (secActEl) secActEl.style.display = 'none';
+
+        if (data.esTrial && data.horasRestantes != null) {
+          var diasR = Math.floor(data.horasRestantes / 24);
+          var horasR = data.horasRestantes % 24;
+          var textoT = diasR > 0 ? diasR + 'd ' + horasR + 'h restantes' : data.horasRestantes + 'h restantes';
+          var colorB = data.horasRestantes <= 6 ? '#A32D2D' : '#854F0B';
+          var bgB = data.horasRestantes <= 6 ? '#FCEBEB' : '#FAEEDA';
+          var bannerT = document.createElement('div');
+          bannerT.id = 'lic-banner-trial';
+          bannerT.style.cssText =
+            'background:' + bgB + ';border:1px solid ' + colorB + ';border-radius:8px;padding:12px 16px;margin-bottom:12px;color:' + colorB + ';font-size:13px;font-weight:500';
+          bannerT.innerHTML =
+            '⏱ <strong>Modo de prueba</strong> — ' +
+            textoT +
+            '. Para activar la licencia completa contacta a tu proveedor.';
+          if (boxEl && boxEl.parentNode) {
+            boxEl.parentNode.insertBefore(bannerT, boxEl);
+          }
+        }
       } else {
         if (iconoEl)   iconoEl.textContent = '⚠️';
         if (labelEl)   labelEl.textContent = 'Sin Licencia Activa';
