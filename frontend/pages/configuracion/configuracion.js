@@ -435,7 +435,27 @@
         if (boxEl)     boxEl.style.borderColor = '#10b981';
         if (empresaEl) empresaEl.textContent = data.empresa || '';
         if (editionEl) editionEl.textContent = data.edition || 'Profesional';
-        if (expiraEl)  expiraEl.textContent  = data.expira  || 'Perpetua';
+        if (expiraEl) {
+          var rawExp = data.expira != null && data.expira !== '' ? data.expira : 'Perpetua';
+          expiraEl.textContent =
+            typeof window.formatExpiraLicenciaUi === 'function'
+              ? window.formatExpiraLicenciaUi(rawExp)
+              : rawExp || 'Perpetua';
+          expiraEl.removeAttribute('title');
+          if (
+            rawExp &&
+            String(rawExp).trim() &&
+            !/^perpetua$/i.test(String(rawExp))
+          ) {
+            var du = new Date(rawExp);
+            if (!Number.isNaN(du.getTime())) {
+              expiraEl.title =
+                'Referencia en UTC (técnico): ' +
+                du.toISOString() +
+                '. La hora mostrada arriba es la de tu zona horaria.';
+            }
+          }
+        }
         if (hwidRegEl) hwidRegEl.textContent = data.hwid_registrado || data.hwid_actual || '—';
         // Ocultar sección activar si ya está activa
         if (secActEl) secActEl.style.display = 'none';

@@ -101,6 +101,8 @@ module.exports = async function handler(req, res) {
       revoked: !!(entry && entry.revocado),
       activated: !!(entry && entry.activatedHwidHash),
       empresa: entry && entry.empresa ? String(entry.empresa).slice(0, 80) : null,
+      esTrial: entry ? entryEsTrial(entry) : undefined,
+      tipoLicencia: entry && entry.tipoLicencia != null ? String(entry.tipoLicencia) : undefined,
     });
   } catch (kvErr) {
     log.error('kv_get_error', {
@@ -168,6 +170,13 @@ module.exports = async function handler(req, res) {
   const expiraEn = esTrial
     ? new Date(Date.now() + trialHours * 60 * 60 * 1000).toISOString()
     : entry.expiraEn || null;
+
+  log.step('activate_plan', {
+    esTrial,
+    trialHours: esTrial ? trialHours : undefined,
+    licenciaExpiraEn: expiraEn || null,
+    edition: entry.edition || 'profesional',
+  });
 
   let token;
   const tSign = Date.now();

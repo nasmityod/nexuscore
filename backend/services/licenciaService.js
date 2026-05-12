@@ -61,13 +61,56 @@ function fromB64url(s) {
 }
 
 /**
+ * Obtiene epoch UTC en ms desde respuestas JSON de APIs de tiempo público.
+ * Importante: timeapi.io devuelve dateTime ISO sin "Z"; Date.parse lo interpretaría
+ * como hora LOCAL y en zonas ≠ UTC genera falsos positivos de ~horas de deriva.
+ */
+function tiempoUtcMsDesdeRespuestaTiempo(data) {
+  if (!data || typeof data !== 'object') return null;
+  if (data.unixtime != null) {
+    const ms = Number(data.unixtime) * 1000;
+    if (!Number.isNaN(ms)) return ms;
+  }
+  if (data.utc_datetime != null) {
+    const ms = Date.parse(String(data.utc_datetime));
+    if (!Number.isNaN(ms)) return ms;
+  }
+  // timeapi.io zone?timeZone=UTC — campos son tiempo UTC explícito
+  if (data.timeZone === 'UTC' && data.year != null && data.month != null && data.day != null) {
+    const ms = Date.UTC(
+      Number(data.year),
+      Number(data.month) - 1,
+      Number(data.day),
+      Number(data.hour || 0),
+      Number(data.minute || 0),
+      Number(data.seconds || 0),
+      Number(data.milliSeconds || 0)
+    );
+    if (!Number.isNaN(ms)) return ms;
+  }
+  const dt = data.dateTime || data.currentDateTime;
+  if (dt) {
+    const s = String(dt).trim();
+    // ISO sin zona: timeapi.io es UTC aunque no lleve Z
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
+      const ms = Date.parse(`${s}Z`);
+      if (!Number.isNaN(ms)) return ms;
+    }
+    const ms = Date.parse(s);
+    if (!Number.isNaN(ms)) return ms;
+  }
+  return null;
+}
+
+/**
  * Compara reloj local con tiempo público (solo trials). Sin red: ok false → no bloquear.
  */
 async function verificarTiempoExterno() {
   const TIMEOUT_MS = 3000;
+  // timeapi.io suele ser más estable; worldtimeapi a veces devuelve 5xx
   const ENDPOINTS = [
-    'https://worldtimeapi.org/api/ip',
     'https://timeapi.io/api/Time/current/zone?timeZone=UTC',
+    'https://worldtimeapi.org/api/ip',
   ];
 
   for (const url of ENDPOINTS) {
@@ -78,13 +121,7 @@ async function verificarTiempoExterno() {
       clearTimeout(timer);
       if (!res.ok) continue;
       const data = await res.json();
-      let tiempoRed = null;
-      if (data.unixtime != null) {
-        tiempoRed = Number(data.unixtime) * 1000;
-      } else {
-        const dt = data.dateTime || data.currentDateTime;
-        if (dt) tiempoRed = new Date(dt).getTime();
-      }
+      const tiempoRed = tiempoUtcMsDesdeRespuestaTiempo(data);
       if (!tiempoRed || Number.isNaN(tiempoRed)) continue;
       const deriva = Math.abs(tiempoRed - Date.now());
       return { ok: true, derivaMs: deriva, fuente: url };

@@ -272,6 +272,7 @@
   </p>
 </div>
 
+<script src="services/expiraLicenciaUi.js"></script>
 <script>
 (function () {
   var hwid        = '';
@@ -451,11 +452,18 @@
       dot3.className = 'step-dot done';
 
       var info = result.serverInfo || {};
+      var expTxt =
+        info.expira != null && info.expira !== ''
+          ? typeof window.formatExpiraLicenciaUi === 'function'
+            ? window.formatExpiraLicenciaUi(info.expira)
+            : info.expira
+          : 'Sin fecha límite';
       showSuccess(
         '¡Activado correctamente! · ' +
         (info.empresa ? info.empresa + ' · ' : '') +
         'Edición: ' + (info.edition || 'Profesional') + ' · ' +
-        'Expira: ' + (info.expira || 'Nunca') +
+        'Vencimiento de la prueba: ' +
+        expTxt +
         '. Iniciando la aplicación...'
       );
 
