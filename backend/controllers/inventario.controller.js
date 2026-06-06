@@ -66,7 +66,8 @@ async function previewAjuste(req, res) {
     params
   );
 
-  const tasas = await PreciosService.obtenerTasasActuales(db);
+  // resolverTasasOperativas: defensa en lectura (unifica tasa_usd = tasa_bcv en solo_bcv).
+  const tasas = await PreciosService.resolverTasasOperativas(db);
   const tasaUsdVal = parseFloat(tasas.tasa_usd) || 0;
   const tasaBcvVal = parseFloat(tasas.tasa_bcv) || 0;
   const tasasOk = tasaUsdVal > 0 && tasaBcvVal > 0;
@@ -286,7 +287,8 @@ async function movimientos(req, res) {
 // ─── Inventario Valorizado ────────────────────────────────────────────────────
 
 async function inventarioValorizado(req, res) {
-  const tasas = await PreciosService.obtenerTasasActuales(db);
+  // resolverTasasOperativas: defensa en lectura (unifica tasa_usd = tasa_bcv en solo_bcv).
+  const tasas = await PreciosService.resolverTasasOperativas(db);
   const tasaUsd = parseFloat(tasas.tasa_usd) || 0;
   const tasaBcv = parseFloat(tasas.tasa_bcv) || 0;
   const tasasBcvValidas = tasaUsd > 0 && tasaBcv > 0;

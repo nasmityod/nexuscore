@@ -41,6 +41,30 @@
   function round4(v) { return Math.round(n(v) * 10000) / 10000; }
   function metodoEsBs(metodo) { return METODOS_BS.indexOf(metodo) !== -1; }
   function metodoEsUsd(metodo) { return METODOS_USD.indexOf(metodo) !== -1; }
+
+  /** Modo monetario operativo ('multimoneda' | 'solo_bcv'), cacheado por el navbar. */
+  function clientesModoMoneda() {
+    if (window.NexusComponents && typeof window.NexusComponents.getModoMoneda === 'function') {
+      return window.NexusComponents.getModoMoneda();
+    }
+    try {
+      var m = localStorage.getItem('nexus_modo_moneda');
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
+
+  /** En solo_bcv oculta los métodos de pago en divisa de mercado (Efectivo USD / Zelle). */
+  function aplicarModoMetodoPago(selectEl) {
+    if (!selectEl) return;
+    var esSolo = clientesModoMoneda() === 'solo_bcv';
+    METODOS_USD.forEach(function (mv) {
+      var opt = selectEl.querySelector('option[value="' + mv + '"]');
+      if (opt) { opt.hidden = esSolo; opt.disabled = esSolo; }
+    });
+    if (esSolo && metodoEsUsd(selectEl.value)) selectEl.value = 'efectivo_bs';
+  }
   function getTasas() {
     var load = window.NexusComponents && window.NexusComponents.loadTasasLocal;
     if (load) {
@@ -466,6 +490,7 @@
     document.getElementById('pago-notas').value = '';
     var metodoEl = document.getElementById('pago-metodo');
     if (metodoEl) metodoEl.value = 'efectivo_bs';
+    aplicarModoMetodoPago(metodoEl);
     actualizarUiMontoPago();
     setTimeout(function () { var el = document.getElementById('pago-monto'); if (el) el.focus(); }, 100);
   }

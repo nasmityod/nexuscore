@@ -20,6 +20,19 @@
     }
   }
 
+  /** Modo monetario operativo ('multimoneda' | 'solo_bcv'), cacheado por el navbar. */
+  function ventasModoMoneda() {
+    if (window.NexusComponents && typeof window.NexusComponents.getModoMoneda === 'function') {
+      return window.NexusComponents.getModoMoneda();
+    }
+    try {
+      var m = localStorage.getItem('nexus_modo_moneda');
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
+
   function escapeHtml(s) {
     var d = document.createElement('div');
     d.textContent = s == null ? '' : String(s);
@@ -412,9 +425,10 @@
         // respetar las ventas multimoneda históricas.
         var _tbcvDet = Number(full.tasa_bcv_aplicada);
         var _tusdDet = Number(full.tasa_cambio_aplicada);
+        // AUD-13: tolerancia ε para no fallar por diferencias de redondeo históricas (< 0.0001).
         var ventaUsdRedundante =
           Number.isFinite(_tbcvDet) && Number.isFinite(_tusdDet) && _tbcvDet > 0 &&
-          Math.round(_tbcvDet * 10000) === Math.round(_tusdDet * 10000);
+          Math.abs(_tbcvDet - _tusdDet) <= 0.0001;
         detailBloqueTotales.innerHTML =
           '<h4>Cliente y montos</h4>' +
           '<dl class="ventas-detalle-totales">' +
@@ -430,7 +444,9 @@
           (ventaUsdRedundante
             ? ''
             : '<dt>Tasa USD (Bs/USD)</dt><dd>' + fmtTasaDet(full.tasa_cambio_aplicada) + '</dd>') +
-          '<dt>Subtotal USD</dt><dd>$ ' +
+          // AUD-07: en ventas unificadas (solo_bcv) el subtotal USD == $BCV ref; renombrar evita
+          // mostrar una línea "USD" redundante. En multimoneda se mantiene "Subtotal USD".
+          '<dt>' + (ventaUsdRedundante ? 'Subtotal $ BCV (ref.)' : 'Subtotal USD') + '</dt><dd>$ ' +
           escapeHtml(formatUsd(sub)) +
           '</dd>' +
           '<dt>Descuento cabecera</dt><dd>' +
@@ -760,6 +776,21 @@
         currentDevVenta = ventaDetalle;
         var label = host.querySelector('#ventas-dev-venta-label');
         if (label) label.textContent = 'Factura: ' + (ventaDetalle.numero_venta || '—');
+
+        // AUD-10: en solo_bcv no hay reembolso en USD físico; ocultar la opción y, si estaba
+        // seleccionada, mover el selector a un método en Bs.
+        var selMetodoDev = host.querySelector('#ventas-dev-metodo');
+        if (selMetodoDev) {
+          var esSolo = ventasModoMoneda() === 'solo_bcv';
+          var optUsd = selMetodoDev.querySelector('option[value="efectivo_usd"]');
+          if (optUsd) {
+            optUsd.hidden = esSolo;
+            optUsd.disabled = esSolo;
+          }
+          if (esSolo && selMetodoDev.value === 'efectivo_usd') {
+            selMetodoDev.value = 'efectivo_bs';
+          }
+        }
 
         // Poblar líneas
         var tbody = host.querySelector('#ventas-dev-lineas-tbody');

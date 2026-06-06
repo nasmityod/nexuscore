@@ -684,7 +684,14 @@
   function aplicarVisibilidadModo(modo) {
     var m = modo === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
     modoMonedaActual = m;
-    try { localStorage.setItem('nexus_modo_moneda', m); } catch (e) {}
+    // setModoMoneda persiste localStorage, aplica body.nexus-solo-bcv y emite
+    // nexus:modo-moneda de inmediato (AUD-05/AUD-18): la UI ya montada (POS/Inventario/Caja)
+    // no muestra USD redundante en la ventana previa al hydrate del servidor.
+    if (window.NexusComponents && typeof window.NexusComponents.setModoMoneda === 'function') {
+      window.NexusComponents.setModoMoneda(m);
+    } else {
+      try { localStorage.setItem('nexus_modo_moneda', m); } catch (e) {}
+    }
     var sel = document.getElementById('cfg-modo-moneda');
     if (sel && sel.value !== m) sel.value = m;
     var esSolo = m === 'solo_bcv';

@@ -397,6 +397,11 @@
    * cualquier cálculo. La cadena de precios no cambia: solo se unifican las tasas de entrada.
    * Acepta { bcv, usd } y/o { tasa_bcv, tasa_usd }; retorna copia con ambas convenciones.
    *
+   * AUD-11 — Chokepoint: el punto válido para leer tasas en el renderer es
+   * NexusComponents.loadTasasLocal() (navbar), que YA aplica esta unificación en solo_bcv.
+   * Por eso POS/Inventario no necesitan invocar esta función: solo úsala si trabajas con
+   * tasas crudas que NO pasaron por loadTasasLocal (p. ej. un objeto recibido por API).
+   *
    * Test de equivalencia (solo_bcv): con tasa_bcv = tasa_usd = 89.50, costo_usd = 1.2 y
    * margen = 30 %, calcularPrecios() produce el MISMO precio_usd_bcv y precio_bs que el
    * backend (preciosService.calcularPrecios) con esos mismos inputs unificados.

@@ -217,6 +217,13 @@
     if (tabUsdCosto) tabUsdCosto.style.display = esSolo ? 'none' : '';
     var tabUsdPrecio = host.querySelector('.btn-modo-precio[data-modo="usd"]');
     if (tabUsdPrecio) tabUsdPrecio.style.display = esSolo ? 'none' : '';
+    // AUD-09: si el modo cambió a solo_bcv con el wizard abierto y el estado quedó en un
+    // modo ahora oculto (USD físico / precio $USD), normalizar al equivalente BCV para no
+    // guardar en un modo invisible ni confundir al volver a multimoneda.
+    if (esSolo) {
+      if (state.modoMonedaCosto === 'usd_fisico') cambiarModoMonedaCosto(host, 'bcv');
+      if (state.modoPrecios === 'usd') cambiarModoPrecio(host, 'margen');
+    }
   }
 
   function calcPrecios(costo, margen, tasas) {
@@ -1424,6 +1431,8 @@
     mount: function (host) {
       this._host = host;
       window.addEventListener('nexus:tasas', refrescarInventarioPorTasas);
+      // AUD-05: reaccionar al cambio de modo aunque las tasas no cambien numéricamente.
+      window.addEventListener('nexus:modo-moneda', refrescarInventarioPorTasas);
       // Registrar cleanup en el host para que el router lo invoque al desmontar
       var self = this;
       host._pageDestroy = function () { self._pageDestroy(); };
@@ -1684,6 +1693,7 @@
     eliminarProducto: function (id, nombre) { eliminarProducto(id, nombre); },
     _pageDestroy: function () {
       window.removeEventListener('nexus:tasas', refrescarInventarioPorTasas);
+      window.removeEventListener('nexus:modo-moneda', refrescarInventarioPorTasas);
       if (this._host && this._delegadoTabla) {
         this._host.removeEventListener('click', this._delegadoTabla);
       }

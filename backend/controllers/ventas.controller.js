@@ -3,8 +3,16 @@
 const { db } = require('../config/database');
 const PreciosService = require('../services/preciosService');
 const CasheaService = require('../services/casheaService');
+const ModoMonedaService = require('../services/modoMonedaService');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { registrarAuditoria, clientIp } = require('../middleware/audit.middleware');
+
+/**
+ * Métodos de cobro en divisa de mercado (USD físico / digital). En modo solo_bcv no
+ * existe dólar calle: estos métodos quedan prohibidos en backend (cierre del bypass API).
+ * Cashea y crédito NO entran aquí: operan sobre la cadena BCV (referencia $BCV).
+ */
+const METODOS_USD_CALLE = new Set(['efectivo_usd', 'zelle']);
 
 async function nextNumeroVenta(t) {
   // Use the DB server's local date so year rolls over at midnight business time,
@@ -341,7 +349,8 @@ async function create(req, res) {
   const descuento_porcentaje = Number(body.descuento_porcentaje) || 0;
   const descuento_monto_usd = Number(body.descuento_monto_usd) || 0;
 
-  const metodo_pago = body.metodo_pago ? String(body.metodo_pago) : 'efectivo_usd';
+  // El método de pago final se resuelve dentro de la transacción (depende del modo monetario).
+  const metodoPagoBody = body.metodo_pago ? String(body.metodo_pago) : null;
   const pagos = body.pagos != null ? body.pagos : [];
   const notas = body.notas != null ? String(body.notas) : null;
 
@@ -415,6 +424,29 @@ async function create(req, res) {
     }
     const tasa_bcv = tasas.tasa_bcv;
     const tasa_usd_calle = tasas.tasa_usd;
+    const esSoloBcvVenta = ModoMonedaService.esSoloBcv(tasas.modo_moneda_operacion);
+
+    /* ── AUD-01: en solo_bcv no se admiten cobros en divisa de mercado (USD físico/Zelle) ──
+       El POS los oculta, pero un cliente HTTP o un modal desactualizado podría enviarlos.
+       Se rechaza tanto el método de cabecera como cualquier línea de pago en USD calle. */
+    if (esSoloBcvVenta) {
+      const pagosParaValidar = Array.isArray(pagos) ? pagos : [];
+      const hayPagoUsdCalle = pagosParaValidar.some(
+        (p) => p && METODOS_USD_CALLE.has(String(p.metodo || '').toLowerCase())
+      );
+      const cabeceraUsdCalle =
+        metodoPagoBody != null && METODOS_USD_CALLE.has(metodoPagoBody.toLowerCase());
+      if (hayPagoUsdCalle || cabeceraUsdCalle) {
+        throw httpError(
+          400,
+          'En modo Solo BCV no se permiten cobros en USD físico ni Zelle. Usa Bs, Cashea o crédito $BCV.'
+        );
+      }
+    }
+
+    /* ── AUD-02: método de pago de cabecera según el modo cuando el cliente lo omite ── */
+    const metodo_pago =
+      metodoPagoBody || (esSoloBcvVenta ? 'efectivo_bs' : 'efectivo_usd');
 
     /* IVA: solo desde configuración; el body del cliente no define el % usado en cálculo. */
     const iva_porcentaje = await PreciosService.leerImpuestoIvaPorcentaje(t);

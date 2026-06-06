@@ -24,7 +24,8 @@ class ExcelService {
   static async exportarControlPrecios(db) {
     if (!ExcelJS) throw new Error('La exportación a Excel no está disponible. Contacta al soporte técnico.');
 
-    const tasas = await PreciosService.obtenerTasasActuales(db);
+    // resolverTasasOperativas: defensa en lectura (unifica tasa_usd = tasa_bcv en solo_bcv).
+    const tasas = await PreciosService.resolverTasasOperativas(db);
     const productos = await db.any(`
       SELECT p.nombre, p.codigo_interno, p.codigo_barras,
              p.costo_usd::numeric                        AS costo_usd,

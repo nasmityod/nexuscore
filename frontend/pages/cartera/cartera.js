@@ -73,6 +73,30 @@
   function metodoEsBs(metodo) { return METODOS_BS.indexOf(metodo) !== -1; }
   function metodoEsUsd(metodo) { return METODOS_USD.indexOf(metodo) !== -1; }
 
+  /** Modo monetario operativo ('multimoneda' | 'solo_bcv'), cacheado por el navbar. */
+  function carteraModoMoneda() {
+    if (window.NexusComponents && typeof window.NexusComponents.getModoMoneda === 'function') {
+      return window.NexusComponents.getModoMoneda();
+    }
+    try {
+      var m = localStorage.getItem('nexus_modo_moneda');
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
+
+  /** En solo_bcv oculta los métodos de abono en divisa de mercado (Efectivo USD / Zelle). */
+  function aplicarModoMetodoAbono(selectEl) {
+    if (!selectEl) return;
+    var esSolo = carteraModoMoneda() === 'solo_bcv';
+    METODOS_USD.forEach(function (mv) {
+      var opt = selectEl.querySelector('option[value="' + mv + '"]');
+      if (opt) { opt.hidden = esSolo; opt.disabled = esSolo; }
+    });
+    if (esSolo && metodoEsUsd(selectEl.value)) selectEl.value = 'efectivo_bs';
+  }
+
   function usdEfectivoDesdeBcv(montoBcv, cuenta) {
     var bcv = n(montoBcv);
     if (!bcv) return 0;
@@ -362,6 +386,7 @@
       if (cuentaEl) cuentaEl.value = ctx.cuentaId;
       var metodoEl = document.getElementById('abono-metodo');
       if (metodoEl) metodoEl.value = 'efectivo_bs';
+      aplicarModoMetodoAbono(metodoEl);
       actualizarUiMontoAbono();
       modal.classList.add('is-open');
       var montoEl = document.getElementById('abono-monto');

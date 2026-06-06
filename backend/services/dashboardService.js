@@ -87,7 +87,8 @@ class DashboardService {
 
     let tasaBcv = 0;
     try {
-      const tasas = await PreciosService.obtenerTasasActuales(db);
+      // resolverTasasOperativas: defensa en lectura (unifica tasa_usd = tasa_bcv en solo_bcv).
+      const tasas = await PreciosService.resolverTasasOperativas(db);
       tasaBcv = tasas.tasa_bcv || 0;
     } catch (_) { /* tasas no configuradas */ }
 

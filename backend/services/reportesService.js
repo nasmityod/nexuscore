@@ -624,7 +624,8 @@ class ReportesService {
   }
 
   static async _inventarioValorizado(db) {
-    const tasas = await PreciosService.obtenerTasasActuales(db);
+    // resolverTasasOperativas: defensa en lectura (unifica tasa_usd = tasa_bcv en solo_bcv).
+    const tasas = await PreciosService.resolverTasasOperativas(db);
     const tasaBcv = tasas.bcv;
     const tasaUsd = tasas.tasa_usd;
     const tasasOk = tasaBcv > 0 && tasaUsd > 0;
@@ -726,7 +727,8 @@ class ReportesService {
    */
   static async liquidacionesCasheaPorDeposito(db, desde, hasta) {
     const { desde: d0, hasta: d1 } = ReportesService._rangoFechas(desde, hasta, 30);
-    const tasasActuales = await PreciosService.obtenerTasasActuales(db);
+    // resolverTasasOperativas: defensa en lectura (unifica tasa_usd = tasa_bcv en solo_bcv).
+    const tasasActuales = await PreciosService.resolverTasasOperativas(db);
     const fallbackBcv = tasasActuales.bcv;
     const fallbackUsd = tasasActuales.tasa_usd;
 

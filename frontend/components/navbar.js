@@ -22,18 +22,48 @@
     }
   }
 
+  /** Último modo aplicado al <body> (para emitir `nexus:modo-moneda` solo al cambiar). */
+  let _lastModoApplied = null;
+
   /**
    * Aplica la clase global `nexus-solo-bcv` al <body>. Toda la UI oculta sus
    * referencias de USD redundantes vía CSS (`.nexus-usd-only`) de forma reactiva.
+   * Cuando el modo cambia respecto al último aplicado, emite `nexus:modo-moneda`
+   * (evento dedicado): así POS/Inventario reaccionan aunque las tasas no cambien
+   * numéricamente (p. ej. solo_bcv con USD ya igual a BCV).
    */
   function applyModoMonedaBodyClass(modo) {
+    const m = modo === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
     try {
       if (typeof document !== 'undefined' && document.body) {
-        document.body.classList.toggle('nexus-solo-bcv', modo === 'solo_bcv');
+        document.body.classList.toggle('nexus-solo-bcv', m === 'solo_bcv');
       }
     } catch (e) {
       /* almacenamiento/DOM no disponible */
     }
+    if (_lastModoApplied !== m) {
+      _lastModoApplied = m;
+      try {
+        window.dispatchEvent(new CustomEvent('nexus:modo-moneda', { detail: { modo: m } }));
+      } catch (e) {
+        /* CustomEvent no disponible */
+      }
+    }
+  }
+
+  /**
+   * Cambia el modo monetario en el cliente de forma SÍNCRONA: persiste en localStorage,
+   * aplica la clase del <body> y emite `nexus:modo-moneda`. Lo usa Configuración para
+   * que la UI ya montada (POS/Inventario/Caja) no muestre USD redundante hasta el hydrate.
+   */
+  function setModoMoneda(modo) {
+    const m = modo === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    try {
+      localStorage.setItem(STORAGE_MODO, m);
+    } catch (e) {
+      /* almacenamiento no disponible */
+    }
+    applyModoMonedaBodyClass(m);
   }
 
   function loadRates() {
@@ -134,6 +164,30 @@
     bcvGroup.appendChild(bcvWrap);
 
     tasasInner.appendChild(bcvGroup);
+
+    // USD mercado: visible solo en multimoneda (se oculta en solo_bcv vía nexus-usd-only).
+    // Igual que el BCV: solo visualización; se edita en Configuración → Tasas.
+    const usdGroup = document.createElement('div');
+    usdGroup.className = 'tasa-group nexus-usd-only';
+    const usdBadge = document.createElement('span');
+    usdBadge.className = 'tasa-badge';
+    usdBadge.textContent = 'USD Mercado';
+    const usdWrap = document.createElement('div');
+    usdWrap.className = 'tasa-input-wrap';
+    const usdInp = document.createElement('input');
+    usdInp.type = 'text';
+    usdInp.className = 'tasa-input';
+    usdInp.id = 'navbar-tasa-usd';
+    usdInp.setAttribute('inputmode', 'decimal');
+    usdInp.setAttribute('aria-label', 'Tasa USD de mercado (Bs por USD)');
+    usdInp.setAttribute('title', 'Tasa USD de mercado — cámbiala en Configuración → Tasas.');
+    usdInp.value = rates.usd > 0 ? rates.usd.toFixed(4) : '—';
+    usdInp.readOnly = true;
+    usdWrap.appendChild(usdInp);
+    usdGroup.appendChild(usdBadge);
+    usdGroup.appendChild(usdWrap);
+
+    tasasInner.appendChild(usdGroup);
     ratesWrap.appendChild(tasasInner);
 
     const right = document.createElement('div');
@@ -272,11 +326,13 @@
     container.appendChild(header);
   }
 
-  /** Refresca el display BCV del header según lo guardado en localStorage. */
+  /** Refresca los displays de tasa del header según lo guardado en localStorage. */
   function syncNavbarRatesInputsFromLocalStorage() {
     const cur = loadRates();
     const bcvEl = document.getElementById('navbar-tasa-bcv');
     if (bcvEl) bcvEl.value = cur.bcv > 0 ? cur.bcv.toFixed(4) : '—';
+    const usdEl = document.getElementById('navbar-tasa-usd');
+    if (usdEl) usdEl.value = cur.usd > 0 ? cur.usd.toFixed(4) : '—';
   }
 
   /**
@@ -362,6 +418,8 @@
   window.NexusComponents.loadTasasLocal = loadRates;
   window.NexusComponents.saveTasasLocal = saveRates;
   window.NexusComponents.getModoMoneda = getModoMoneda;
+  window.NexusComponents.setModoMoneda = setModoMoneda;
+  window.NexusComponents.applyModoMonedaBodyClass = applyModoMonedaBodyClass;
   window.NexusComponents.syncNavbarRatesInputsFromLocalStorage = syncNavbarRatesInputsFromLocalStorage;
   window.NexusComponents.hydrateTasasDesdeServidorSilent = hydrateTasasDesdeServidorSilent;
 })();

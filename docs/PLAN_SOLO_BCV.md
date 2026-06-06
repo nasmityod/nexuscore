@@ -7,6 +7,12 @@ Implementación del modo operativo `solo_bcv` (una sola tasa) coexistiendo con
 
 ## Estado real del código
 
+> **⚠️ BLOQUE HISTÓRICO (AUD-17) — no es el estado vigente.** Esta sección describe el
+> punto de partida ANTES de implementar `solo_bcv` y quedó desactualizada (dice que no existe
+> `resolverTasasOperativas`, que `loadRates` no es consciente del modo, etc.). Se conserva como
+> registro de arranque. La referencia viva es **"Estado final de la implementación"** y
+> **"Backlog — estado de corrección"** más abajo.
+
 ### Migración 037 (`037_total_bs_bcv_y_modo_moneda.sql`)
 - Crea `ventas.total_bs_bcv_operativo` (NUMERIC) y backfill desde `total_ref_usd_bcv × tasa_bcv_aplicada`.
 - Inserta `configuracion('modo_moneda_operacion', 'multimoneda', 'moneda', ...)` con `ON CONFLICT DO NOTHING`.
@@ -102,9 +108,11 @@ La cadena de 4 pasos y sus utilidades de redondeo están **sincronizadas** entre
 6. **Wizard**: se agrega un **paso real nuevo** "Moneda" entre Admin (3) y Empresa, quedando
    Empresa como paso 5. Solo se inserta en el flujo de instalación nueva (admin recién creado),
    no en re-ejecuciones de renovación (donde el modo ya existe). Default seleccionado: Multimoneda.
-7. **POS**: en solo_bcv se oculta la fila `efectivo_usd` (USD físico). Se conserva `zelle`
-   (USD digital) y `cashea` porque el requerimiento nombra explícitamente solo "Efectivo USD";
-   decisión conservadora documentada en código.
+7. **POS**: en solo_bcv se ocultan las filas en divisa de mercado: `efectivo_usd` (USD físico)
+   y `zelle` (USD digital). Se conservan `cashea` y `credito` porque operan sobre la cadena BCV
+   ($BCV / USD_BCV), no sobre dólar calle. **(Política final — ver AUD-16):** Zelle se trata como
+   USD calle y por tanto se oculta en UI y se rechaza en backend en solo_bcv. La centralización vive
+   en `pos.js → metodoCobroVisible()` y en `ventas.controller.js → METODOS_USD_CALLE`.
 8. **Reportes**: la columna `tasa_usd` se deja como está. En solo_bcv el historial nuevo guarda
    `tasa_usd = tasa_bcv` (decisión 2), así que la columna refleja el BCV sin tocar histórico.
    Las filas históricas previas al cambio se respetan intactas (regla HISTÓRICO INTACTO).
@@ -372,9 +380,75 @@ Checklist para un tercer barrido visual. Hoy **intencionalmente sin cambio** sal
 
 ### Criterio de “hecho” para cerrar este backlog
 
-- [ ] Cambiar modo con caja cerrada: **cero** parpadeo de USD redundante en Caja, Inventario, POS y Ventas (detalle) durante 5 s tras confirmar.
-- [ ] Modal de cobro POS abierto durante cambio de modo: métodos USD calle desaparecen sin recargar página.
-- [ ] `POST /api/ventas` con pago `efectivo_usd` en `solo_bcv` → **400** con mensaje claro.
-- [ ] Cierre de caja en solo_bcv sin ventas USD: botón de cierre coherente sin exigir cuadre USD invisible.
-- [ ] Multimoneda: navbar muestra **dos** tasas (o decisión explícita documentada de no hacerlo).
-- [ ] Este documento: decisiones §7 y §284–285 alineadas (Zelle); bloque inicial marcado como histórico.
+- [x] Cambiar modo con caja cerrada: **cero** parpadeo de USD redundante en Caja, Inventario, POS y Ventas (detalle) tras confirmar (body class + `nexus:modo-moneda` síncronos).
+- [x] Modal de cobro POS abierto durante cambio de modo: métodos USD calle desaparecen sin recargar página (`onModoMoneda` → `renderCobroTabla` + reset de método activo).
+- [x] `POST /api/ventas` con pago `efectivo_usd`/`zelle` en `solo_bcv` → **400** con mensaje claro.
+- [x] Cierre de caja en solo_bcv sin ventas USD: botón de cierre coherente sin exigir cuadre USD invisible.
+- [x] Multimoneda: navbar muestra **dos** tasas (USD BCV + USD Mercado); en solo_bcv la de mercado se oculta vía `nexus-usd-only`.
+- [x] Este documento: decisiones §7 alineadas (Zelle = USD calle); bloque inicial marcado como histórico.
+
+---
+
+## Backlog — estado de corrección (2026-06-06, 3.ª pasada · TODO RESUELTO)
+
+Implementación de **todos** los AUD del backlog + barrido extra. Resumen por ítem:
+
+### P1 — Operación y coherencia de datos
+- **AUD-01 ✅** `ventas.controller.create`: tras `resolverTasasOperativas`, en solo_bcv rechaza con
+  **400** cualquier pago/cabecera en `efectivo_usd`/`zelle` (`METODOS_USD_CALLE`).
+- **AUD-02 ✅** Default de `metodo_pago` según modo: `efectivo_bs` en solo_bcv, `efectivo_usd` en multimoneda
+  (se resuelve dentro de la `db.tx`, tras conocer el modo).
+- **AUD-03 ✅** `inventario.controller` (×2), `productos.controller`, `dashboardService`,
+  `excelService`, `reportesService` (×2) ahora leen `resolverTasasOperativas` (defensa en lectura).
+- **AUD-04 ✅** `caja.js → actualizarBotonCerrarCaja`: en solo_bcv ignora la diferencia USD (`okUsd=true`,
+  `exacto` sin USD) vía `cajaModoMoneda()`. El panel "Dólares" ya estaba oculto con `nexus-usd-only`.
+
+### P2 — Reactividad de UI y fugas visuales
+- **AUD-05 ✅ / AUD-18 ✅** `navbar.js`: `applyModoMonedaBodyClass` emite `nexus:modo-moneda` al cambiar;
+  nuevo `setModoMoneda` (persiste + body class + evento, síncrono). `configuracion.js → aplicarVisibilidadModo`
+  lo invoca: sin ventana de inconsistencia previa al hydrate.
+- **AUD-06 ✅** `pos.js`: listener `nexus:modo-moneda` (`onModoMoneda`) re-renderiza la tabla de cobro y
+  resetea el método activo si quedó oculto, aunque las tasas no cambien numéricamente.
+- **AUD-07 ✅** `ventas.js`: en venta unificada (redundante) el "Subtotal USD" se renombra a
+  "Subtotal $ BCV (ref.)" (coherente con Tasa/Total USD ya ocultos).
+- **AUD-08 ✅** `navbar.js`: se restauró el display **USD Mercado** (input `#navbar-tasa-usd`,
+  solo lectura) visible en multimoneda y oculto en solo_bcv (`nexus-usd-only`).
+- **AUD-09 ✅** `inventario.js → aplicarVisibilidadModoInventario`: en solo_bcv normaliza `modoMonedaCosto`
+  `usd_fisico→bcv` y `modoPrecios` `usd→margen` si el wizard estaba en un modo ahora oculto. Además
+  escucha `nexus:modo-moneda`.
+- **AUD-10 ✅** `ventas.js → abrirDevModal`: en solo_bcv oculta/inhabilita la opción `efectivo_usd` del
+  selector de reembolso y la mueve a `efectivo_bs` si estaba elegida.
+
+### P3 — Deuda técnica, bordes y documentación
+- **AUD-11 ✅ (doc)** `preciosClient.resolverTasasOperativas`: documentado el chokepoint — el punto válido
+  es `loadTasasLocal()` (ya unifica en solo_bcv); la función es el espejo NEXUS-DUAL para tasas crudas.
+- **AUD-12 ✅ (doc)** Wizard en renovación salta el paso Moneda **a propósito** (el modo ya existe; default
+  multimoneda). Cambiar el modo se hace en Configuración → Tasas. Comportamiento esperado, sin cambio de código.
+- **AUD-13 ✅** `ventas.js → ventaUsdRedundante`: comparación con tolerancia ε (`|bcv − usd| ≤ 0.0001`)
+  en vez de igualdad exacta.
+- **AUD-14 ✅** `pos.js`: `primerMetodoCobroVisible()` + `metodoCobroVisible()`; `setCobroActiveMetodo`
+  cae al primer método visible si el solicitado está oculto; el cobro inicia en un método válido.
+- **AUD-15 ✅** `pos.js → onTasas`: no muestra el toast "Carrito recalculado" en el primer hydrate
+  (cuando no había tasa previa); solo ante un cambio real de tasa sobre un carrito ya tasado.
+- **AUD-16 ✅** Política final: **Zelle = USD calle** → oculto (POS) y rechazado (backend) en solo_bcv.
+  Decisión §7 y código alineados; sin contradicción.
+- **AUD-17 ✅** Bloque "Estado real del código" marcado como **histórico** al inicio del documento.
+- **AUD-19 ✅ (resuelto por AUD-01)** No entran ventas `efectivo_usd`/`zelle` nuevas en solo_bcv; el histórico
+  multimoneda conserva su monto USD (intacto).
+- **AUD-20 ✅** `cartera.js` y `clientes.js`: en solo_bcv los abonos/pagos en `efectivo_usd`/`zelle` se ocultan
+  del selector y caen a `efectivo_bs` (consistente con el modo; no altera el cálculo de cuentas por cobrar).
+
+### Barrido extra (más allá del backlog)
+- **Ticket/Factura (`resources/templates/ticket_venta.html`, `pdfService.js`):** ya son BCV-céntricos
+  (`{{TASA_CAMBIO}}` ⇐ `tasa_bcv_aplicada`, "Subtotal/TOTAL $ BCV", "TOTAL Bs BCV"). Sin cambios.
+- **Chokepoint de tasas:** único acceso directo a `nexus_tasa_usd` sigue siendo `navbar.js`.
+- **Dashboard / Reportes:** sin USD suelto; columnas históricas de "Tasa USD" intactas (HISTÓRICO INTACTO).
+
+### Archivos tocados en esta pasada
+- Backend: `controllers/ventas.controller.js`, `controllers/inventario.controller.js`,
+  `controllers/productos.controller.js`, `services/dashboardService.js`, `services/excelService.js`,
+  `services/reportesService.js`.
+- Frontend: `components/navbar.js`, `services/preciosClient.js`, `pages/pos/pos.js`,
+  `pages/inventario/inventario.js`, `pages/caja/caja.js`, `pages/ventas/ventas.js`,
+  `pages/configuracion/configuracion.js`, `pages/cartera/cartera.js`, `pages/clientes/clientes.js`.
+- Sin migración nueva (auditoría usa tabla existente; no se tocó esquema). Reiniciar backend + recargar renderer.

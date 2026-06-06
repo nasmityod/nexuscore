@@ -16,6 +16,18 @@
     if (window.NexusComponents && window.NexusComponents.showToast) window.NexusComponents.showToast(msg, tipo || 'info');
   }
   function n(v) { return isNaN(parseFloat(v)) ? 0 : parseFloat(v); }
+  /** Modo monetario operativo ('multimoneda' | 'solo_bcv'), cacheado por el navbar. */
+  function cajaModoMoneda() {
+    if (window.NexusComponents && typeof window.NexusComponents.getModoMoneda === 'function') {
+      return window.NexusComponents.getModoMoneda();
+    }
+    try {
+      var m = localStorage.getItem('nexus_modo_moneda');
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
   function esc(s) {
     if (window.NexusDomSafe && window.NexusDomSafe.escapeHtml) {
       return window.NexusDomSafe.escapeHtml(s);
@@ -585,13 +597,16 @@
     if (!btn || btn.disabled) return;
     var tolUsd = 0.5;
     var tolBs = 1.0;
-    var okUsd = Math.abs(difUsd) < tolUsd;
+    // AUD-04: en solo_bcv no hay operaciones en divisa; el cuadre de dólares es irrelevante
+    // (el panel "Dólares" está oculto). Ignorar difUsd para no marcar diferencia fantasma.
+    var esSolo = cajaModoMoneda() === 'solo_bcv';
+    var okUsd = esSolo ? true : Math.abs(difUsd) < tolUsd;
     var okBs = Math.abs(difBs) < tolBs;
     var tolerado = okUsd && okBs;
     function casiCuadreExacto(x, eps) {
       return Math.abs(x) < eps;
     }
-    var exacto = casiCuadreExacto(difUsd, 0.005) && casiCuadreExacto(difBs, 0.05);
+    var exacto = (esSolo ? true : casiCuadreExacto(difUsd, 0.005)) && casiCuadreExacto(difBs, 0.05);
     btn.classList.remove('btn-cerrar-caja--ok', 'btn-cerrar-caja--warn', 'btn-cerrar-caja--danger');
     if (!tolerado) {
       btn.classList.add('btn-cerrar-caja--danger');

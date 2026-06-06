@@ -1909,17 +1909,39 @@
       var bcv = Number(d.tasa_bcv) || 0;
       var usd = Number(d.tasa_usd) || 0;
       if (Math.abs(bcv - _ultimaTasaBcvPos) < 0.00005 && Math.abs(usd - _ultimaTasaUsdPos) < 0.00005) return;
+      // AUD-15: no avisar "recalculado" en el primer hydrate (cuando aún no había tasa previa);
+      // solo cuando un cambio real de tasa altera un carrito ya tasado.
+      var huboTasaPrevia = _ultimaTasaBcvPos > 0 && _ultimaTasaUsdPos > 0;
       _ultimaTasaBcvPos = bcv;
       _ultimaTasaUsdPos = usd;
       refreshAll();
       if (cobroModal && cobroModal.classList.contains('is-open')) {
         refreshCobroMontosYFooter();
       }
-      showToast('Carrito recalculado con nuevas tasas', 'info');
+      if (huboTasaPrevia) showToast('Carrito recalculado con nuevas tasas', 'info');
     };
     window.addEventListener('nexus:tasas', onTasas);
     cleanup.push(function () {
       window.removeEventListener('nexus:tasas', onTasas);
+    });
+
+    // AUD-06: reaccionar al cambio de modo monetario aunque las tasas no cambien
+    // numéricamente (p. ej. al pasar a solo_bcv con USD ya igual a BCV). El evento
+    // nexus:modo-moneda lo emite components/navbar.js de forma síncrona.
+    var onModoMoneda = function () {
+      refreshAll();
+      if (cobroModal && cobroModal.classList.contains('is-open')) {
+        renderCobroTabla();
+        if (!metodoCobroVisible(cobroState.activeMetodo)) {
+          setCobroActiveMetodo(primerMetodoCobroVisible());
+        }
+        refreshCobroMontosYFooter();
+        renderCobroStatus();
+      }
+    };
+    window.addEventListener('nexus:modo-moneda', onModoMoneda);
+    cleanup.push(function () {
+      window.removeEventListener('nexus:modo-moneda', onModoMoneda);
     });
 
     add(elGlobalDisc, 'input', function () {
@@ -2756,6 +2778,11 @@
 
     function setCobroActiveMetodo(mid) {
       if (!COBRO_METODOS[mid]) return;
+      // AUD-14: si el método no está permitido en el modo/config actual, caer al primero visible.
+      if (!metodoCobroVisible(mid)) {
+        mid = primerMetodoCobroVisible();
+        if (!metodoCobroVisible(mid)) return;
+      }
       var prev = cobroState.activeMetodo;
       if (mid === 'cashea') {
         cobroClearOtrasSinCashea();
@@ -3086,19 +3113,38 @@
       if (cobroBannerGreenLabel) cobroBannerGreenLabel.hidden = !esCasheaUi;
     }
 
+    /**
+     * ¿Se muestra esta fila de cobro en el contexto actual?
+     * - Cashea: oculta si la config la desactiva.
+     * - solo_bcv: oculta métodos en divisa de mercado (Efectivo USD y Zelle); Cashea
+     *   ($ BCV) y Crédito (USD_BCV) se conservan (son referencia BCV).
+     */
+    function metodoCobroVisible(mid) {
+      if (!COBRO_METODOS[mid]) return false;
+      if (mid === 'cashea' && cobroState.casheaCfg && cobroState.casheaCfg.activo === false) {
+        return false;
+      }
+      if ((mid === 'efectivo_usd' || mid === 'zelle') && posModoMoneda() === 'solo_bcv') {
+        return false;
+      }
+      return true;
+    }
+
+    /** Primer método de cobro visible según el modo/config (AUD-14: nunca uno oculto). */
+    function primerMetodoCobroVisible() {
+      for (var i = 0; i < COBRO_TABLA_ORDEN.length; i += 1) {
+        if (metodoCobroVisible(COBRO_TABLA_ORDEN[i])) return COBRO_TABLA_ORDEN[i];
+      }
+      return COBRO_TABLA_ORDEN[0];
+    }
+
     function renderCobroTabla() {
       if (!cobroTablaBody) return;
       cobroTablaBody.innerHTML = '';
       COBRO_TABLA_ORDEN.forEach(function (mid) {
         var meta = COBRO_METODOS[mid];
         if (!meta) return;
-        if (mid === 'cashea' &&
-            cobroState.casheaCfg &&
-            cobroState.casheaCfg.activo === false) return;
-        // En solo_bcv no hay cobro en divisas de mercado: solo Bs y crédito BCV.
-        // Se ocultan los métodos en USD físico/digital (Efectivo USD y Zelle).
-        // Cashea ($ BCV) y Crédito (USD_BCV) se conservan (son referencia BCV).
-        if ((mid === 'efectivo_usd' || mid === 'zelle') && posModoMoneda() === 'solo_bcv') return;
+        if (!metodoCobroVisible(mid)) return;
         var tr = document.createElement('tr');
         tr.className = 'cobro-tabla-row';
         tr.setAttribute('data-cobro-metodo', mid);
@@ -3438,7 +3484,7 @@
       if (cobroCasheaNivelSel) cobroState.casheaNivel = cobroCasheaNivelSel.value || 'BRONCE';
       if (cobroCasheaCreditoInp) cobroCasheaCreditoInp.value = '';
       cobroSetCasheaLimiteAviso(null);
-      cobroState.activeMetodo = COBRO_TABLA_ORDEN[0];
+      cobroState.activeMetodo = primerMetodoCobroVisible();
       cobroState.numpadBuffer = '0';
       renderCobroBanners();
       renderCobroTabla();

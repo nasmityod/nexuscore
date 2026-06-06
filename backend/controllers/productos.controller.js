@@ -154,7 +154,8 @@ async function getById(req, res) {
     // M4: calcular vía manual incluso si no hay costo; L1: corregir metadata de margen
     if (hasManual) {
       try {
-        const tasas = await PreciosService.obtenerTasasActuales(db);
+        // resolverTasasOperativas: defensa en lectura (unifica tasa_usd = tasa_bcv en solo_bcv).
+        const tasas = await PreciosService.resolverTasasOperativas(db);
         const cadena = PreciosService.aplicarCadenaPorPrecioEfectivo(
           manualVal,
           tasas.tasa_bcv,
