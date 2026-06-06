@@ -223,7 +223,8 @@ async function abrir(req, res) {
     await PreciosService.actualizarTasas(db, tasa_bcv, tasa_usd, req.user.id, clientIp(req));
   }
 
-  const tasas = await PreciosService.obtenerTasasActuales(db);
+  // resolverTasasOperativas: en solo_bcv la apertura de caja usa tasa_usd = tasa_bcv.
+  const tasas = await PreciosService.resolverTasasOperativas(db);
 
   const sesion = await db.one(
     `INSERT INTO sesiones_caja (

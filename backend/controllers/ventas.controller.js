@@ -407,7 +407,9 @@ async function create(req, res) {
 
     let tasas;
     try {
-      tasas = await PreciosService.obtenerTasasActuales(t);
+      // resolverTasasOperativas: único punto de entrada a las tasas operativas.
+      // En modo solo_bcv unifica tasa_usd = tasa_bcv antes del recálculo de precios.
+      tasas = await PreciosService.resolverTasasOperativas(t);
     } catch (e) {
       throw httpError(400, e.message || 'No se pudieron leer las tasas de cambio');
     }

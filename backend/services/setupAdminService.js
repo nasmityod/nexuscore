@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 
 const { logger } = require('../config/logger');
 const { registrarAuditoria } = require('../middleware/audit.middleware');
+const ModoMonedaService = require('./modoMonedaService');
 
 /** Debe coincidir con 004_seed_data.sql y migrations.js ADMIN_DEFAULT_PASSWORD_HASH */
 const ADMIN_DEFAULT_PASSWORD_HASH =
@@ -251,6 +252,46 @@ async function guardarEmpresaInicial(db, payload) {
   return { empresa_nombre: nombre, cashea_modo_express: modoExpress };
 }
 
+/**
+ * Guarda el modo monetario elegido en el wizard de instalación (sin JWT).
+ * En `solo_bcv` unifica de inmediato tasa_usd = tasa_bcv vigente.
+ * @param {import('pg-promise').IDatabase} db
+ * @param {string} modo 'multimoneda' | 'solo_bcv'
+ */
+async function guardarModoMonedaInicial(db, modo) {
+  const m = String(modo ?? '').trim().toLowerCase();
+  if (!ModoMonedaService.MODOS_VALIDOS.has(m)) {
+    throw new Error('modo_moneda_operacion debe ser multimoneda o solo_bcv');
+  }
+
+  await db.tx(async (t) => {
+    await t.none(
+      `INSERT INTO configuracion (clave, valor, categoria, descripcion)
+       VALUES ($1, $2, 'moneda', 'Modo operativo elegido en el wizard inicial')
+       ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, actualizado_en = NOW()`,
+      [ModoMonedaService.CLAVE_MODO, m]
+    );
+
+    if (m === 'solo_bcv') {
+      // No existe dólar calle: la tasa USD arranca igualada a la BCV vigente.
+      const row = await t.oneOrNone(
+        `SELECT valor FROM configuracion WHERE clave = 'tasa_bcv' LIMIT 1`
+      );
+      if (row && row.valor != null && String(row.valor).trim() !== '') {
+        await t.none(
+          `INSERT INTO configuracion (clave, valor, categoria)
+           VALUES ('tasa_usd', $1, 'moneda')
+           ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, actualizado_en = NOW()`,
+          [String(row.valor)]
+        );
+      }
+    }
+  });
+
+  logger.info('Setup inicial: modo monetario configurado', { modo_moneda_operacion: m });
+  return { modo_moneda_operacion: m };
+}
+
 module.exports = {
   ADMIN_DEFAULT_PASSWORD_HASH,
   CONFIG_SETUP_ADMIN,
@@ -259,5 +300,6 @@ module.exports = {
   obtenerEstadoSetupAdmin,
   validarPayloadAdminInicial,
   crearAdminInicial,
-  guardarEmpresaInicial
+  guardarEmpresaInicial,
+  guardarModoMonedaInicial
 };

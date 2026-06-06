@@ -6,9 +6,34 @@
   let _sessionHandler = null;
   const STORAGE_USD = 'nexus_tasa_usd';
   const LEGACY_STORAGE_USD = 'nexus_tasa_paralela';
+  const STORAGE_MODO = 'nexus_modo_moneda';
 
   function round4(n) {
     return Math.round(Number(n) * 10000) / 10000;
+  }
+
+  /** Modo monetario operativo cacheado en localStorage ('multimoneda' | 'solo_bcv'). */
+  function getModoMoneda() {
+    try {
+      const m = localStorage.getItem(STORAGE_MODO);
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
+
+  /**
+   * Aplica la clase global `nexus-solo-bcv` al <body>. Toda la UI oculta sus
+   * referencias de USD redundantes vía CSS (`.nexus-usd-only`) de forma reactiva.
+   */
+  function applyModoMonedaBodyClass(modo) {
+    try {
+      if (typeof document !== 'undefined' && document.body) {
+        document.body.classList.toggle('nexus-solo-bcv', modo === 'solo_bcv');
+      }
+    } catch (e) {
+      /* almacenamiento/DOM no disponible */
+    }
   }
 
   function loadRates() {
@@ -24,10 +49,16 @@
     const rawBcv = localStorage.getItem(STORAGE_BCV);
     const bcv = parseFloat(rawBcv || '0');
     const usd = parseFloat(rawUsd || '0');
-    return {
+    const rates = {
       bcv: !Number.isNaN(bcv) && bcv > 0 ? round4(bcv) : 0,
       usd: !Number.isNaN(usd) && usd > 0 ? round4(usd) : 0
     };
+    // NEXUS-DUAL: ver resolverTasasOperativas en backend/services/preciosService.js.
+    // En solo_bcv la tasa USD operativa es siempre la BCV (no existe dólar calle).
+    if (getModoMoneda() === 'solo_bcv' && rates.bcv > 0) {
+      rates.usd = rates.bcv;
+    }
+    return rates;
   }
 
   /** @param {boolean} silent si true solo persiste localStorage (sin disparar nexus:tasas) */
@@ -276,6 +307,11 @@
         const usd = parseFloat(String(d.tasa_usd != null ? d.tasa_usd : d.usd).replace(',', '.'));
         if (!bcv || Number.isNaN(bcv) || !usd || Number.isNaN(usd)) return null;
         const modo = String(d.modo_moneda_operacion || 'multimoneda').trim().toLowerCase();
+        // Persistir el modo para que loadRates()/POS/Inventario lo apliquen offline.
+        try {
+          localStorage.setItem(STORAGE_MODO, modo === 'solo_bcv' ? 'solo_bcv' : 'multimoneda');
+        } catch (e) { /* almacenamiento no disponible */ }
+        applyModoMonedaBodyClass(modo);
         const usdOperativo = modo === 'solo_bcv' ? bcv : usd;
         saveRates(bcv, usdOperativo, true);
         syncNavbarRatesInputsFromLocalStorage();
@@ -297,27 +333,35 @@
     return _hydrateInFlight;
   }
 
-  window.addEventListener('nexus:tasas', syncNavbarRatesInputsFromLocalStorage);
+  window.addEventListener('nexus:tasas', () => {
+    syncNavbarRatesInputsFromLocalStorage();
+    applyModoMonedaBodyClass(getModoMoneda());
+  });
 
-  /* Otra pestaña u otra ventana mismo origen tocó tasas → actualizar caches locales. */
+  /* Otra pestaña u otra ventana mismo origen tocó tasas o el modo → actualizar caches locales. */
   window.addEventListener('storage', (e) => {
     if (
       !e.storageArea ||
-      (e.key !== STORAGE_BCV && e.key !== STORAGE_USD)
+      (e.key !== STORAGE_BCV && e.key !== STORAGE_USD && e.key !== STORAGE_MODO)
     ) {
       return;
     }
     syncNavbarRatesInputsFromLocalStorage();
+    applyModoMonedaBodyClass(getModoMoneda());
     const cur = loadRates();
     window.dispatchEvent(
       new CustomEvent('nexus:tasas', { detail: { tasa_bcv: cur.bcv, tasa_usd: cur.usd } })
     );
   });
 
+  // Aplicar el modo cacheado de inmediato (antes de la primera hidratación del servidor).
+  applyModoMonedaBodyClass(getModoMoneda());
+
   window.NexusComponents = window.NexusComponents || {};
   window.NexusComponents.renderNavbar = renderNavbar;
   window.NexusComponents.loadTasasLocal = loadRates;
   window.NexusComponents.saveTasasLocal = saveRates;
+  window.NexusComponents.getModoMoneda = getModoMoneda;
   window.NexusComponents.syncNavbarRatesInputsFromLocalStorage = syncNavbarRatesInputsFromLocalStorage;
   window.NexusComponents.hydrateTasasDesdeServidorSilent = hydrateTasasDesdeServidorSilent;
 })();

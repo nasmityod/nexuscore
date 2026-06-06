@@ -25,7 +25,7 @@
     </div>
 
     <div class="apertura-grid">
-      <div>
+      <div class="nexus-usd-only">
         <label class="campo-label">¿Cuántos dólares en efectivo tienes para empezar?</label>
         <input type="text" inputmode="decimal" autocomplete="off" id="apertura-monto-usd" class="input-caja caja-monto-input" data-step="0.01" min="0" placeholder="0,00" value="" data-num-empty-if-zero="true">
       </div>
@@ -37,7 +37,7 @@
         <label class="campo-label">Tasa BCV de hoy</label>
         <input type="number" id="apertura-tasa-bcv" class="input-caja" step="0.0001" min="0.0001" placeholder="Ej: 489.5547">
       </div>
-      <div>
+      <div class="nexus-usd-only">
         <label class="campo-label">Tasa USD de hoy</label>
         <input type="number" id="apertura-tasa-usd" class="input-caja" step="0.0001" min="0.0001" placeholder="Ej: 625.0000">
       </div>
@@ -150,7 +150,7 @@
       Cuenta solo el efectivo y pagos que recibiste en mano hoy. No incluyas el monto financiado por Cashea.
     </p>
 
-    <div class="cierre-grupo-moneda">
+    <div class="cierre-grupo-moneda nexus-usd-only">
       <div class="cierre-grupo-titulo">DÓLARES</div>
       <div class="conteo-fila">
         <div class="conteo-fila-label">Billetes en efectivo USD</div>

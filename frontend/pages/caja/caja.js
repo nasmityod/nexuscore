@@ -570,7 +570,10 @@
 
     panel.style.display = '';
     panel.innerHTML =
+      // En solo_bcv no hay operaciones en divisas: el cuadre de dólares es redundante.
+      '<div class="nexus-usd-only">' +
       renderLineaCuadre('Dólares (efectivo + Zelle)', totalContadoUsd, totalEsperadoUsd, '$', fUsd) +
+      '</div>' +
       renderLineaCuadre('Bolívares (todos los métodos + inicial Cashea)', totalContadoBs, totalEsperadoBs, 'Bs. ', fBs) +
       hintCasheaCuadre;
 
@@ -938,12 +941,14 @@
           contado: sc.efectivo_usd_contado != null ? '$' + fUsd(sc.efectivo_usd_contado) : '—',
           dif: sc.diferencia_usd,
           prefijo: '$',
-          fmt: fUsd
+          fmt: fUsd,
+          usdOnly: true
         },
         {
           label: 'Zelle (USD)',
           contado: sc.zelle_usd_contado != null ? '$' + fUsd(sc.zelle_usd_contado) : '—',
-          dif: null
+          dif: null,
+          usdOnly: true
         },
         {
           label: 'Efectivo Bs contado',
@@ -980,7 +985,7 @@
             texto + (ok ? '' : ' ' + f.prefijo + f.fmt(Math.abs(dv))) +
             '</span>';
         }
-        return '<tr>' +
+        return '<tr' + (f.usdOnly ? ' class="nexus-usd-only"' : '') + '>' +
           '<td>' + f.label + '</td>' +
           '<td class="num caja-metodo-total">' + f.contado + '</td>' +
           '<td class="num">' + celdaDif + '</td>' +

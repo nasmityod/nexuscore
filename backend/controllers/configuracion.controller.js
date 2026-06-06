@@ -8,7 +8,7 @@ const BcvTasaAutoService = require('../services/bcvTasaAutoService');
 const ModoMonedaService = require('../services/modoMonedaService');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { normalizarTelefonoMovilVeOpcional } = require('../utils/telefonoVe');
-const { clientIp } = require('../middleware/audit.middleware');
+const { clientIp, registrarAuditoria } = require('../middleware/audit.middleware');
 
 const CLAVES_EMPRESA = [
   'empresa_nombre','empresa_rif','empresa_telefono','empresa_direccion',
@@ -16,19 +16,17 @@ const CLAVES_EMPRESA = [
   'impresora_interfaz','impresora_nombre','impresora_activa'
 ];
 
-const CLAVES_MODO_MONEDA = [ModoMonedaService.CLAVE_MODO];
-
 /* ─── GET /api/configuracion/tasas-actuales ─── */
 async function getTasasActuales(req, res) {
-  // Usar la misma fuente legal que ventas (respeta feriados y días no hábiles)
-  const tasas = await PreciosService.obtenerTasasActuales(db);
-  const modo_moneda_operacion = await ModoMonedaService.leerModo(db);
+  // resolverTasasOperativas: misma fuente legal que ventas (respeta feriados y días no
+  // hábiles) y unifica tasa_usd = tasa_bcv en modo solo_bcv. Único punto de entrada.
+  const tasas = await PreciosService.resolverTasasOperativas(db);
   res.json({
     tasa_bcv: tasas.tasa_bcv,
     tasa_usd: tasas.tasa_usd,
     bcv: tasas.tasa_bcv,
     usd: tasas.tasa_usd,
-    modo_moneda_operacion,
+    modo_moneda_operacion: tasas.modo_moneda_operacion,
     dia_habil_referencia: tasas.dia_habil_referencia,
     congelada_por_no_habil: tasas.congelada_por_no_habil
   });
@@ -45,21 +43,20 @@ async function getAll(req, res) {
 /* ─── PATCH /api/configuracion ─── */
 async function updateGeneral(req, res) {
   const body = req.body || {};
-  const updates = Object.entries(body).filter(
-    ([k]) => CLAVES_EMPRESA.includes(k) || CLAVES_MODO_MONEDA.includes(k)
-  );
+
+  // El modo monetario NO se cambia por este endpoint genérico: tiene su propia ruta
+  // con validación de caja cerrada y auditoría (PATCH /api/configuracion/modo-moneda).
+  // Evita un bypass de la regla "caja cerrada" (restricción no negociable #3).
+  if (Object.prototype.hasOwnProperty.call(body, ModoMonedaService.CLAVE_MODO)) {
+    throw httpError(400, 'Usa PATCH /api/configuracion/modo-moneda para cambiar el modo monetario');
+  }
+
+  const updates = Object.entries(body).filter(([k]) => CLAVES_EMPRESA.includes(k));
   if (!updates.length) throw httpError(400, 'No hay parámetros válidos');
 
   await db.tx(async (t) => {
     for (const [clave, valor] of updates) {
       let strVal = String(valor ?? '').trim();
-      if (CLAVES_MODO_MONEDA.includes(clave)) {
-        const modo = strVal.toLowerCase();
-        if (!ModoMonedaService.MODOS_VALIDOS.has(modo)) {
-          throw httpError(400, 'modo_moneda_operacion debe ser multimoneda o solo_bcv');
-        }
-        strVal = modo;
-      }
       if (
         (clave === 'empresa_telefono' || clave === 'telefono_empresa') &&
         strVal !== ''
@@ -78,6 +75,101 @@ async function updateGeneral(req, res) {
     }
   });
   res.json({ ok: true });
+}
+
+/**
+ * PATCH /api/configuracion/modo-moneda
+ * Cambia modo_moneda_operacion (multimoneda | solo_bcv). Solo admin (tasas_edit).
+ * Body: { modo_moneda_operacion: 'multimoneda'|'solo_bcv', tasa_usd?: number }
+ *
+ * Reglas no negociables:
+ *  - Rechaza con 409 si hay alguna sesión de caja abierta.
+ *  - solo_bcv  → fuerza tasa_usd = tasa_bcv de inmediato.
+ *  - multimoneda → solo toca tasa_usd si se envía una nueva (la UI la pide al salir de solo_bcv).
+ *  - Registra auditoría del cambio (tabla auditoria).
+ *  - Nunca modifica ventas, historial ni tasas históricas: solo inserta filas/parámetros nuevos.
+ */
+async function patchModoMoneda(req, res) {
+  const body = req.body || {};
+  const modo = String(body.modo_moneda_operacion ?? body.modo ?? '').trim().toLowerCase();
+  if (!ModoMonedaService.MODOS_VALIDOS.has(modo)) {
+    throw httpError(400, 'modo_moneda_operacion debe ser multimoneda o solo_bcv');
+  }
+
+  const usuario_id = req.user && req.user.id ? Number(req.user.id) : null;
+  if (!usuario_id || usuario_id < 1) throw httpError(401, 'Usuario no autenticado');
+
+  const ipCliente = clientIp(req);
+
+  // Restricción no negociable: el cambio de modo exige caja cerrada (validación en backend).
+  const cajaAbierta = await db.oneOrNone(
+    `SELECT id FROM sesiones_caja WHERE estado = 'abierta' AND fecha_cierre IS NULL LIMIT 1`
+  );
+  if (cajaAbierta) {
+    throw httpError(
+      409,
+      'No se puede cambiar el modo monetario con una caja abierta. Cierra la caja primero.'
+    );
+  }
+
+  const modoActual = await ModoMonedaService.leerModo(db);
+  const rawUsdNueva = body.tasa_usd != null && body.tasa_usd !== '' ? body.tasa_usd : null;
+
+  const result = await db.tx(async (t) => {
+    const prev = await PreciosService.leerTasasPreviasConfig(t);
+
+    // 1) Persistir el modo PRIMERO: así actualizarTasas() lo lee y unifica si aplica.
+    await t.none(
+      `INSERT INTO configuracion (clave, valor, categoria, descripcion, actualizado_en, actualizado_por)
+       VALUES ($1, $2, 'moneda', 'Modo operativo: multimoneda | solo_bcv', NOW(), $3)
+       ON CONFLICT (clave) DO UPDATE
+       SET valor = EXCLUDED.valor, actualizado_en = NOW(), actualizado_por = EXCLUDED.actualizado_por`,
+      [ModoMonedaService.CLAVE_MODO, modo, usuario_id]
+    );
+
+    let usdFinal = prev.tasa_usd;
+
+    if (ModoMonedaService.esSoloBcv(modo)) {
+      if (prev.tasa_bcv == null || prev.tasa_bcv <= 0) {
+        throw httpError(400, 'No hay tasa BCV configurada para unificar las tasas');
+      }
+      // actualizarTasas leerá modo=solo_bcv (recién persistido) y forzará usd = bcv.
+      const r = await PreciosService.actualizarTasas(
+        t, prev.tasa_bcv, prev.tasa_bcv, usuario_id, ipCliente
+      );
+      usdFinal = r.tasa_usd;
+    } else if (rawUsdNueva != null) {
+      const usdNueva4 = PreciosService.redondearTasa4(rawUsdNueva);
+      if (Number.isNaN(usdNueva4) || usdNueva4 <= 0) {
+        throw httpError(400, 'La tasa USD proporcionada no es válida');
+      }
+      if (prev.tasa_bcv == null || prev.tasa_bcv <= 0) {
+        throw httpError(400, 'No hay tasa BCV configurada');
+      }
+      if (usdNueva4 < prev.tasa_bcv) {
+        throw httpError(400, 'La tasa USD no puede ser menor que la tasa BCV');
+      }
+      const r = await PreciosService.actualizarTasas(
+        t, prev.tasa_bcv, usdNueva4, usuario_id, ipCliente
+      );
+      usdFinal = r.tasa_usd;
+    }
+    // multimoneda sin tasa_usd nueva → no se toca tasa_usd vigente.
+
+    await registrarAuditoria(t, {
+      usuario_id,
+      accion: 'CAMBIAR_MODO_MONEDA',
+      tabla_afectada: 'configuracion',
+      registro_id: null,
+      datos_anteriores: { modo_moneda_operacion: modoActual, tasa_usd: prev.tasa_usd },
+      datos_nuevos: { modo_moneda_operacion: modo, tasa_usd: usdFinal },
+      ip_address: ipCliente
+    });
+
+    return { modo_moneda_operacion: modo, tasa_bcv: prev.tasa_bcv, tasa_usd: usdFinal };
+  });
+
+  res.json({ ok: true, ...result });
 }
 
 /**
@@ -254,6 +346,7 @@ module.exports = {
   getTasasActuales:  asyncHandler(getTasasActuales),
   getImpuestoIvaVenta: asyncHandler(getImpuestoIvaVenta),
   updateGeneral:     asyncHandler(updateGeneral),
+  patchModoMoneda:   asyncHandler(patchModoMoneda),
   saveTasas:         asyncHandler(saveTasas),
   getRespaldoStatus: asyncHandler(getRespaldoStatus),
   patchRespaldoScheduler: asyncHandler(patchRespaldoScheduler),

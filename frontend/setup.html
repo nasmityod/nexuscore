@@ -364,12 +364,14 @@
       <div class="step-dot" id="dot-2"></div>
       <div class="step-dot" id="dot-3"></div>
       <div class="step-dot" id="dot-4"></div>
+      <div class="step-dot" id="dot-5"></div>
     </div>
     <div class="step-labels">
       <span id="label-1" class="active">1 · Base de datos</span>
       <span id="label-2">2 · Licencia</span>
       <span id="label-3">3 · Admin</span>
-      <span id="label-4">4 · Empresa</span>
+      <span id="label-4">4 · Moneda</span>
+      <span id="label-5">5 · Empresa</span>
     </div>
 
     <!-- Paso 1: PostgreSQL -->
@@ -472,7 +474,38 @@
       </div>
     </div>
 
-    <!-- Paso 4: Empresa & Cashea -->
+    <!-- Paso 4: Modo monetario -->
+    <div class="panel" id="panel-moneda">
+      <p class="intro" style="font-weight:600;color:var(--text-primary);font-size:0.98rem;">
+        ¿Cómo maneja tu negocio los precios?
+      </p>
+      <p class="intro" style="margin-top:-0.5rem;">
+        Elige la modalidad de tasas. Puedes cambiarla luego en Configuración → Tasas.
+      </p>
+      <div class="cashea-toggle" id="moneda-toggle" style="grid-template-columns:1fr;">
+        <label class="cashea-option">
+          <input type="radio" name="modo-moneda" id="modo-multimoneda" value="multimoneda" checked>
+          <div class="cashea-option-box" style="align-items:flex-start;text-align:left;">
+            <span class="opt-title">Multimoneda (BCV + USD)</span>
+            <span class="opt-desc">Tasa BCV oficial y tasa USD de mercado. Para quien cobra dólares físicos o usa dos referencias.</span>
+          </div>
+        </label>
+        <label class="cashea-option">
+          <input type="radio" name="modo-moneda" id="modo-solo-bcv" value="solo_bcv">
+          <div class="cashea-option-box" style="align-items:flex-start;text-align:left;">
+            <span class="opt-title">Solo BCV</span>
+            <span class="opt-desc">Una sola tasa: la BCV oficial. Más simple. Para quien solo usa bolívares o no maneja dólar calle.</span>
+          </div>
+        </label>
+      </div>
+      <div class="status info" id="status-moneda" role="status"></div>
+      <div class="alert alert-error" id="alert-moneda-error"></div>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="btn-continuar-moneda">Continuar</button>
+      </div>
+    </div>
+
+    <!-- Paso 5: Empresa & Cashea -->
     <div class="panel" id="panel-empresa">
       <p class="intro">
         Configura los datos de tu negocio. Solo el nombre es obligatorio; el resto puede completarse luego en Configuración.
@@ -551,13 +584,17 @@
       var panelDb = document.getElementById('panel-db');
       var panelLicense = document.getElementById('panel-license');
       var panelAdmin = document.getElementById('panel-admin');
+      var panelMoneda = document.getElementById('panel-moneda');
       var panelEmpresa = document.getElementById('panel-empresa');
       var statusDb = document.getElementById('status-db');
       var statusAdmin = document.getElementById('status-admin');
+      var statusMoneda = document.getElementById('status-moneda');
       var statusEmpresa = document.getElementById('status-empresa');
       var alertAdminErr = document.getElementById('alert-admin-error');
+      var alertMonedaErr = document.getElementById('alert-moneda-error');
       var alertEmpresaErr = document.getElementById('alert-empresa-error');
       var btnCreateAdmin = document.getElementById('btn-create-admin');
+      var btnContinuarMoneda = document.getElementById('btn-continuar-moneda');
       var btnGuardarEmpresa = document.getElementById('btn-guardar-empresa');
       var btnOmitirEmpresa = document.getElementById('btn-omitir-empresa');
       var btnTest = document.getElementById('btn-test');
@@ -577,10 +614,12 @@
       var dot2 = document.getElementById('dot-2');
       var dot3 = document.getElementById('dot-3');
       var dot4 = document.getElementById('dot-4');
+      var dot5 = document.getElementById('dot-5');
       var label1 = document.getElementById('label-1');
       var label2 = document.getElementById('label-2');
       var label3 = document.getElementById('label-3');
       var label4 = document.getElementById('label-4');
+      var label5 = document.getElementById('label-5');
       var subtitle = document.getElementById('subtitle');
       var footnoteEl = document.getElementById('footnote');
 
@@ -594,19 +633,23 @@
         panelDb.classList.toggle('active', step === 1);
         panelLicense.classList.toggle('active', step === 2);
         panelAdmin.classList.toggle('active', step === 3);
-        panelEmpresa.classList.toggle('active', step === 4);
+        panelMoneda.classList.toggle('active', step === 4);
+        panelEmpresa.classList.toggle('active', step === 5);
         dot1.className = 'step-dot' + (step > 1 ? ' done' : (step === 1 ? ' active' : ''));
         dot2.className = 'step-dot' + (step > 2 ? ' done' : (step === 2 ? ' active' : ''));
         dot3.className = 'step-dot' + (step > 3 ? ' done' : (step === 3 ? ' active' : ''));
-        dot4.className = 'step-dot' + (step === 4 ? ' active' : '');
+        dot4.className = 'step-dot' + (step > 4 ? ' done' : (step === 4 ? ' active' : ''));
+        dot5.className = 'step-dot' + (step === 5 ? ' active' : '');
         label1.className = step > 1 ? 'done' : (step === 1 ? 'active' : '');
         label2.className = step > 2 ? 'done' : (step === 2 ? 'active' : '');
         label3.className = step > 3 ? 'done' : (step === 3 ? 'active' : '');
-        label4.className = step === 4 ? 'active' : '';
+        label4.className = step > 4 ? 'done' : (step === 4 ? 'active' : '');
+        label5.className = step === 5 ? 'active' : '';
         if (step === 1) subtitle.textContent = 'Paso 1 · Base de datos';
         else if (step === 2) subtitle.textContent = 'Paso 2 · Licencia';
         else if (step === 3) subtitle.textContent = 'Paso 3 · Administrador';
-        else subtitle.textContent = 'Paso 4 · Tu empresa';
+        else if (step === 4) subtitle.textContent = 'Paso 4 · Moneda';
+        else subtitle.textContent = 'Paso 5 · Tu empresa';
       }
 
       function setAdminStatus(text, kind) {
@@ -651,12 +694,35 @@
         }
       }
 
+      function setMonedaStatus(text, kind) {
+        statusMoneda.textContent = text || '';
+        statusMoneda.className = 'status' + (kind ? ' ' + kind : '');
+      }
+
+      function showMonedaError(msg) {
+        alertMonedaErr.textContent = msg;
+        alertMonedaErr.classList.add('show');
+      }
+
+      function hideMonedaError() {
+        alertMonedaErr.classList.remove('show');
+        alertMonedaErr.textContent = '';
+      }
+
+      function goToMonedaStep() {
+        hideMonedaError();
+        setMonedaStatus('', '');
+        busy = false;
+        if (btnContinuarMoneda) { btnContinuarMoneda.disabled = false; btnContinuarMoneda.textContent = 'Continuar'; }
+        setStepUi(4);
+      }
+
       function goToEmpresaStep() {
         hideEmpresaError();
         setEmpresaStatus('', '');
         busy = false;
         if (btnGuardarEmpresa) btnGuardarEmpresa.disabled = false;
-        setStepUi(4);
+        setStepUi(5);
       }
 
       function proceedAfterLicense() {
@@ -920,10 +986,10 @@
           });
         })
         .then(function () {
-          setAdminStatus('Cuenta creada. Configurando empresa…', 'ok');
+          setAdminStatus('Cuenta creada. Continuando…', 'ok');
           busy = false;
           btnCreateAdmin.disabled = false;
-          setTimeout(goToEmpresaStep, 600);
+          setTimeout(goToMonedaStep, 600);
         })
         .catch(function (e) {
           showAdminError(e.message || 'Error al crear la cuenta.');
@@ -996,6 +1062,43 @@
           showLicenseError(msg);
           btnActivar.disabled = false;
           btnActivar.textContent = 'Activar Nexus Core';
+        });
+      });
+
+      btnContinuarMoneda.addEventListener('click', function () {
+        if (busy) return;
+        hideMonedaError();
+        var checked = document.querySelector('input[name="modo-moneda"]:checked');
+        var modo = checked && checked.value === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+
+        busy = true;
+        btnContinuarMoneda.disabled = true;
+        btnContinuarMoneda.textContent = 'Guardando…';
+        setMonedaStatus('Guardando preferencia de moneda…', 'info');
+
+        fetch('http://127.0.0.1:3000/api/setup/modo-moneda-inicial', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ modo_moneda_operacion: modo })
+        })
+        .then(function (r) {
+          return r.json().then(function (d) {
+            if (!r.ok) throw new Error(d.error || d.message || 'No se pudo guardar el modo.');
+            return d;
+          });
+        })
+        .then(function () {
+          busy = false;
+          btnContinuarMoneda.disabled = false;
+          btnContinuarMoneda.textContent = 'Continuar';
+          goToEmpresaStep();
+        })
+        .catch(function (e) {
+          showMonedaError(e.message || 'Error al guardar el modo de moneda.');
+          setMonedaStatus('', '');
+          btnContinuarMoneda.disabled = false;
+          btnContinuarMoneda.textContent = 'Continuar';
+          busy = false;
         });
       });
 

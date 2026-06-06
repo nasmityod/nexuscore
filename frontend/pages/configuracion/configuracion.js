@@ -4,6 +4,8 @@
   var cfgActual = {};
   /** true cuando cargarConfig() + hydrate completaron exitosamente */
   var _tasasDisplayListas = false;
+  /** Modo monetario vigente: 'multimoneda' | 'solo_bcv'. */
+  var modoMonedaActual = 'multimoneda';
 
   function apiBase() { return String(window.NEXUS_API_BASE || 'http://127.0.0.1:3000').replace(/\/$/, ''); }
   function apiFetch(path, init) {
@@ -193,6 +195,10 @@
         return null;
       })
       .then(function (ht) {
+        // Modo monetario: preferir lo que devuelve el servidor; si no, localStorage; si no, multimoneda.
+        var modo = (ht && ht.modo_moneda_operacion) || null;
+        if (!modo) { try { modo = localStorage.getItem('nexus_modo_moneda'); } catch (e) { modo = null; } }
+        aplicarVisibilidadModo(modo || 'multimoneda');
         var dispBcv = document.getElementById('display-bcv');
         var dispUsd = document.getElementById('display-usd');
         if (ht && ht.ok) {
@@ -576,7 +582,7 @@
 
   function aplicarUIPermisosTasas(host) {
     var puede = window.NexusAuth && typeof window.NexusAuth.can === 'function' && window.NexusAuth.can('tasas_edit');
-    var ids = ['input-tasa-bcv', 'input-tasa-usd', 'btn-guardar-tasas'];
+    var ids = ['input-tasa-bcv', 'input-tasa-usd', 'btn-guardar-tasas', 'cfg-modo-moneda'];
     ids.forEach(function (id) {
       var el = (host && host.querySelector ? host : document).querySelector('#' + id);
       if (!el) el = document.getElementById(id);
@@ -667,10 +673,150 @@
     };
   }
 
+  /* ─── MODO MONETARIO (multimoneda | solo_bcv) ─── */
+  function textoHintModo(modo) {
+    return modo === 'solo_bcv'
+      ? 'Modo Solo BCV: el sistema usa solo la tasa BCV oficial; la tasa USD se iguala a la BCV.'
+      : 'Modo Multimoneda: se manejan la tasa BCV oficial y la tasa USD de mercado por separado.';
+  }
+
+  /** Aplica visibilidad/estado de la UI de Tasas según el modo (reactivo, sin recargar). */
+  function aplicarVisibilidadModo(modo) {
+    var m = modo === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    modoMonedaActual = m;
+    try { localStorage.setItem('nexus_modo_moneda', m); } catch (e) {}
+    var sel = document.getElementById('cfg-modo-moneda');
+    if (sel && sel.value !== m) sel.value = m;
+    var esSolo = m === 'solo_bcv';
+    // En solo_bcv se oculta el bloque de tasa USD y su nota (no hay dólar calle).
+    var seccionUsd = document.getElementById('seccion-tasa-usd');
+    if (seccionUsd) seccionUsd.style.display = esSolo ? 'none' : '';
+    var notaUsd = document.querySelector('.bcv-auto-nota-usd');
+    if (notaUsd) notaUsd.style.display = esSolo ? 'none' : '';
+    var hint = document.getElementById('cfg-modo-hint');
+    if (hint) hint.textContent = textoHintModo(m);
+  }
+
+  function enviarCambioModo(modo, tasaUsd) {
+    var payload = { modo_moneda_operacion: modo };
+    if (modo === 'multimoneda' && tasaUsd != null && tasaUsd > 0) payload.tasa_usd = tasaUsd;
+
+    apiFetch('/api/configuracion/modo-moneda', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) { var err = new Error(d.error || 'Error'); err.status = r.status; throw err; }
+        return d;
+      });
+    }).then(function (data) {
+      var nuevo = data.modo_moneda_operacion || modo;
+      aplicarVisibilidadModo(nuevo);
+      toast(
+        nuevo === 'solo_bcv'
+          ? 'Modo Solo BCV activado. Las tasas se unificaron.'
+          : 'Modo Multimoneda activado.',
+        'success'
+      );
+      // Refrescar tasas en toda la UI (navbar, POS, inventario) sin recargar la página.
+      if (window.NexusComponents && typeof window.NexusComponents.hydrateTasasDesdeServidorSilent === 'function') {
+        window.NexusComponents.hydrateTasasDesdeServidorSilent();
+      }
+      cargarConfig();
+    }).catch(function (e) {
+      if (e && e.status === 409) {
+        toast(e.message || 'No se puede cambiar el modo con una caja abierta. Ciérrala primero.', 'error');
+      } else {
+        toast(e.message || 'No se pudo cambiar el modo monetario', 'error');
+      }
+      var sel = document.getElementById('cfg-modo-moneda');
+      if (sel) sel.value = modoMonedaActual; // revertir selector
+    });
+  }
+
+  function abrirConfirmacionModo(modoDestino) {
+    var modal = document.getElementById('modal-confirm-modo');
+    var texto = document.getElementById('modal-confirm-modo-texto');
+    var usdWrap = document.getElementById('modal-modo-usd-wrap');
+    var usdInput = document.getElementById('modal-modo-usd-input');
+    var sel = document.getElementById('cfg-modo-moneda');
+    if (!modal) { enviarCambioModo(modoDestino, null); return; }
+
+    var haciaMulti = modoDestino === 'multimoneda';
+    if (texto) {
+      texto.textContent = haciaMulti
+        ? 'Vas a activar el modo Multimoneda. Ingresa la tasa USD de mercado que usará el sistema.'
+        : 'Vas a activar el modo Solo BCV. Se unificarán las tasas: la tasa USD pasará a ser igual a la BCV. ¿Continuar?';
+    }
+    if (usdWrap) usdWrap.style.display = haciaMulti ? '' : 'none';
+    if (usdInput && haciaMulti) {
+      var dispUsd = parseFloat(((document.getElementById('display-usd') || {}).textContent || '0').replace(',', '.')) || 0;
+      usdInput.value = dispUsd > 0 ? dispUsd.toFixed(4) : '';
+    }
+    modal.style.display = 'flex';
+
+    var btnConfirmar = document.getElementById('btn-confirm-modo-confirmar');
+    var btnCancelar = document.getElementById('btn-confirm-modo-cancelar');
+
+    function cerrar() {
+      modal.style.display = 'none';
+      if (btnConfirmar) btnConfirmar.onclick = null;
+      if (btnCancelar) btnCancelar.onclick = null;
+      modal.onclick = null;
+    }
+    function cancelar() {
+      cerrar();
+      if (sel) sel.value = modoMonedaActual;
+    }
+    if (btnConfirmar) {
+      btnConfirmar.onclick = function () {
+        var tasaUsd = null;
+        if (haciaMulti) {
+          tasaUsd = parseFloat((usdInput.value || '').replace(',', '.')) || 0;
+          var bcvActual = parseFloat(((document.getElementById('display-bcv') || {}).textContent || '0').replace(',', '.')) || 0;
+          if (!(tasaUsd > 0)) { toast('Ingresa una tasa USD válida mayor a 0', 'warning'); return; }
+          if (bcvActual > 0 && tasaUsd < bcvActual) { toast('La tasa USD debe ser mayor o igual a la BCV', 'warning'); return; }
+        }
+        cerrar();
+        enviarCambioModo(modoDestino, tasaUsd);
+      };
+    }
+    if (btnCancelar) btnCancelar.onclick = cancelar;
+    modal.onclick = function (e) { if (e.target === modal) cancelar(); };
+  }
+
+  function onCambioSelectorModo() {
+    var sel = document.getElementById('cfg-modo-moneda');
+    if (!sel) return;
+    var destino = sel.value === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    if (destino === modoMonedaActual) return;
+    if (window.NexusAuth && typeof window.NexusAuth.can === 'function' && !window.NexusAuth.can('tasas_edit')) {
+      toast('Solo el administrador puede cambiar el modo monetario', 'warning');
+      sel.value = modoMonedaActual;
+      return;
+    }
+    abrirConfirmacionModo(destino);
+  }
+
   /* ─── GUARDAR TASAS ─── */
   function guardarTasas() {
     if (window.NexusAuth && typeof window.NexusAuth.can === 'function' && !window.NexusAuth.can('tasas_edit')) {
       toast('Solo el administrador puede modificar las tasas', 'warning');
+      return;
+    }
+
+    // En solo_bcv solo se edita la tasa BCV; el backend iguala la USD a la BCV.
+    if (modoMonedaActual === 'solo_bcv') {
+      var bcvSolo = parseFloat(
+        (document.getElementById('input-tasa-bcv').value || '').replace(',', '.')
+      ) || 0;
+      var bcvActualSolo = parseFloat(
+        ((document.getElementById('display-bcv') || {}).textContent || '0').replace(',', '.')
+      ) || 0;
+      if (bcvSolo <= 0) bcvSolo = bcvActualSolo;
+      if (!(bcvSolo > 0)) { toast('Ingresa una tasa BCV válida mayor a 0', 'warning'); return; }
+      enviarGuardarTasas(bcvSolo, bcvSolo);
       return;
     }
 
@@ -1210,6 +1356,8 @@
       // Tasas
       var btnTasas = host.querySelector('#btn-guardar-tasas');
       if (btnTasas) btnTasas.addEventListener('click', guardarTasas);
+      var selModo = host.querySelector('#cfg-modo-moneda');
+      if (selModo) selModo.addEventListener('change', onCambioSelectorModo);
       var btnBcvAuto = host.querySelector('#btn-guardar-bcv-auto');
       if (btnBcvAuto) btnBcvAuto.addEventListener('click', guardarProgramaBcvAuto);
       var btnBcvSync = host.querySelector('#btn-bcv-auto-sync');

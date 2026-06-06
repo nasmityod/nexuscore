@@ -49,9 +49,9 @@
         <tr>
           <th>Producto</th>
           <th class="inv-col-center">Stock</th>
-          <th class="inv-col-mono inv-th-mono">Costo<br><span class="inv-th-mono-sub">$BCV / USD</span></th>
+          <th class="inv-col-mono inv-th-mono">Costo<br><span class="inv-th-mono-sub">$BCV<span class="nexus-usd-only"> / USD</span></span></th>
           <th class="inv-col-mono inv-th-mono">Ganancia</th>
-          <th class="inv-col-mono inv-th-mono">Precio<br><span class="inv-th-mono-sub">$BCV / USD</span></th>
+          <th class="inv-col-mono inv-th-mono">Precio<br><span class="inv-th-mono-sub">$BCV<span class="nexus-usd-only"> / USD</span></span></th>
           <th class="inv-col-mono inv-th-mono">Precio Bs<br><span class="inv-th-mono-sub">ref. $ BCV</span></th>
           <th class="inv-col-center">Acciones</th>
         </tr>
@@ -203,21 +203,21 @@
         <div class="precio-card">
           <div class="precio-nombre">
             <span class="precio-nombre-main">Costo</span>
-            <span class="precio-sub">$BCV arriba · USD abajo</span>
+            <span class="precio-sub">$BCV<span class="nexus-usd-only"> arriba · USD abajo</span></span>
           </div>
           <div class="precio-valor-stack">
             <span class="precio-valor-bcv" id="res-costo-bcv">—</span>
-            <span class="precio-valor-usd" id="res-costo-usd">—</span>
+            <span class="precio-valor-usd nexus-usd-only" id="res-costo-usd">—</span>
           </div>
         </div>
         <div class="precio-card">
           <div class="precio-nombre">
             <span class="precio-nombre-main">Precio de venta</span>
-            <span class="precio-sub">$BCV arriba · USD abajo</span>
+            <span class="precio-sub">$BCV<span class="nexus-usd-only"> arriba · USD abajo</span></span>
           </div>
           <div class="precio-valor-stack">
             <span class="precio-valor-bcv" id="res-precio-usd-bcv">—</span>
-            <span class="precio-valor-usd" id="res-precio-usd">—</span>
+            <span class="precio-valor-usd nexus-usd-only" id="res-precio-usd">—</span>
           </div>
         </div>
         <div class="precio-card">
@@ -230,16 +230,16 @@
         <div class="precio-card precio-card--last">
           <div class="precio-nombre">
             <span class="precio-nombre-main">Ganancia neta</span>
-            <span class="precio-sub">$BCV arriba · USD abajo</span>
+            <span class="precio-sub">$BCV<span class="nexus-usd-only"> arriba · USD abajo</span></span>
             <span class="inv-res-ganancia-pct" id="res-ganancia-pct"></span>
           </div>
           <div class="precio-valor-stack inv-res-margen-stack">
             <span class="precio-valor-bcv" id="res-margen-bcv">—</span>
-            <span class="precio-valor-usd" id="res-margen-usd">—</span>
+            <span class="precio-valor-usd nexus-usd-only" id="res-margen-usd">—</span>
           </div>
         </div>
         <p class="precios-nota">
-          Tasas activas — BCV: <strong id="res-tasa-bcv">—</strong> Bs/$ · USD: <strong id="res-tasa-usd">—</strong> Bs/$
+          Tasas activas — BCV: <strong id="res-tasa-bcv">—</strong> Bs/$<span class="nexus-usd-only"> · USD: <strong id="res-tasa-usd">—</strong> Bs/$</span>
         </p>
       </div>
 

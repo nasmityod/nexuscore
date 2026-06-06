@@ -39,6 +39,21 @@
 
   <!-- ═══ TAB: TASAS ═══ -->
   <div class="cfg-panel activo" id="panel-tasas">
+    <div class="config-seccion" id="seccion-modo-moneda">
+      <h3>Modo de precios</h3>
+      <p class="cfg-seccion-lead">
+        Define si tu negocio maneja dos tasas (BCV oficial + USD de mercado) o una sola tasa BCV.
+        Solo se puede cambiar con la caja cerrada.
+      </p>
+      <div class="campo-grupo campo-grupo--flush">
+        <label for="cfg-modo-moneda">Modo monetario</label>
+        <select id="cfg-modo-moneda" class="input-g">
+          <option value="multimoneda">Multimoneda (BCV + USD)</option>
+          <option value="solo_bcv">Solo BCV (una sola tasa)</option>
+        </select>
+      </div>
+      <p class="cfg-modo-hint" id="cfg-modo-hint"></p>
+    </div>
     <div class="cfg-tasas-grid">
       <div class="config-seccion">
         <h3>Tasa BCV (oficial)</h3>
@@ -48,7 +63,7 @@
           <input type="number" id="input-tasa-bcv" class="input-g" step="0.0001" min="1" placeholder="Ej: 89.5462">
         </div>
       </div>
-      <div class="config-seccion">
+      <div class="config-seccion" id="seccion-tasa-usd">
         <h3>Tasa USD</h3>
         <div class="tasa-display tasa-display--usd" id="display-usd">—</div>
         <div class="campo-grupo campo-grupo--flush">
@@ -302,6 +317,24 @@
     <div class="modal-acciones">
       <button class="btn-secondary" id="btn-cancelar-modal-usuario">Cancelar</button>
       <button class="btn-primary" id="btn-guardar-usuario">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL CONFIRMACIÓN CAMBIO DE MODO MONETARIO ═══ -->
+<div class="modal-overlay" id="modal-confirm-modo">
+  <div class="modal-box modal-box--sm">
+    <div class="modal-header">
+      <h2 id="modal-confirm-modo-titulo">Cambiar modo monetario</h2>
+    </div>
+    <p id="modal-confirm-modo-texto" class="cfg-confirm-texto"></p>
+    <div class="campo-grupo" id="modal-modo-usd-wrap" style="display:none">
+      <label for="modal-modo-usd-input">Nueva tasa USD de mercado (Bs por USD)</label>
+      <input type="number" id="modal-modo-usd-input" class="input-g" step="0.0001" min="1" placeholder="Ej: 92.1800">
+    </div>
+    <div class="modal-acciones">
+      <button class="btn-secondary" id="btn-confirm-modo-cancelar">Cancelar</button>
+      <button class="btn-primary" id="btn-confirm-modo-confirmar">Confirmar</button>
     </div>
   </div>
 </div>

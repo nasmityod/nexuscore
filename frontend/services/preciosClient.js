@@ -381,6 +381,39 @@
     return Math.round((cb * bcv) / usd * 10000) / 10000;
   }
 
+  /** Modo monetario operativo cacheado por el navbar en localStorage. */
+  function getModoMonedaLocal() {
+    try {
+      var m = (typeof localStorage !== 'undefined') ? localStorage.getItem('nexus_modo_moneda') : null;
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
+
+  /**
+   * NEXUS-DUAL: contraparte de resolverTasasOperativas en backend/services/preciosService.js.
+   * En modo solo_bcv (localStorage `nexus_modo_moneda`) iguala tasa_usd = tasa_bcv ANTES de
+   * cualquier cálculo. La cadena de precios no cambia: solo se unifican las tasas de entrada.
+   * Acepta { bcv, usd } y/o { tasa_bcv, tasa_usd }; retorna copia con ambas convenciones.
+   *
+   * Test de equivalencia (solo_bcv): con tasa_bcv = tasa_usd = 89.50, costo_usd = 1.2 y
+   * margen = 30 %, calcularPrecios() produce el MISMO precio_usd_bcv y precio_bs que el
+   * backend (preciosService.calcularPrecios) con esos mismos inputs unificados.
+   *
+   * @param {{bcv?:number, usd?:number, tasa_bcv?:number, tasa_usd?:number}} tasas
+   * @returns {{bcv:number, usd:number, tasa_bcv:number, tasa_usd:number}}
+   */
+  function resolverTasasOperativas(tasas) {
+    var t = tasas || {};
+    var bcv = redondearTasa4(t.bcv != null ? t.bcv : t.tasa_bcv);
+    var usd = redondearTasa4(t.usd != null ? t.usd : t.tasa_usd);
+    if (getModoMonedaLocal() === 'solo_bcv' && bcv > 0) {
+      usd = bcv;
+    }
+    return { bcv: bcv, usd: usd, tasa_bcv: bcv, tasa_usd: usd };
+  }
+
   window.PreciosServiceClient = {
     redondearTasa4: redondearTasa4,
     calcularPrecios: calcularPrecios,
@@ -391,6 +424,8 @@
     gananciaPctDesdePrecioUsdFisicoObjetivoExacto: gananciaPctDesdePrecioUsdFisicoObjetivoExacto,
     costoUsdDesdeCostoBcv: costoUsdDesdeCostoBcv,
     precioManualUsdDesdeBcvObjetivo: precioManualUsdDesdeBcvObjetivo,
-    tienePrecioManualActivo: tienePrecioManualActivo
+    tienePrecioManualActivo: tienePrecioManualActivo,
+    getModoMonedaLocal: getModoMonedaLocal,
+    resolverTasasOperativas: resolverTasasOperativas
   };
 })();

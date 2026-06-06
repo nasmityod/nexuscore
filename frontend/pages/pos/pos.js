@@ -49,6 +49,19 @@
     return !!(t.hidratadas && t.bcv > 0 && t.usd > 0);
   }
 
+  /** Modo monetario operativo ('multimoneda' | 'solo_bcv'), cacheado por el navbar. */
+  function posModoMoneda() {
+    if (window.NexusComponents && typeof window.NexusComponents.getModoMoneda === 'function') {
+      return window.NexusComponents.getModoMoneda();
+    }
+    try {
+      var m = localStorage.getItem('nexus_modo_moneda');
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
+
   function mensajeTasasNoDisponibles() {
     return 'Las tasas de cambio no están disponibles. Espere la conexión con el servidor o recargue el POS.';
   }
@@ -3082,6 +3095,10 @@
         if (mid === 'cashea' &&
             cobroState.casheaCfg &&
             cobroState.casheaCfg.activo === false) return;
+        // En solo_bcv no hay cobro en divisas de mercado: solo Bs y crédito BCV.
+        // Se ocultan los métodos en USD físico/digital (Efectivo USD y Zelle).
+        // Cashea ($ BCV) y Crédito (USD_BCV) se conservan (son referencia BCV).
+        if ((mid === 'efectivo_usd' || mid === 'zelle') && posModoMoneda() === 'solo_bcv') return;
         var tr = document.createElement('tr');
         tr.className = 'cobro-tabla-row';
         tr.setAttribute('data-cobro-metodo', mid);

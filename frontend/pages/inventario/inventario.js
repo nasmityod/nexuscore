@@ -159,7 +159,7 @@
     var usdStr = usdVal > 0 ? '$' + fUsd(usdVal) : '—';
     return '<td class="inv-col-mono"><div class="inv-mono-stack">' +
       '<span class="inv-mono-bcv" title="Referencia $ BCV">' + bcvStr + '</span>' +
-      '<span class="inv-mono-usd" title="USD físico">' + usdStr + '</span>' +
+      '<span class="inv-mono-usd nexus-usd-only" title="USD físico">' + usdStr + '</span>' +
       '</div></td>';
   }
 
@@ -191,6 +191,32 @@
   function sincronizarStateTasasDesdeOrigen() {
     var t = tasasEfectivas();
     state.tasas = { bcv: t.bcv, usd: t.usd };
+  }
+
+  /** Modo monetario operativo ('multimoneda' | 'solo_bcv'), cacheado por el navbar. */
+  function invModoMoneda() {
+    if (window.NexusComponents && typeof window.NexusComponents.getModoMoneda === 'function') {
+      return window.NexusComponents.getModoMoneda();
+    }
+    try {
+      var m = localStorage.getItem('nexus_modo_moneda');
+      return m === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+    } catch (e) {
+      return 'multimoneda';
+    }
+  }
+
+  /**
+   * En solo_bcv oculta el tab de costo "USD físico" y el modo de precio "$USD · Precio final".
+   * No elimina elementos del DOM: reaparecen al volver a multimoneda.
+   */
+  function aplicarVisibilidadModoInventario(host) {
+    if (!host) return;
+    var esSolo = invModoMoneda() === 'solo_bcv';
+    var tabUsdCosto = host.querySelector('.btn-moneda-costo[data-mc="usd_fisico"]');
+    if (tabUsdCosto) tabUsdCosto.style.display = esSolo ? 'none' : '';
+    var tabUsdPrecio = host.querySelector('.btn-modo-precio[data-modo="usd"]');
+    if (tabUsdPrecio) tabUsdPrecio.style.display = esSolo ? 'none' : '';
   }
 
   function calcPrecios(costo, margen, tasas) {
@@ -412,6 +438,7 @@
     if (!modal) return;
 
     modal.style.display = 'flex';
+    aplicarVisibilidadModoInventario(host);
 
     if (productoId) {
       toggleGrupoStock(host, true);
@@ -487,9 +514,10 @@
     state.costoBcvDisplayAlAbrir = null;
     ocultarAvisoPrecioObjetivo(host);
     ocultarHintGananciaBcv(host);
-    // Resetear modos a sus valores por defecto
-    cambiarModoMonedaCosto(host, 'usd_fisico');
+    // Resetear modos a sus valores por defecto. En solo_bcv el costo arranca en $BCV.
+    cambiarModoMonedaCosto(host, invModoMoneda() === 'solo_bcv' ? 'bcv' : 'usd_fisico');
     cambiarModoPrecio(host, 'margen');
+    aplicarVisibilidadModoInventario(host);
     setValue(host, '#prod-stock-bultos', '');
     setValue(host, '#prod-unidades-bulto', '1');
     setValue(host, '#prod-stock-cantidad', '');
@@ -1670,6 +1698,9 @@
     sincronizarStateTasasDesdeOrigen();
     var h = window.InventarioPage && window.InventarioPage._host;
     if (!h || (typeof document !== 'undefined' && document.body && !document.body.contains(h))) return;
+    // El evento nexus:tasas también se dispara tras un cambio de modo monetario:
+    // re-aplicar visibilidad de tabs USD físico / modo precio USD.
+    aplicarVisibilidadModoInventario(h);
     recalcularPreciosVista(h);
     renderTabla(h);
   }

@@ -14,6 +14,7 @@ const { registrarAuditoria } = require('../middleware/audit.middleware');
 const { httpError } = require('../utils/asyncHandler');
 const bcvVigencia = require('../utils/bcvVigenciaVe');
 const feriadosBcvVe = require('../utils/feriadosBcvVe');
+const ModoMonedaService = require('./modoMonedaService');
 
 const TASA_DECIMALES = 4;
 const COSTO_DECIMALES = 4;
@@ -580,6 +581,31 @@ class PreciosService {
   }
 
   /**
+   * ÚNICO punto de entrada a las tasas operativas del backend.
+   * Lee las tasas vigentes y aplica el modo monetario: en `solo_bcv` la tasa USD
+   * (mercado) se unifica con la tasa BCV oficial (no existe dólar calle).
+   * La cadena de precios NO cambia: solo cambia el input (tasas unificadas).
+   *
+   * NEXUS-DUAL: contraparte en frontend/services/preciosClient.js → resolverTasasOperativas
+   * (allá el modo se lee de localStorage `nexus_modo_moneda`).
+   *
+   * @param {object} db pg-promise db o transacción
+   * @returns {Promise<{ bcv:number, tasa_bcv:number, tasa_usd:number,
+   *   modo_moneda_operacion:'multimoneda'|'solo_bcv', dia_habil_referencia?:string,
+   *   dia_transaccion_caracas?:string, congelada_por_no_habil?:boolean }>}
+   */
+  static async resolverTasasOperativas(db) {
+    const tasas = await PreciosService.obtenerTasasActuales(db);
+    const modo = await ModoMonedaService.leerModo(db);
+    if (ModoMonedaService.esSoloBcv(modo)) {
+      // Defensa en lectura: aunque la escritura ya iguala USD=BCV en solo_bcv
+      // (actualizarTasas / actualizarTasaBcvAutomatica), reforzamos al leer.
+      tasas.tasa_usd = tasas.bcv;
+    }
+    return { ...tasas, modo_moneda_operacion: modo };
+  }
+
+  /**
    * Porcentaje IVA de ventas según configuracion.impuesto_iva (2 decimales).
    */
   static async leerImpuestoIvaPorcentaje(dbOrT) {
@@ -620,10 +646,17 @@ class PreciosService {
    */
   static async actualizarTasas(db, nueva_tasa_bcv, nueva_tasa_usd, usuario_id, ip_address = null) {
     const bcv_4d = PreciosService.redondearTasa4(nueva_tasa_bcv);
-    const usd_4d = PreciosService.redondearTasa4(nueva_tasa_usd);
+    let usd_4d = PreciosService.redondearTasa4(nueva_tasa_usd);
 
     if (Number.isNaN(bcv_4d) || Number.isNaN(usd_4d)) {
       throw httpError(400, 'Las tasas deben ser números válidos');
+    }
+
+    // En modo solo_bcv la tasa USD (mercado) se unifica con la BCV: el backend
+    // ignora cualquier USD enviado y lo iguala al BCV antes de persistir.
+    const modo = await ModoMonedaService.leerModo(db);
+    if (ModoMonedaService.esSoloBcv(modo)) {
+      usd_4d = bcv_4d;
     }
 
     try {
@@ -703,6 +736,11 @@ class PreciosService {
         throw new Error('bcvTasaAutoService: tasa USD no configurada');
       }
       if (usd_4d < bcv_4d) {
+        usd_4d = bcv_4d;
+      }
+      // En modo solo_bcv la tasa USD se mantiene siempre igual a la BCV oficial.
+      const modo = await ModoMonedaService.leerModo(t);
+      if (ModoMonedaService.esSoloBcv(modo)) {
         usd_4d = bcv_4d;
       }
       const textoUsd = PreciosService.tasaATexto4(usd_4d);

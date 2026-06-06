@@ -12,6 +12,7 @@ router.get('/tasas-actuales', requirePermission('tasas_ver'), configuracionContr
 router.get('/impuesto-iva-venta', requirePermission('pos_sales'), configuracionController.getImpuestoIvaVenta);
 router.get('/', requirePermission('config_read'), configuracionController.getAll);
 router.patch('/', requirePermission('config_write'), configuracionController.updateGeneral);
+router.patch('/modo-moneda', requirePermission('tasas_edit'), configuracionController.patchModoMoneda);
 router.post('/tasas', requirePermission('tasas_edit'), configuracionController.saveTasas);
 
 router.get('/tasa-bcv-auto', requirePermission('config_read'), configuracionController.getTasaBcvAuto);

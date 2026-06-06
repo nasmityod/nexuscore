@@ -1,3 +1,10 @@
+/* ─── Modo Solo BCV ───────────────────────────────────────────────────────
+   En solo_bcv hay una sola tasa (BCV); cualquier referencia a USD físico /
+   USD de mercado es redundante (USD == BCV). Los elementos marcados con
+   .nexus-usd-only se ocultan globalmente cuando <body> tiene .nexus-solo-bcv.
+   El body class lo administra components/navbar.js de forma reactiva. */
+body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
+
 /* ─── Sidebar ─────────────────────────────────────────────────────────── */
 .sidebar {
   position: fixed;

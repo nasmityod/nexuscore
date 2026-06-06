@@ -407,6 +407,14 @@
             x.toLocaleString('es-VE', { minimumFractionDigits: 0, maximumFractionDigits: 4 })
           );
         }
+        // Venta unificada (solo_bcv): tasa_usd == tasa_bcv → las referencias USD de
+        // mercado son redundantes. Decisión por registro (no por modo actual), para
+        // respetar las ventas multimoneda históricas.
+        var _tbcvDet = Number(full.tasa_bcv_aplicada);
+        var _tusdDet = Number(full.tasa_cambio_aplicada);
+        var ventaUsdRedundante =
+          Number.isFinite(_tbcvDet) && Number.isFinite(_tusdDet) && _tbcvDet > 0 &&
+          Math.round(_tbcvDet * 10000) === Math.round(_tusdDet * 10000);
         detailBloqueTotales.innerHTML =
           '<h4>Cliente y montos</h4>' +
           '<dl class="ventas-detalle-totales">' +
@@ -419,9 +427,9 @@
           '<dt>Tasa BCV (oficial)</dt><dd>' +
           fmtTasaDet(full.tasa_bcv_aplicada) +
           '</dd>' +
-          '<dt>Tasa USD (Bs/USD)</dt><dd>' +
-          fmtTasaDet(full.tasa_cambio_aplicada) +
-          '</dd>' +
+          (ventaUsdRedundante
+            ? ''
+            : '<dt>Tasa USD (Bs/USD)</dt><dd>' + fmtTasaDet(full.tasa_cambio_aplicada) + '</dd>') +
           '<dt>Subtotal USD</dt><dd>$ ' +
           escapeHtml(formatUsd(sub)) +
           '</dd>' +
@@ -440,9 +448,9 @@
             }
             return '';
           })() +
-          '<dt>Total USD (efectivo)</dt><dd>$ ' +
-          escapeHtml(formatUsd(full.total_usd)) +
-          '</dd>' +
+          (ventaUsdRedundante
+            ? ''
+            : '<dt>Total USD (efectivo)</dt><dd>$ ' + escapeHtml(formatUsd(full.total_usd)) + '</dd>') +
           '<dt>Total Bs cobrados</dt><dd>' +
           escapeHtml(formatBs(full.total_bs)) +
           ' Bs</dd>' +
