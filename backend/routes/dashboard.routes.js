@@ -4,103 +4,69 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../config/database');
 const { asyncHandler } = require('../utils/asyncHandler');
-const { requirePermission } = require('../middleware/permissions.middleware');
+const { requirePermission, hasPermission } = require('../middleware/permissions.middleware');
+const DashboardService = require('../services/dashboardService');
 
 router.use(requirePermission('dashboard'));
 
+function includeGerencial(user) {
+  return hasPermission(user, 'reportes_all')
+    || hasPermission(user, 'config_write')
+    || hasPermission(user, 'cashea_admin');
+}
+
+function mapKpisResponse(kpis) {
+  return {
+    ventas_hoy: kpis.ventas_hoy,
+    ventas_hoy_bcv: kpis.ventas_hoy_bcv,
+    num_ventas: kpis.num_ventas,
+    ticket_promedio: kpis.ticket_promedio,
+    ticket_promedio_bcv: kpis.ticket_promedio_bcv,
+    margen_bruto: kpis.margen_bruto,
+    ventas_ayer: kpis.ventas_ayer,
+    ventas_ayer_bcv: kpis.ventas_ayer_bcv,
+    ventas_semana: kpis.ventas_7d,
+    ventas_semana_bcv: kpis.ventas_7d_bcv,
+    ventas_7d: kpis.ventas_7d,
+    ventas_7d_bcv: kpis.ventas_7d_bcv,
+    ventas_mes: kpis.ventas_mes,
+    ventas_mes_bcv: kpis.ventas_mes_bcv,
+    tasa_bcv_usada: kpis.tasa_bcv_usada
+  };
+}
+
+// GET /api/dashboard/resumen — payload consolidado (preferido por el SPA)
+router.get('/resumen', asyncHandler(async (req, res) => {
+  const resumen = await DashboardService.obtenerResumen(db, {
+    includeGerencial: includeGerencial(req.user)
+  });
+  res.json(resumen);
+}));
+
+// GET /api/dashboard/ganancia-hoy — endpoint ligero (retrocompat / consumo puntual)
+router.get('/ganancia-hoy', asyncHandler(async (req, res) => {
+  const ganancia = await DashboardService.obtenerGananciaHoy(db);
+  res.json(ganancia);
+}));
+
 // GET /api/dashboard/kpis
 router.get('/kpis', asyncHandler(async (req, res) => {
-  const hoy = await db.one(`
-    SELECT
-      (SELECT COALESCE(SUM(v.total_usd), 0)::numeric
-       FROM ventas v
-       WHERE v.estado = 'completada'
-         AND DATE(v.fecha_venta) = CURRENT_DATE) AS ventas_hoy,
-      (SELECT COUNT(*)::int
-       FROM ventas v
-       WHERE v.estado = 'completada'
-         AND DATE(v.fecha_venta) = CURRENT_DATE) AS num_ventas,
-      (SELECT COALESCE(AVG(v.total_usd), 0)::numeric
-       FROM ventas v
-       WHERE v.estado = 'completada'
-         AND DATE(v.fecha_venta) = CURRENT_DATE) AS ticket_promedio,
-      COALESCE(
-        (SELECT
-           SUM(dv.subtotal_usd - dv.costo_unitario_usd * dv.cantidad)
-           / NULLIF(SUM(dv.subtotal_usd), 0) * 100
-         FROM detalles_ventas dv
-         INNER JOIN ventas v ON v.id = dv.venta_id
-         WHERE v.estado = 'completada'
-           AND DATE(v.fecha_venta) = CURRENT_DATE),
-        0
-      )::numeric AS margen_bruto
-  `);
-
-  const ayer = await db.one(`
-    SELECT COALESCE(SUM(total_usd), 0)::numeric AS ventas_ayer
-    FROM ventas
-    WHERE estado = 'completada'
-      AND DATE(fecha_venta) = CURRENT_DATE - 1
-  `);
-
-  const semana = await db.one(`
-    SELECT COALESCE(SUM(total_usd), 0)::numeric AS ventas_semana
-    FROM ventas
-    WHERE estado = 'completada'
-      AND fecha_venta >= NOW() - INTERVAL '7 days'
-  `);
-
-  const mes = await db.one(`
-    SELECT COALESCE(SUM(total_usd), 0)::numeric AS ventas_mes
-    FROM ventas
-    WHERE estado = 'completada'
-      AND fecha_venta >= date_trunc('month', CURRENT_DATE)
-  `);
-
-  res.json({
-    ventas_hoy:      parseFloat(hoy.ventas_hoy),
-    num_ventas:      parseInt(hoy.num_ventas),
-    ticket_promedio: parseFloat(hoy.ticket_promedio),
-    margen_bruto:    parseFloat(hoy.margen_bruto),
-    ventas_ayer:     parseFloat(ayer.ventas_ayer),
-    ventas_semana:   parseFloat(semana.ventas_semana),
-    ventas_mes:      parseFloat(mes.ventas_mes)
-  });
+  const kpis = await DashboardService.obtenerKpis(db);
+  res.json(mapKpisResponse(kpis));
 }));
 
 // GET /api/dashboard/ventas-por-hora
 router.get('/ventas-por-hora', asyncHandler(async (req, res) => {
-  const rows = await db.any(`
-    SELECT EXTRACT(HOUR FROM fecha_venta)::int AS hora,
-           COALESCE(SUM(total_usd), 0)::numeric AS total
-    FROM ventas
-    WHERE estado = 'completada' AND DATE(fecha_venta) = CURRENT_DATE
-    GROUP BY hora ORDER BY hora
-  `);
-
-  const ventasHoy = Array(24).fill(0);
-  rows.forEach(r => { ventasHoy[r.hora] = parseFloat(r.total); });
-
-  const rowsAyer = await db.any(`
-    SELECT EXTRACT(HOUR FROM fecha_venta)::int AS hora,
-           COALESCE(SUM(total_usd), 0)::numeric AS total
-    FROM ventas
-    WHERE estado = 'completada' AND DATE(fecha_venta) = CURRENT_DATE - 1
-    GROUP BY hora ORDER BY hora
-  `);
-
-  const ventasAyer = Array(24).fill(0);
-  rowsAyer.forEach(r => { ventasAyer[r.hora] = parseFloat(r.total); });
-
-  const horas = Array.from({ length: 24 }, (_, i) => `${i}:00`);
-  res.json({ horas, ventasHoy, ventasAyer });
+  const data = await DashboardService.obtenerVentasPorHora(db);
+  res.json(data);
 }));
 
 // GET /api/dashboard/ventas-30-dias
 router.get('/ventas-30-dias', asyncHandler(async (req, res) => {
   const rows = await db.any(`
     SELECT DATE(fecha_venta) AS fecha,
-           COALESCE(SUM(total_usd), 0)::numeric AS total
+           COALESCE(SUM(total_usd), 0)::numeric AS total,
+           COALESCE(SUM(COALESCE(total_ref_usd_bcv, total_usd)), 0)::numeric AS total_bcv
     FROM ventas
     WHERE estado = 'completada'
       AND fecha_venta >= NOW() - INTERVAL '30 days'
@@ -109,154 +75,94 @@ router.get('/ventas-30-dias', asyncHandler(async (req, res) => {
   `);
 
   res.json({
-    fechas:  rows.map(r => new Date(r.fecha).toLocaleDateString('es-VE', { day: '2-digit', month: 'short' })),
-    totales: rows.map(r => parseFloat(r.total))
+    fechas: rows.map((r) => new Date(r.fecha).toLocaleDateString('es-VE', { day: '2-digit', month: 'short' })),
+    totales: rows.map((r) => parseFloat(r.total)),
+    totales_bcv: rows.map((r) => parseFloat(r.total_bcv))
   });
 }));
 
 // GET /api/dashboard/top-productos
 router.get('/top-productos', asyncHandler(async (req, res) => {
-  const rows = await db.any(`
-    SELECT p.nombre,
-           COALESCE(SUM(dv.cantidad), 0)::numeric     AS total_unidades,
-           COALESCE(SUM(dv.subtotal_usd), 0)::numeric AS total_usd
-    FROM detalles_ventas dv
-    JOIN productos p ON p.id = dv.producto_id
-    JOIN ventas v    ON v.id = dv.venta_id
-    WHERE v.estado = 'completada'
-      AND v.fecha_venta >= NOW() - INTERVAL '30 days'
-    GROUP BY p.id, p.nombre
-    ORDER BY total_usd DESC LIMIT 5
-  `);
-
-  res.json(rows.map(r => ({
-    nombre:          r.nombre,
-    total_unidades:  parseFloat(r.total_unidades),
-    total_usd:       parseFloat(r.total_usd)
-  })));
+  const data = await DashboardService.obtenerTopProductos(db, 5);
+  res.json(data);
 }));
 
 // GET /api/dashboard/alertas-stock
 router.get('/alertas-stock', asyncHandler(async (req, res) => {
-  const rows = await db.any(`
-    SELECT nombre,
-           stock_actual::numeric,
-           stock_minimo::numeric,
-           CASE
-             WHEN stock_actual <= 0                    THEN 'agotado'
-             WHEN stock_actual <= stock_minimo         THEN 'critico'
-             WHEN stock_actual <= stock_minimo * 1.5   THEN 'bajo'
-             ELSE 'ok'
-           END AS nivel
-    FROM productos
-    WHERE activo = TRUE AND stock_actual <= stock_minimo * 1.5
-    ORDER BY stock_actual ASC LIMIT 10
-  `);
-
-  res.json(rows.map(r => ({
-    nombre:       r.nombre,
-    stock_actual: parseFloat(r.stock_actual),
-    stock_minimo: parseFloat(r.stock_minimo),
-    nivel:        r.nivel
-  })));
+  const data = await DashboardService.obtenerAlertasStock(db, 10);
+  res.json(data);
 }));
 
 // GET /api/dashboard/distribucion-categorias
 router.get('/distribucion-categorias', asyncHandler(async (req, res) => {
   const rows = await db.any(`
     SELECT COALESCE(cat.nombre, 'Sin categoría') AS categoria,
-           COALESCE(SUM(dv.subtotal_usd), 0)::numeric AS total_usd
+           COALESCE(SUM(dv.subtotal_usd), 0)::numeric AS total_usd,
+           COALESCE(SUM(
+             dv.subtotal_usd
+             * CASE
+                 WHEN v.total_usd > 0
+                 THEN COALESCE(v.total_ref_usd_bcv, v.total_usd) / v.total_usd
+                 ELSE 1
+               END
+           ), 0)::numeric AS total_bcv
     FROM detalles_ventas dv
-    JOIN productos p   ON p.id = dv.producto_id
+    JOIN productos p ON p.id = dv.producto_id
     LEFT JOIN categorias cat ON cat.id = p.categoria_id
-    JOIN ventas v      ON v.id = dv.venta_id
+    JOIN ventas v ON v.id = dv.venta_id
     WHERE v.estado = 'completada'
       AND v.fecha_venta >= NOW() - INTERVAL '30 days'
     GROUP BY cat.id, cat.nombre
-    ORDER BY total_usd DESC LIMIT 8
+    ORDER BY total_bcv DESC LIMIT 8
   `);
 
-  res.json(rows.map(r => ({
+  res.json(rows.map((r) => ({
     categoria: r.categoria,
-    total_usd: parseFloat(r.total_usd)
+    total_usd: parseFloat(r.total_usd),
+    total_bcv: parseFloat(r.total_bcv)
   })));
 }));
 
 // GET /api/dashboard/ultimas-ventas
 router.get('/ultimas-ventas', asyncHandler(async (req, res) => {
-  const rows = await db.any(`
-    SELECT v.id, v.numero_venta, v.fecha_venta,
-           v.total_usd::numeric, v.total_bs::numeric,
-           v.metodo_pago,
-           u.nombre_completo AS cajero,
-           COALESCE(c.nombre, 'Cliente general') AS cliente
-    FROM ventas v
-    JOIN usuarios u        ON u.id = v.usuario_id
-    LEFT JOIN clientes c   ON c.id = v.cliente_id
-    WHERE v.estado = 'completada'
-    ORDER BY v.fecha_venta DESC LIMIT 10
-  `);
-
-  res.json(rows.map(r => ({
-    id:           r.id,
-    numero_venta: r.numero_venta,
-    fecha_venta:  r.fecha_venta,
-    total_usd:    parseFloat(r.total_usd),
-    total_bs:     parseFloat(r.total_bs),
-    metodo_pago:  r.metodo_pago,
-    cajero:       r.cajero,
-    cliente:      r.cliente
-  })));
+  const data = await DashboardService.obtenerUltimasVentas(db, 10);
+  res.json(data);
 }));
 
-// GET /api/dashboard/alertas  (combinado para notificaciones al inicio)
+// GET /api/dashboard/alertas
 router.get('/alertas', asyncHandler(async (req, res) => {
-  const stockBajo = await db.any(`
-    SELECT nombre,
-           stock_actual::numeric,
-           stock_minimo::numeric
-    FROM productos
-    WHERE activo = TRUE
-      AND stock_actual <= stock_minimo * 1.5
-    ORDER BY stock_actual ASC
-  `);
+  const [stockBajo, porVencer, deudas] = await Promise.all([
+    DashboardService.obtenerAlertasStock(db, 50),
+    DashboardService.obtenerPorVencer(db, 20),
+    DashboardService.obtenerDeudasVencidas(db, 50)
+  ]);
 
-  const porVencer = await db.any(`
-    SELECT nombre, fecha_vencimiento
-    FROM productos
-    WHERE activo = TRUE
-      AND fecha_vencimiento IS NOT NULL
-      AND fecha_vencimiento <= CURRENT_DATE + INTERVAL '15 days'
-      AND fecha_vencimiento >= CURRENT_DATE
-    ORDER BY fecha_vencimiento ASC
-  `);
-
-  const deudasVencidas = await db.any(`
-    SELECT c.nombre, cc.saldo_pendiente_usd::numeric, cc.fecha_vencimiento
-    FROM cuentas_cobrar cc
-    JOIN clientes c ON c.id = cc.cliente_id
-    WHERE cc.estado = 'pendiente'
-      AND cc.fecha_vencimiento < CURRENT_DATE
-    ORDER BY cc.fecha_vencimiento ASC
-  `).catch(() => []);
-
-  res.json({ stockBajo, porVencer, deudasVencidas });
+  res.json({
+    stockBajo,
+    porVencer,
+    deudasVencidas: deudas.items,
+    total_deudores: deudas.total_deudores,
+    total_deuda_vencida_bcv: deudas.total_deuda_vencida_bcv
+  });
 }));
 
-// GET /api/dashboard/resumen-ayer  (para pantalla de bienvenida)
+// GET /api/dashboard/resumen-ayer
 router.get('/resumen-ayer', asyncHandler(async (req, res) => {
   const r = await db.one(`
     SELECT
       COALESCE(SUM(total_usd), 0)::numeric AS total_usd,
-      COUNT(*)::int                         AS num_ventas
+      COALESCE(SUM(COALESCE(total_ref_usd_bcv, total_usd)), 0)::numeric AS total_bcv,
+      COUNT(*)::int AS num_ventas
     FROM ventas
     WHERE estado = 'completada'
-      AND DATE(fecha_venta) = CURRENT_DATE - 1
+      AND fecha_venta >= CURRENT_DATE - INTERVAL '1 day'
+      AND fecha_venta < CURRENT_DATE
   `);
 
   res.json({
-    total_usd:  parseFloat(r.total_usd),
-    num_ventas: parseInt(r.num_ventas)
+    total_usd: parseFloat(r.total_usd),
+    total_bcv: parseFloat(r.total_bcv),
+    num_ventas: parseInt(r.num_ventas, 10)
   });
 }));
 

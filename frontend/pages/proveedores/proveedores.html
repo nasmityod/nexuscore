@@ -1,61 +1,5 @@
 <section class="page-content proveedores-page" data-prov-root>
-  <style>
-    .proveedores-page .inv-toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 1rem;
-    }
-    .proveedores-page .inv-table-wrap {
-      overflow: auto;
-      max-height: calc(100vh - 220px);
-      border: 1px solid var(--border-primary);
-      border-radius: var(--radius-sm);
-      background: var(--bg-secondary);
-    }
-    .proveedores-page .inv-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.85rem;
-    }
-    .proveedores-page .inv-table th {
-      position: sticky;
-      top: 0;
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-      text-align: left;
-      padding: 0.55rem 0.5rem;
-      border-bottom: 1px solid var(--border-primary);
-      z-index: 1;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .proveedores-page .inv-table td {
-      padding: 0.35rem 0.5rem;
-      border-bottom: 1px solid var(--border-subtle);
-      vertical-align: middle;
-    }
-    .proveedores-page .inv-table tr:hover td {
-      background: rgba(59, 130, 246, 0.06);
-    }
-    .proveedores-page .inv-cell-input {
-      padding: 0.25rem 0.4rem;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-primary);
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      font-size: 0.85rem;
-    }
-    .proveedores-page .inv-cell-input:focus {
-      outline: 2px solid var(--accent-primary);
-      outline-offset: 0;
-    }
-    .proveedores-page .inv-muted {
-      color: var(--text-muted);
-    }
-  </style>
-  <div class="page-header">
+<div class="page-header">
     <div>
       <h1 class="page-title">Proveedores</h1>
       <p class="page-subtitle">Contactos y condiciones de compra</p>
@@ -93,8 +37,8 @@
         <input class="inv-cell-input" data-prov-contacto />
       </label>
       <label class="inv-muted" style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.8rem">
-        Teléfono
-        <input class="inv-cell-input" data-prov-tel />
+        Celular (11 dígitos VE)
+        <input class="inv-cell-input" data-prov-tel maxlength="11" inputmode="numeric" />
       </label>
       <label class="inv-muted" style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.8rem">
         Email

@@ -2,6 +2,8 @@
 
 const { db } = require('../config/database');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
+const { normalizarTelefonoMovilVeOpcional } = require('../utils/telefonoVe');
+const { SALDO_BCV_SQL, resolverMontoAbono } = require('../services/creditoAbonoService');
 
 const INSERTABLE = [
   'tipo', 'cedula_rif', 'nombre', 'telefono', 'email',
@@ -101,7 +103,7 @@ async function perfil(req, res) {
   const [historial, cuentas, pagos] = await Promise.all([
     db.any(
       `SELECT v.id, v.numero_venta, v.fecha_venta, v.total_usd, v.total_bs, v.metodo_pago,
-              u.nombre AS cajero
+              u.nombre_completo AS cajero
        FROM ventas v
        LEFT JOIN usuarios u ON u.id = v.usuario_id
        WHERE v.cliente_id = $1 AND v.estado = 'completada'
@@ -117,11 +119,11 @@ async function perfil(req, res) {
       [id]
     ),
     db.any(
-      `SELECT pc.*, u.nombre AS registrado_por
+      `SELECT pc.*, u.nombre_completo AS registrado_por
        FROM pagos_credito pc
        LEFT JOIN usuarios u ON u.id = pc.usuario_id
        WHERE pc.cliente_id = $1
-       ORDER BY pc.fecha_pago DESC LIMIT 20`,
+       ORDER BY pc.fecha DESC NULLS LAST LIMIT 20`,
       [id]
     )
   ]);
@@ -134,47 +136,87 @@ async function registrarPago(req, res) {
   const clienteId = Number(req.params.id);
   if (!clienteId || clienteId < 1) throw httpError(400, 'ID inválido');
 
-  const { monto_usd, metodo, notas } = req.body || {};
-  const monto = Number(monto_usd);
-  if (!monto || monto <= 0) throw httpError(400, 'El monto debe ser mayor a cero');
+  const { metodo, notas } = req.body || {};
 
   const cliente = await db.oneOrNone(`SELECT id FROM clientes WHERE id = $1`, [clienteId]);
   if (!cliente) throw httpError(404, 'Cliente no encontrado');
 
-  // Aplicar pago a las cuentas pendientes más antiguas primero
-  await db.tx(async (t) => {
-    let restante = monto;
+  const result = await db.tx(async (t) => {
+    const cuentaRef = await t.oneOrNone(
+      `SELECT cc.*, (${SALDO_BCV_SQL})::numeric(14,4) AS saldo_pendiente_bcv
+       FROM cuentas_cobrar cc
+       LEFT JOIN ventas v ON v.id = cc.venta_id
+       WHERE cc.cliente_id = $1 AND cc.estado IN ('pendiente','vencida')
+       ORDER BY cc.fecha_vencimiento ASC NULLS LAST
+       LIMIT 1`,
+      [clienteId]
+    );
+    if (!cuentaRef) throw httpError(400, 'El cliente no tiene cuentas pendientes');
+
+    const resuelto = await resolverMontoAbono(req.body || {}, cuentaRef, t);
+    let restante = resuelto.montoUsdEfectivo;
+    let totalAplicado = 0;
+
     const cuentas = await t.any(
       `SELECT id, saldo_pendiente_usd FROM cuentas_cobrar
        WHERE cliente_id = $1 AND estado IN ('pendiente','vencida')
-       ORDER BY fecha_vencimiento ASC NULLS LAST`,
+       ORDER BY fecha_vencimiento ASC NULLS LAST
+       FOR UPDATE`,
       [clienteId]
     );
 
     for (const cuenta of cuentas) {
       if (restante <= 0) break;
-      const aplicar = Math.min(restante, Number(cuenta.saldo_pendiente_usd));
-      const nuevoSaldo = Number(cuenta.saldo_pendiente_usd) - aplicar;
+      const saldoActual = Number(cuenta.saldo_pendiente_usd);
+      const aplicar = Math.min(restante, saldoActual);
+      const nuevoSaldo = Math.max(0, saldoActual - aplicar);
       await t.none(
         `UPDATE cuentas_cobrar
-         SET saldo_pendiente_usd = $1,
-             estado = CASE WHEN $1 <= 0 THEN 'pagada' ELSE estado END,
+         SET saldo_pendiente_usd = $1::numeric,
+             estado = CASE WHEN $1::numeric <= 0 THEN 'pagada' ELSE estado END,
              actualizado_en = NOW()
          WHERE id = $2`,
         [nuevoSaldo.toFixed(4), cuenta.id]
       );
       restante -= aplicar;
+      totalAplicado += aplicar;
     }
 
-    // Registrar en tabla pagos_credito
     await t.none(
-      `INSERT INTO pagos_credito (cliente_id, monto_usd, metodo_pago, notas, usuario_id, fecha_pago)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [clienteId, monto.toFixed(4), metodo || 'efectivo_usd', notas || null, req.user?.id || null]
+      `INSERT INTO pagos_credito
+         (cliente_id, monto_usd, monto_bs, tasa_cambio, metodo_pago, notas, usuario_id, fecha_pago)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [
+        clienteId,
+        totalAplicado.toFixed(4),
+        resuelto.montoBs != null ? Number(resuelto.montoBs).toFixed(2) : null,
+        resuelto.tasaCambio != null ? Number(resuelto.tasaCambio).toFixed(4) : null,
+        resuelto.metodo || metodo || 'efectivo_usd',
+        notas || null,
+        req.user?.id || null
+      ]
     );
+
+    if (totalAplicado > 0) {
+      await t.none(
+        `UPDATE clientes
+            SET saldo_deuda_usd = GREATEST(0, COALESCE(saldo_deuda_usd, 0) - $1::numeric),
+                actualizado_en = NOW()
+          WHERE id = $2`,
+        [totalAplicado.toFixed(4), clienteId]
+      );
+    }
+
+    return {
+      ok: true,
+      monto_aplicado: totalAplicado,
+      monto_aplicado_bcv: resuelto.refBcv,
+      monto_bs_registrado: resuelto.montoBs,
+      tasa_bcv_aplicada: resuelto.tasaCambio
+    };
   });
 
-  res.json({ ok: true, monto_aplicado: monto });
+  res.json(result);
 }
 
 /* ─── CREATE ─── */
@@ -189,7 +231,16 @@ async function create(req, res) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
     let v = body[key];
     if (key === 'nombre' && typeof v === 'string') v = v.trim();
-    if (['cedula_rif','telefono','email','direccion','notas'].includes(key)) v = normalizeNullable(v);
+    if (['cedula_rif','email','direccion','notas'].includes(key)) v = normalizeNullable(v);
+    if (key === 'telefono') {
+      v = normalizeNullable(v);
+      if (typeof v === 'string') v = v.trim() || null;
+      if (v) {
+        const r = normalizarTelefonoMovilVeOpcional(v);
+        if (!r.ok) throw httpError(400, r.error);
+        v = r.normalizado;
+      }
+    }
     cols.push(key); vals.push(v); placeholders.push(`$${vals.length}`);
   }
   if (!cols.includes('nombre')) {
@@ -225,7 +276,16 @@ async function update(req, res) {
     if (!INSERTABLE.includes(key)) return;
     let v = body[key];
     if (key === 'nombre' && typeof v === 'string') v = v.trim();
-    if (['cedula_rif','telefono','email','direccion','notas'].includes(key)) v = normalizeNullable(v);
+    if (['cedula_rif','email','direccion','notas'].includes(key)) v = normalizeNullable(v);
+    if (key === 'telefono') {
+      v = normalizeNullable(v);
+      if (typeof v === 'string') v = v.trim() || null;
+      if (v) {
+        const r = normalizarTelefonoMovilVeOpcional(v);
+        if (!r.ok) throw httpError(400, r.error);
+        v = r.normalizado;
+      }
+    }
     pairs.push(`${key} = $${pairs.length + 1}`);
     vals.push(v);
   });

@@ -10,7 +10,7 @@
       <div class="pos-marquee-box-label">Precio / U</div>
       <div class="pos-marquee-box-main" data-pos-marquee-precio-bs>Bs. 0,00 (BCV)</div>
       <div class="pos-marquee-box-sub" data-pos-marquee-precio-usd>USD efectivo $0.00</div>
-      <div class="pos-marquee-box-tertiary" data-pos-marquee-precio-usd-bcv>Ref. USD BCV $0.0</div>
+      <div class="pos-marquee-box-tertiary" data-pos-marquee-precio-usd-bcv>Ref. USD BCV $0,00</div>
     </div>
     <div class="pos-marquee-box pos-marquee-box--yellow">
       <div class="pos-marquee-box-label">Ítems</div>
@@ -20,7 +20,7 @@
       <div class="pos-marquee-box-label">Total</div>
       <div class="pos-marquee-box-main" data-pos-total-bs-bcv>Bs. 0,00 (BCV)</div>
       <div class="pos-marquee-box-sub" data-pos-total-usd>USD efectivo $ 0.00</div>
-      <div class="pos-marquee-box-tertiary" data-pos-total-usd-bcv-ref>Ref. USD BCV $0.0</div>
+      <div class="pos-marquee-box-tertiary" data-pos-total-usd-bcv-ref>Ref. USD BCV $0,00</div>
     </div>
   </header>
 
@@ -28,9 +28,15 @@
     <aside class="pos-aside-classic">
       <div class="pos-fblock">
         <span class="pos-flabel">F1 · Cliente</span>
-        <div class="pos-fbody pos-fbody--cliente" data-pos-cliente-panel>
-          <span class="pos-cliente-placeholder">Mostrador</span>
-          <span class="pos-cliente-sub">Sin cambio de cliente en esta versión</span>
+        <div
+          class="pos-fbody pos-fbody--cliente"
+          data-pos-cliente-panel
+          role="button"
+          tabindex="0"
+          title="Clic para elegir consumidor final o cliente registrado"
+        >
+          <span class="pos-cliente-placeholder" data-pos-cliente-nombre>Consumidor final</span>
+          <span class="pos-cliente-sub" data-pos-cliente-sub>Mostrador · clic para cambiar</span>
         </div>
       </div>
       <div class="pos-fblock">
@@ -51,7 +57,7 @@
       </div>
 
       <div class="pos-preview-card" aria-live="polite">
-        <div class="pos-preview-image-wrap">
+        <div class="pos-preview-image-wrap" data-pos-preview-image-wrap>
           <img class="pos-preview-img" data-pos-preview-img alt="" style="display: none" />
           <div class="pos-preview-ph" data-pos-preview-ph aria-hidden="true">📦</div>
         </div>
@@ -118,14 +124,70 @@
           <tbody data-pos-cart-body></tbody>
         </table>
       </div>
-      <div class="pos-sheet-footer text-muted">
-        Equiv. paralela (ref.): <strong data-pos-total-bs-paralelo>0,00</strong> Bs · USD efectivo:
-        <strong data-pos-total-usd-footer>0.00</strong> · Ref. USD BCV:
-        <strong data-pos-total-usd-bcv-footer>0.0</strong>
-      </div>
     </main>
   </div>
 </section>
+
+<!-- ═══ MODAL: cliente en la venta (antes del cobro) ═══ -->
+<div
+  class="pos-cobro-modal-overlay"
+  id="pos-cliente-venta-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pos-cliente-venta-title"
+>
+  <div class="pos-cobro-modal pos-cliente-venta-modal-inner">
+    <div class="pos-cobro-modal-header">
+      <h2 class="pos-cobro-modal-title" id="pos-cliente-venta-title">Cliente en esta venta</h2>
+      <button type="button" class="pos-cobro-close" id="pos-cliente-venta-cerrar" aria-label="Cerrar">✕</button>
+    </div>
+    <p class="pos-cliente-venta-intro text-muted">
+      En programas de facturación, la venta sin identificar al comprador suele llamarse
+      <strong>consumidor final</strong> o venta al <strong>mostrador</strong>. Si lo necesitas (crédito,
+      historial, datos en factura), asocia un cliente registrado o créalo aquí.
+    </p>
+    <div id="pos-cliente-venta-menu">
+      <div class="pos-cliente-venta-btns">
+        <button type="button" class="btn btn-primary btn-block" id="pos-cliente-opt-final">
+          Continuar como consumidor final (mostrador)
+        </button>
+        <button type="button" class="btn btn-secondary btn-block" id="pos-cliente-opt-buscar">
+          Buscar cliente registrado
+        </button>
+        <button type="button" class="btn btn-secondary btn-block" id="pos-cliente-opt-nuevo">
+          Registrar cliente nuevo
+        </button>
+      </div>
+    </div>
+    <div id="pos-cliente-buscar-panel" style="display: none">
+      <button type="button" class="btn btn-ghost btn-sm" id="pos-cliente-buscar-volver">← Volver</button>
+      <label class="pos-mini-label" for="pos-cliente-buscar-input">Nombre, cédula o teléfono</label>
+      <input
+        type="search"
+        id="pos-cliente-buscar-input"
+        class="pos-scan-input pos-no-scan"
+        placeholder="Escribe para buscar…"
+        autocomplete="off"
+      />
+      <ul class="pos-cliente-buscar-list" id="pos-cliente-buscar-results" aria-live="polite"></ul>
+    </div>
+    <div id="pos-cliente-nuevo-panel" style="display: none">
+      <button type="button" class="btn btn-ghost btn-sm" id="pos-cliente-nuevo-volver">← Volver</button>
+      <label class="pos-mini-label" for="pos-cliente-nuevo-nombre">Nombre <span style="color:var(--accent-danger)">*</span></label>
+      <input type="text" id="pos-cliente-nuevo-nombre" class="pos-scan-input pos-no-scan" maxlength="150" />
+      <label class="pos-mini-label" for="pos-cliente-nuevo-doc">Cédula / RIF</label>
+      <input type="text" id="pos-cliente-nuevo-doc" class="pos-scan-input pos-no-scan" maxlength="20" />
+      <label class="pos-mini-label" for="pos-cliente-nuevo-tel">Celular (11 dígitos VE)</label>
+      <input type="text" id="pos-cliente-nuevo-tel" class="pos-scan-input pos-no-scan" maxlength="11" inputmode="numeric" />
+      <p class="text-muted" id="pos-cliente-nuevo-perm-hint" style="display: none; font-size: 0.78rem">
+        Tu usuario no tiene permiso para crear clientes. Usa «Buscar» o pide a un supervisor el alta en Clientes.
+      </p>
+      <button type="button" class="btn btn-success btn-block" id="pos-cliente-nuevo-guardar" style="margin-top: 0.75rem">
+        Guardar y usar en esta venta
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ MODAL DE COBRO (tabla + teclado) ═══ -->
 <div class="pos-cobro-modal-overlay" id="pos-cobro-modal" role="dialog" aria-modal="true" aria-labelledby="pos-cobro-modal-title">
@@ -137,9 +199,10 @@
 
     <div class="cobro-banner-row" aria-label="Resumen de la venta">
       <div class="cobro-banner cobro-banner--green" id="cobro-banner-green">
-        <div class="cobro-banner-line cobro-banner-line--head" id="cobro-banner-total-usd-bcv">TOTAL $$0.0 BCV</div>
+        <div class="cobro-banner-label cobro-banner-label--green" id="cobro-banner-green-label" hidden>Total de la venta</div>
+        <div class="cobro-banner-line cobro-banner-line--head" id="cobro-banner-total-usd-bcv">TOTAL $0,00 BCV</div>
         <div class="cobro-banner-line cobro-banner-line--bs-row" id="cobro-banner-total-bs">Bs. 0,00</div>
-        <div class="cobro-banner-line cobro-banner-line--usd-row" id="cobro-banner-total-usd">USD $0.00</div>
+        <div class="cobro-banner-line cobro-banner-line--usd-row" id="cobro-banner-total-usd" title="Equivalente USD a tasa USD para cubrir el total BCV">USD $0.00</div>
       </div>
       <div class="cobro-banner cobro-banner--yellow" id="cobro-banner-yellow">
         <div class="cobro-banner-label">Descuento</div>
@@ -147,12 +210,9 @@
         <div class="cobro-banner-line" id="cobro-banner-desc-usd">−$0.00</div>
       </div>
       <div class="cobro-banner cobro-banner--red" id="cobro-banner-red">
-        <div class="cobro-banner-label">Total a cobrar (BCV, operativo)</div>
+        <div class="cobro-banner-label" id="cobro-banner-red-label">Total a cobrar (BCV)</div>
         <div class="cobro-banner-line cobro-banner-line--lg" id="cobro-banner-total-pago">0,00</div>
-        <div class="cobro-banner-line cobro-banner-line--sub" style="font-size: 0.75rem; opacity: 0.95; font-weight: 500">
-          Referencia equiv. paralelo (solo informativa — registro contable / libro):
-          <strong id="cobro-banner-total-pago-bc-ref">0,00</strong> Bs
-        </div>
+        <div class="cobro-banner-line cobro-banner-line--ref-bcv" id="cobro-banner-total-pago-ref" hidden></div>
       </div>
     </div>
 
@@ -163,61 +223,17 @@
             <thead>
               <tr>
                 <th>Forma de pago</th>
-                <th class="num">Tasa</th>
+                <th class="num" title="Factor para convertir «Su pago» a bolívares BCV">Conversión</th>
                 <th class="num">Su pago</th>
-                <th class="num">Monto a pagar</th>
+                <th class="num" title="Equivalente en bolívares BCV hacia el total a cobrar">Monto a pagar</th>
               </tr>
             </thead>
             <tbody id="cobro-tabla-pagos-body"></tbody>
           </table>
         </div>
-        <p class="cobro-tabla-hint text-muted" style="font-size: 0.75rem; margin: 0.5rem 0 0">
-          Tasa paralela (Bs/USD) para efectivo USD, Zelle y Cashea; pagos en Bs (efectivo, transferencia, P. Móvil,
-          crédito) usan tasa 1,00 en «Su pago». El recuadro <strong>rojo</strong> y el «<strong>Monto a Cobrar
-          (BCV)</strong>» del pie muestran <strong>cobro sobre cadena BCV</strong> (lo dictado en bolívares al
-          cliente). La segunda línea y el texto bajo «Su pago» indican equivalencia paralelo solo como referencia (
-          libro / Zelle ). La diferencia menor a <strong>1 Bs</strong> frente al paralelo puede absorberse en
-          caja como redondeo.
-        </p>
-        <div id="cashea-desglose" class="cashea-desglose-panel" style="display: none" aria-hidden="true">
-          <div class="cashea-desglose-title">Cashea</div>
-          <div class="cashea-desglose-field">
-            <label class="cashea-desglose-label" for="cashea-nivel-cliente">Nivel del cliente</label>
-            <select id="cashea-nivel-cliente" class="cashea-desglose-select pos-no-scan">
-              <option value="BRONCE">Bronce (inicial 60%)</option>
-              <option value="PLATA">Plata (inicial 50%)</option>
-              <option value="ORO">Oro (inicial 40%)</option>
-            </select>
-          </div>
-          <label class="cashea-express-wrap" id="cashea-express-wrap" style="display: none">
-            <input type="checkbox" id="cashea-modo-express" class="pos-no-scan" />
-            <span>Modo express (+ comisión sobre monto financiado)</span>
-          </label>
-          <div class="cashea-desglose-grid">
-            <div class="cashea-desglose-row">
-              <span>Inicial (cobrar ahora)</span>
-              <strong id="cashea-inicial-span">$0.00</strong>
-            </div>
-            <div class="cashea-desglose-row">
-              <span>Monto prestado (Cashea paga)</span>
-              <strong id="cashea-prestado-span">$0.00</strong>
-            </div>
-            <div class="cashea-desglose-row">
-              <span>Comisión base (4%)</span>
-              <strong id="cashea-com-base-span">$0.00</strong>
-            </div>
-            <div class="cashea-desglose-row" id="cashea-row-express" style="display:none">
-              <span>Comisión express</span>
-              <strong id="cashea-com-express-span">$0.00</strong>
-            </div>
-            <div class="cashea-desglose-row cashea-desglose-row--neto">
-              <span>Neto a recibir (banco)</span>
-              <strong id="cashea-neto-span">$0.00</strong>
-            </div>
-          </div>
-        </div>
       </div>
-      <div class="cobro-split-right">
+      <div class="cobro-split-right" id="cobro-split-right">
+        <div class="cobro-numpad-stack" id="cobro-numpad-stack">
         <label class="cobro-numpad-label" for="cobro-numpad-display">Monto (teclado)</label>
         <input
           type="text"
@@ -240,16 +256,75 @@
           <button type="button" class="cobro-key cobro-key--wide" data-k="⌫" title="Retroceso">⌫</button>
           <button type="button" class="cobro-key" data-k="0">0</button>
           <button type="button" class="cobro-key" data-k="00">00</button>
-          <button type="button" class="cobro-key" data-k=".">.</button>
+          <button type="button" class="cobro-key" data-k="," title="Decimales">,</button>
           <button type="button" class="cobro-key cobro-key--danger" data-k="C" title="Borrar">C</button>
           <button type="button" class="cobro-key cobro-key--ok cobro-key--span2" data-k="OK">OK</button>
+        </div>
+        </div>
+
+        <div id="cashea-desglose" class="cobro-cashea-card" style="display: none" aria-hidden="true">
+          <div class="cobro-cashea-card-head">
+            <img class="cobro-cashea-card-logo nexus-cashea-icon" src="assets/images/cashea.webp" alt="" width="22" height="22" decoding="async" />
+            <span class="cobro-cashea-card-brand">Cashea</span>
+          </div>
+          <div class="cobro-cashea-card-controls">
+            <div class="cobro-cashea-card-field">
+              <label class="cobro-cashea-card-label" for="cashea-nivel-cliente">Nivel del cliente</label>
+              <select id="cashea-nivel-cliente" class="cobro-cashea-card-select pos-no-scan">
+                <option value="semilla">🌱 Semilla (Lv1)</option>
+                <option value="raiz">🌿 Raíz (Lv2)</option>
+                <option value="hoja">🍃 Hoja (Lv3)</option>
+                <option value="tronco">🪵 Tronco (Lv4)</option>
+                <option value="arbol">🌳 Árbol (Lv5)</option>
+                <option value="araguaney">🌼 Araguaney (Lv6)</option>
+              </select>
+            </div>
+            <div class="cobro-cashea-card-field cobro-cashea-card-field--credito">
+              <label class="cobro-cashea-card-label" for="cashea-credito-disponible"
+                >Crédito Cashea disponible (ref. $ BCV)</label
+              >
+              <input
+                type="text"
+                id="cashea-credito-disponible"
+                class="cobro-cashea-card-input pos-no-scan"
+                inputmode="decimal"
+                placeholder="Ej. 10.0"
+                autocomplete="off"
+                aria-describedby="cashea-credito-hint"
+              />
+              <p class="cobro-cashea-card-field-hint text-muted" id="cashea-credito-hint">
+                Línea restante en la app Cashea (referencia USD BCV, no dólar calle)
+              </p>
+            </div>
+          </div>
+          <div
+            id="cashea-limite-aviso"
+            class="cobro-cashea-limite-aviso"
+            hidden
+            role="status"
+            aria-live="polite"
+          ></div>
+          <p class="cobro-cashea-card-pending" id="cashea-card-pending" hidden>Calculando financiamiento…</p>
+          <div class="cobro-cashea-breakdown" id="cashea-breakdown">
+            <div class="cobro-cashea-detail-row">
+              <span class="cobro-cashea-detail-label">Cuota inicial</span>
+              <strong class="cobro-cashea-detail-value" id="cashea-line-inicial">—</strong>
+            </div>
+            <div class="cobro-cashea-detail-row">
+              <span class="cobro-cashea-detail-label">Financiado</span>
+              <strong class="cobro-cashea-detail-value" id="cashea-line-prestado">—</strong>
+            </div>
+          </div>
+          <p class="cobro-cashea-card-foot text-muted" id="cashea-card-foot">
+            Indica nivel y crédito disponible en la app Cashea.
+          </p>
         </div>
       </div>
     </div>
 
     <div class="cobro-resumen-footer">
       <div class="cobro-resumen-line">
-        <span>Su pago (suma en Bs)</span>
+        <span id="cobro-sum-pagado-label">Su pago (suma en Bs)</span>
         <strong id="cobro-sum-pagado-bs">0,00</strong>
       </div>
       <div class="cobro-resumen-line cobro-resumen-line--saldo" id="cobro-linea-saldo-wrap">
@@ -257,8 +332,8 @@
         <strong id="cobro-saldo-bs">0,00</strong>
       </div>
       <div
-        class="cobro-resumen-line cobro-resumen-line--saldo-usd-ref text-muted"
-        id="cobro-saldo-usd-wrap"
+        class="cobro-resumen-line cobro-resumen-line--saldo-refs text-muted"
+        id="cobro-saldo-refs-wrap"
         style="
           flex-basis: 100%;
           justify-content: flex-end;
@@ -268,15 +343,8 @@
           margin-top: -0.35rem;
         "
       >
-        <span>Ref. USD BCV: <strong id="cobro-saldo-usd-bcv">—</strong></span>
-        <span>USD efectivo (calle): <strong id="cobro-saldo-usd-efectivo">—</strong></span>
-      </div>
-      <div
-        class="cobro-resumen-line text-muted cobro-resumen-line--bcv-informativa"
-        style="font-size: 0.75rem; margin-top: 0.25rem"
-      >
-        <span id="cobro-bc-ref-label">Referencia paralelo (informativa):</span>
-        <span id="cobro-bc-ref-value">—</span>
+        <span>$ BCV: <strong id="cobro-saldo-ref-bcv">—</strong></span>
+        <span>USD: <strong id="cobro-saldo-usd-calle">—</strong></span>
       </div>
     </div>
 

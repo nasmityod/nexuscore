@@ -1,47 +1,22 @@
 <section class="page-content cashea-page">
-<style>
-.cashea-page .btn-primary{height:40px;padding:0 1.1rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.875rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem}
-.cashea-page .btn-primary:hover{background:#2563eb}
-.cashea-page .btn-success{height:40px;padding:0 1.1rem;border-radius:var(--radius-md);background:#10b981;color:#fff;border:none;cursor:pointer;font-size:.875rem;font-weight:600}
-.cashea-page .btn-secondary{height:40px;padding:0 .9rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem}
-.cashea-tabs{display:flex;border-bottom:2px solid var(--border-primary);margin-bottom:1.25rem;gap:.1rem}
-.cashea-tab{padding:.6rem 1.1rem;cursor:pointer;border:none;background:transparent;color:var(--text-secondary);font-size:.88rem;border-bottom:2px solid transparent;margin-bottom:-2px;font-weight:500}
-.cashea-tab:hover{color:var(--text-primary)}
-.cashea-tab.activo{color:#3b82f6;font-weight:700;border-bottom-color:#3b82f6}
-.cashea-panel{display:none}
-.cashea-panel.activo{display:block}
-.cashea-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.25rem}
-.cashea-kpi{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1rem}
-.cashea-kpi-label{font-size:.75rem;color:var(--text-secondary);text-transform:uppercase;margin-bottom:.3rem}
-.cashea-kpi-value{font-size:1.4rem;font-weight:700}
-.cashea-kpi.cashea-verde .cashea-kpi-value{color:#10b981}
-.cashea-kpi.cashea-amarillo .cashea-kpi-value{color:#f59e0b}
-.campo-grupo{margin-bottom:.9rem}
-.campo-grupo label{display:block;font-size:.83rem;font-weight:600;color:var(--text-secondary);margin-bottom:.3rem}
-.input-g{width:100%;height:42px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.93rem;box-sizing:border-box}
-.input-g:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
-.liq-table{width:100%;border-collapse:collapse;font-size:.83rem}
-.liq-table th{padding:.45rem .7rem;background:var(--bg-tertiary);border-bottom:2px solid var(--border-primary);text-align:left;font-size:.73rem;text-transform:uppercase;color:var(--text-secondary)}
-.liq-table td{padding:.45rem .7rem;border-bottom:1px solid var(--border-subtle)}
-.liq-table tr:hover td{background:rgba(59,130,246,.04)}
-.config-seccion{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1rem}
-.config-seccion h3{margin:0 0 1rem;font-size:.8rem;text-transform:uppercase;color:var(--text-secondary);letter-spacing:.04em}
-</style>
-
 <div class="page-header">
   <div>
-    <h1 class="page-title">Cashea</h1>
-    <p class="page-subtitle">Pagos en cuotas con financiamiento — ventas pendientes, liquidaciones y configuración</p>
+    <h1 class="page-title"><span class="nexus-metodo-pago nexus-metodo-pago--cashea"><img class="nexus-cashea-icon" src="assets/images/cashea.webp" alt="" width="26" height="26" decoding="async" aria-hidden="true" /><span class="nexus-cashea-label">Cashea</span></span></h1>
+    <p class="page-subtitle">Pagos en cuotas con financiamiento en $ BCV — ventas pendientes, liquidaciones y configuración</p>
   </div>
   <div class="page-header-actions">
-    <button class="btn-secondary" id="btn-cashea-refresh" style="height:40px">↺ Actualizar</button>
+    <button class="btn-secondary cashea-btn-icono" id="btn-cashea-refresh">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Actualizar
+    </button>
   </div>
 </div>
 
 <div class="cashea-tabs">
-  <button class="cashea-tab activo" data-tab="pendientes">💸 Pendientes de Liquidar</button>
-  <button class="cashea-tab" data-tab="liquidaciones">📋 Historial Liquidaciones</button>
-  <button class="cashea-tab" data-tab="config">⚙️ Configuración</button>
+  <button class="cashea-tab activo" data-tab="pendientes">Pendientes de liquidar</button>
+  <button class="cashea-tab" data-tab="liquidaciones">Historial liquidaciones</button>
+  <button class="cashea-tab" data-tab="estadisticas">Estadísticas Express</button>
+  <button class="cashea-tab" data-tab="config">Configuración</button>
 </div>
 
 <!-- ═══ PANEL: PENDIENTES ═══ -->
@@ -53,27 +28,30 @@
     <div class="cashea-kpi"><div class="cashea-kpi-label">Financiado por Cashea</div><div class="cashea-kpi-value" id="ckpi-prestado">—</div></div>
   </div>
 
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
-    <div style="font-size:.85rem;color:var(--text-secondary)" id="cashea-pendientes-rango">Mostrando período actual</div>
-    <button class="btn-success" id="btn-liquidar-todos">✅ Liquidar Todo Pendiente</button>
+  <div class="cashea-panel-bar">
+    <div class="cashea-bar-info" id="cashea-pendientes-rango">Mostrando período actual</div>
+    <button class="btn-success cashea-btn-icono" id="btn-liquidar-todos">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      Liquidar todo pendiente
+    </button>
   </div>
 
-  <div class="card" style="overflow:auto">
-    <table class="liq-table">
+  <div class="card cashea-table-card">
+    <table class="liq-table tabla-modulo">
       <thead>
         <tr>
           <th>N° Venta</th>
           <th>Fecha</th>
           <th>Cliente</th>
           <th>Nivel Cashea</th>
-          <th style="text-align:right">Total USD</th>
-          <th style="text-align:right">Inicial</th>
-          <th style="text-align:right">Prestado</th>
+          <th class="num">Total $ BCV</th>
+          <th class="num">Inicial $ BCV</th>
+          <th class="num">Prestado $ BCV</th>
           <th>Cajero</th>
         </tr>
       </thead>
       <tbody id="cashea-pendientes-tbody">
-        <tr><td colspan="8" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">Cargando...</td></tr>
+        <tr><td colspan="8" class="cashea-loading-cell">Cargando...</td></tr>
       </tbody>
     </table>
   </div>
@@ -81,23 +59,101 @@
 
 <!-- ═══ PANEL: LIQUIDACIONES ═══ -->
 <div class="cashea-panel" id="panel-cashea-liquidaciones">
-  <div class="card" style="overflow:auto">
-    <table class="liq-table">
+  <div class="card cashea-table-card">
+    <table class="liq-table tabla-modulo">
       <thead>
         <tr>
-          <th>N° Liquidación</th>
-          <th>Fecha</th>
-          <th>Ventas</th>
-          <th style="text-align:right">Total USD</th>
-          <th style="text-align:right">Total Inicial</th>
-          <th style="text-align:right">Total Prestado</th>
-          <th>Registrado por</th>
+          <th>N° Liq.</th>
+          <th>Período</th>
+          <th class="center">Ventas</th>
+          <th class="num">Total Bruto $ BCV</th>
+          <th class="num">Comisiones $ BCV</th>
+          <th class="num">Neto $ BCV</th>
+          <th>Referencia</th>
         </tr>
       </thead>
       <tbody id="cashea-liq-tbody">
-        <tr><td colspan="7" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">Cargando...</td></tr>
+        <tr><td colspan="7" class="cashea-loading-cell">Cargando...</td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- ═══ PANEL: ESTADÍSTICAS EXPRESS ═══ -->
+<div class="cashea-panel" id="panel-cashea-estadisticas">
+  <div class="cashea-stat-bar">
+    <div class="cashea-bar-info">
+      Semana: <strong id="stat-semana-rango">—</strong>
+    </div>
+    <div class="cashea-stat-filtros">
+      <input type="date" id="stat-fecha-inicio" class="input-g cashea-fecha-input">
+      <input type="date" id="stat-fecha-fin" class="input-g cashea-fecha-input">
+      <button class="btn-secondary cashea-btn-sm" id="btn-stat-filtrar">Filtrar</button>
+    </div>
+  </div>
+
+  <div class="cashea-stat-cards-grid">
+    <div class="cashea-stat-card cashea-stat-proximo-pago">
+      <div class="stat-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Próximo pago de Cashea</span>
+        <span class="stat-valor" id="stat-prox-pago-fecha">—</span>
+        <span class="stat-hint" id="stat-prox-pago-dias"></span>
+      </div>
+    </div>
+    <div class="cashea-stat-card">
+      <div class="stat-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Ventas Cashea (semana)</span>
+        <span class="stat-valor" id="stat-semana-ventas">$ 0,00 BCV</span>
+        <span class="stat-hint" id="stat-semana-count">0 transacciones</span>
+      </div>
+    </div>
+    <div class="cashea-stat-card cashea-stat-neto">
+      <div class="stat-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="21" x2="21" y2="21"/><path d="M3 10l9-7 9 7"/><line x1="5" y1="21" x2="5" y2="10"/><line x1="19" y1="21" x2="19" y2="10"/><line x1="9" y1="21" x2="9" y2="14"/><line x1="15" y1="21" x2="15" y2="14"/></svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Neto a recibir (semana)</span>
+        <span class="stat-valor" id="stat-semana-neto">$ 0,00 BCV</span>
+        <span class="stat-hint">Después de comisiones</span>
+      </div>
+    </div>
+    <div class="cashea-stat-card cashea-stat-comisiones">
+      <div class="stat-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Comisiones (semana)</span>
+        <span class="stat-valor" id="stat-semana-comisiones">$ 0,00 BCV</span>
+        <span class="stat-hint">Base + Express</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="config-seccion cashea-seccion-mt">
+    <h3>Ventas por nivel de cliente</h3>
+    <div class="cashea-table-scroll">
+      <table class="liq-table tabla-modulo" id="tabla-por-nivel">
+        <thead>
+          <tr>
+            <th>Nivel</th>
+            <th class="center">Ventas</th>
+            <th class="num">Total vendido $ BCV</th>
+            <th class="num">Inicial cobrado $ BCV</th>
+            <th class="num">Financiado $ BCV</th>
+            <th class="num">Neto a recibir $ BCV</th>
+          </tr>
+        </thead>
+        <tbody id="stat-tabla-niveles-tbody">
+          <tr><td colspan="6" class="cashea-loading-cell">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -106,66 +162,131 @@
   <div class="config-seccion">
     <h3>Estado del servicio Cashea</h3>
     <div class="campo-grupo">
-      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-        <input type="checkbox" id="cashea-activo" style="accent-color:#3b82f6">
+      <label class="cashea-check-label">
+        <input type="checkbox" id="cashea-activo" class="cashea-check">
         <span>Cashea activado en el POS</span>
       </label>
+    </div>
+    <div class="campo-grupo">
+      <label>Modo Express activo</label>
+      <select id="cashea-express" class="input-g cashea-select-220">
+        <option value="false">No</option>
+        <option value="true">Sí — Cashea paga en un solo desembolso semanal</option>
+      </select>
     </div>
   </div>
 
   <div class="config-seccion">
-    <h3>Comisiones y niveles</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+    <h3>Porcentajes de pago inicial por nivel</h3>
+    <p class="cashea-seccion-hint">
+      El cliente paga este porcentaje al momento de la compra. Cashea financia el resto.
+    </p>
+    <div class="cashea-config-niveles-grid">
       <div class="campo-grupo">
-        <label>Comisión base (%)</label>
-        <input type="number" id="cashea-comision-base" class="input-g" min="0" max="50" step="0.1" placeholder="Ej: 5">
+        <label>🌱 Semilla (Lv1) %</label>
+        <input type="number" id="cashea-pct-semilla" class="input-g" min="0.5" max="100" step="0.5" placeholder="60" required>
       </div>
       <div class="campo-grupo">
-        <label>Modo Express activo</label>
-        <select id="cashea-express" class="input-g">
-          <option value="false">No</option>
-          <option value="true">Sí</option>
+        <label>🌿 Raíz (Lv2) %</label>
+        <input type="number" id="cashea-pct-raiz" class="input-g" min="0.5" max="100" step="0.5" placeholder="50" required>
+      </div>
+      <div class="campo-grupo">
+        <label>🍃 Hoja (Lv3) %</label>
+        <input type="number" id="cashea-pct-hoja" class="input-g" min="0.5" max="100" step="0.5" placeholder="40" required>
+      </div>
+      <div class="campo-grupo">
+        <label>🪵 Tronco (Lv4) %</label>
+        <input type="number" id="cashea-pct-tronco" class="input-g" min="0.5" max="100" step="0.5" placeholder="40" required>
+      </div>
+      <div class="campo-grupo">
+        <label>🌳 Árbol (Lv5) %</label>
+        <input type="number" id="cashea-pct-arbol" class="input-g" min="0.5" max="100" step="0.5" placeholder="40" required>
+      </div>
+      <div class="campo-grupo">
+        <label>🌼 Araguaney (Lv6) %</label>
+        <input type="number" id="cashea-pct-araguaney" class="input-g" min="0.5" max="100" step="0.5" placeholder="40" required>
+      </div>
+    </div>
+  </div>
+
+  <div class="config-seccion">
+    <h3>Comisiones Cashea</h3>
+    <p class="cashea-seccion-hint cashea-seccion-hint--wide">
+      <strong>Base:</strong> un % sobre el total de la venta.
+      <strong>Express:</strong> % base sobre total + % adicional solo sobre el monto financiado (~total según nivel del cliente).
+      Los porcentajes son editables; la referencia oficial Cashea por línea aparece abajo.
+    </p>
+    <div id="cashea-tarifas-hint" class="cashea-tarifas-hint"></div>
+    <div class="cashea-comis-grid">
+      <div class="campo-grupo">
+        <label>Línea comercial</label>
+        <select id="cashea-linea" class="input-g">
+          <option value="Principal">Principal (tecnología, salud, otros)</option>
+          <option value="CotidianaA">Cotidiana A (supermercados, farmacias)</option>
+          <option value="CotidianaB">Cotidiana B (restaurantes, educación)</option>
+          <option value="Online">Online (ventas por app Cashea)</option>
         </select>
       </div>
       <div class="campo-grupo">
-        <label>% Inicial Bronce</label>
-        <input type="number" id="cashea-pct-bronce" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 30">
+        <label>Comisión base (% sobre total venta)</label>
+        <input type="number" id="cashea-comision-base" class="input-g" min="0" max="20" step="0.1" placeholder="4" title="Porcentaje aplicado en ventas y liquidaciones">
       </div>
-      <div class="campo-grupo">
-        <label>% Inicial Plata</label>
-        <input type="number" id="cashea-pct-plata" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 20">
-      </div>
-      <div class="campo-grupo">
-        <label>% Inicial Oro</label>
-        <input type="number" id="cashea-pct-oro" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 10">
-      </div>
-      <div class="campo-grupo">
-        <label>% Express</label>
-        <input type="number" id="cashea-pct-express" class="input-g" min="0" max="100" step="0.1" placeholder="Ej: 50">
+      <div class="campo-grupo" id="cfg-express-section">
+        <label>Comisión express (% sobre monto financiado)</label>
+        <input type="number" id="cashea-pct-express" class="input-g" min="0" max="20" step="0.1" placeholder="2" title="Solo aplica con Cashea Express activo">
       </div>
     </div>
-    <button class="btn-primary" id="btn-guardar-cashea-config">💾 Guardar Configuración</button>
+    <button type="button" class="btn-secondary cashea-btn-restaurar" id="btn-cashea-tarifas-oficiales">
+      Restaurar tarifas oficiales de la línea seleccionada
+    </button>
+  </div>
+
+  <div class="config-seccion">
+    <h3>Día de pago Cashea Express</h3>
+    <p class="cashea-seccion-hint">
+      Cashea transfiere el dinero semanal en este día. Se usa para calcular el próximo pago estimado.
+    </p>
+    <div class="campo-grupo">
+      <label>Día de pago</label>
+      <select id="cashea-dia-pago" class="input-g cashea-select-300">
+        <option value="0">Domingo</option>
+        <option value="1">Lunes</option>
+        <option value="2">Martes</option>
+        <option value="3">Miércoles (por defecto Cashea Express)</option>
+        <option value="4">Jueves</option>
+        <option value="5">Viernes</option>
+        <option value="6">Sábado</option>
+      </select>
+    </div>
+    <div id="cfg-prox-pago-preview" class="cashea-prox-pago-preview"></div>
+  </div>
+
+  <div class="config-seccion">
+    <button class="btn-primary" id="btn-guardar-cashea-config">Guardar Configuración</button>
   </div>
 
   <!-- Calculadora de prueba -->
   <div class="config-seccion">
     <h3>Calculadora de prueba</h3>
-    <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-end">
-      <div class="campo-grupo" style="margin:0;flex:1;min-width:140px">
-        <label>Total venta (USD)</label>
+    <div class="cashea-calc-row">
+      <div class="campo-grupo cashea-calc-campo">
+        <label>Total venta ($ BCV)</label>
         <input type="number" id="calc-total" class="input-g" min="0.01" step="0.01" placeholder="100.00">
       </div>
-      <div class="campo-grupo" style="margin:0;flex:1;min-width:140px">
+      <div class="campo-grupo cashea-calc-campo">
         <label>Nivel cliente</label>
         <select id="calc-nivel" class="input-g">
-          <option value="BRONCE">Bronce</option>
-          <option value="PLATA">Plata</option>
-          <option value="ORO">Oro</option>
+          <option value="semilla">🌱 Semilla (Lv1)</option>
+          <option value="raiz">🌿 Raíz (Lv2)</option>
+          <option value="hoja">🍃 Hoja (Lv3)</option>
+          <option value="tronco">🪵 Tronco (Lv4)</option>
+          <option value="arbol">🌳 Árbol (Lv5)</option>
+          <option value="araguaney">🌼 Araguaney (Lv6)</option>
         </select>
       </div>
-      <button class="btn-secondary" id="btn-calcular-cashea" style="height:42px;white-space:nowrap">Calcular →</button>
+      <button class="btn-secondary cashea-btn-calc" id="btn-calcular-cashea">Calcular</button>
     </div>
-    <div id="calc-resultado" style="margin-top:.75rem;display:none;background:var(--bg-tertiary);border-radius:var(--radius-sm);padding:.75rem;font-size:.85rem"></div>
+    <div id="calc-resultado" class="cashea-calc-resultado" style="display:none"></div>
   </div>
 </div>
 </section>

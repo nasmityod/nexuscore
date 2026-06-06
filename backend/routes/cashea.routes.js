@@ -11,6 +11,9 @@ router.put('/config', requireCasheaAdmin, ctrl.putConfig);
 
 router.post('/calcular', ctrl.postCalcular);
 
+// Estadísticas Express — accesible para cajeros también (sin requireCasheaAdmin)
+router.get('/estadisticas', ctrl.getEstadisticas);
+
 router.get('/pendientes', requireCasheaAdmin, ctrl.getPendientes);
 
 router.post('/liquidar', requireCasheaAdmin, ctrl.postLiquidar);

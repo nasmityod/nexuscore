@@ -47,10 +47,11 @@ router.post(
 
     res.json({
       ok: true,
-      importados: resultado.importados,
-      omitidos:   resultado.omitidos,
-      total:      resultado.total,
-      filas:      resultado.filas,
+      importados:   resultado.importados,
+      omitidos:     resultado.omitidos,
+      total:        resultado.total,
+      filas:        resultado.filas,
+      advertencias: resultado.advertencias || [],
       mensaje:
         resultado.importados === 0
           ? `No se importó ningún producto. ${resultado.omitidos} filas con error u omitidas.`

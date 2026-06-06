@@ -1,0 +1,39 @@
+---
+alwaysApply: true
+---
+
+MIGRACIONES 001–026 — CONGELADAS PERMANENTEMENTE:
+- Los archivos en database/migrations/ con prefijo 001 al 026 son INMUTABLES.
+  PROHIBIDO modificar, reordenar, combinar o eliminar cualquiera de estos archivos
+  en instalaciones ya activas (tablas existentes en producción).
+- Si un requerimiento exige cambiar estructura (nueva columna, nuevo índice, nuevo trigger,
+  modificar constraint), la solución OBLIGATORIA es:
+    1. Crear un nuevo archivo: database/migrations/027_descripcion_corta.sql
+    2. Registrar ese parche en backend/config/migrations.js con su función idempotente.
+    3. La función debe iniciar con: IF NOT EXISTS, DO $$ ... $$ o equivalente idempotente.
+  NUNCA escribir ALTER TABLE o DROP directamente en archivos SQL existentes.
+
+ORDEN DE DEPENDENCIAS DE MIGRACIONES CONOCIDAS:
+- 007_historial_tasas.sql: base para cualquier lógica de tasas BCV/USD.
+- 009_roles_perm_matrix.sql + 023_roles_perm_dashboard_merge.sql + 025_usuario_permisos_override.sql:
+  tocar permisos SIEMPRE requiere revisar los tres y actualizar rolePermissions.js.
+- 015_ventas_total_bs_cliente_desc_max.sql: afecta directamente cálculos de totales en BS.
+- 019_stock_constraints.sql: constraints de stock ≥ 0; PROHIBIDO hacer inserts directos
+  de ajuste de inventario sin pasar por inventarioService.js.
+- 021_idempotency_ventas.sql + 024_fix_idempotency_index.sql: índices de idempotencia de ventas.
+  Cualquier nueva ruta POST de ventas DEBE respetar el campo de idempotencia existente.
+
+REGLAS pg-promise:
+- Todas las queries de escritura crítica (ventas, arqueos, movimientos de inventario,
+  abonos de cartera) DEBEN ejecutarse dentro de transacciones db.tx() de pg-promise.
+- PROHIBIDO usar db.query() directo (string raw) en controladores. Usar siempre
+  los métodos tipados: db.one(), db.none(), db.any(), db.oneOrNone() según cardinalidad esperada.
+- Los valores monetarios se deben manejar como NUMERIC en PostgreSQL.
+  PROHIBIDO castear a float de JavaScript antes de persistir.
+
+BOOTSTRAPPING:
+- El bootstrap atómico en runBootstrapMigrations() en server.js ejecuta 001–005 en UNA
+  sola transacción si la BD está vacía. No agregar lógica de negocio a ese bloque;
+  todo va en parches incrementales post-005.
+- ensureSemillaAdminSiFalta() se ejecuta DESPUÉS de todos los parches. No duplicar
+  lógica de seed en los archivos SQL de migraciones.

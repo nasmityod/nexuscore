@@ -1,0 +1,35 @@
+---
+alwaysApply: true
+---
+
+UTILIDADES CON PRESENCIA EN AMBAS CAPAS — LISTA MAESTRA:
+- backend/utils/telefonoVe.js  ↔  frontend/services/telefonoVe.js
+- backend/utils/formatters.js  ↔  (formateadores de moneda en frontend/components/currencyDisplay.js)
+- backend/utils/validators.js  ↔  (validaciones de formulario en páginas frontend)
+- backend/utils/calculations.js ↔ (cálculos de precio/descuento en frontend POS)
+
+PROTOCOLO OBLIGATORIO AL MODIFICAR CUALQUIER UTILIDAD DUAL:
+1. Antes de modificar, el agente DEBE buscar en TODO el árbol del proyecto
+   (backend/ Y frontend/) si existe una contraparte del mismo archivo.
+2. Si existe contraparte, AMBOS archivos se modifican en el mismo commit/cambio.
+   PROHIBIDO actualizar solo uno de los dos lados.
+3. Si la lógica diverge por necesidades de cada capa (ej: el backend necesita
+   lógica extra de validación SQL), SE DOCUMENTA con un comentario:
+   // NEXUS-DUAL: contraparte en [ruta]. Divergencia justificada: [razón].
+4. Si se crea una nueva utilidad de dominio regional (tasas, formato moneda VES,
+   validación RIF/CI venezolano), debe crearse en AMBAS capas desde el inicio,
+   o documentarse explícitamente como "solo backend" o "solo frontend".
+
+FORMATEADORES DE MONEDA — REGLAS ESPECÍFICAS:
+- El símbolo y precisión de Bolívares (BS) y Dólares (USD) deben ser idénticos
+  en backend y frontend. Actualmente: BS con separador punto/coma según locale VE.
+- PROHIBIDO hardcodear el símbolo de moneda en plantillas HTML de resources/templates/.
+  Siempre debe provenir de la configuración de la BD (tabla configuracion).
+- Las tasas de cambio BCV/USD se leen SIEMPRE desde la BD (historial_tasas),
+  nunca desde variables hardcodeadas en el código JS del frontend.
+
+TELEFONOVE — REGLAS ESPECÍFICAS:
+- El formato de teléfono venezolano (0412-XXX.XX.XX) debe normalizarse con
+  la misma función en ambas capas. Si cambia el regex o el formato de salida,
+  el cambio se aplica en backend/utils/telefonoVe.js Y frontend/services/telefonoVe.js
+  en la misma operación.

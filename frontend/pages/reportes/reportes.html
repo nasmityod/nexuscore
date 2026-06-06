@@ -1,203 +1,156 @@
 <section class="page-content reportes-page">
-<style>
-.reportes-page .reportes-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem; }
-.reportes-page .reporte-card { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem;display:flex;align-items:flex-start;gap:1rem;cursor:pointer;transition:all .15s;position:relative;overflow:hidden; }
-.reportes-page .reporte-card:hover { border-color:#3b82f6;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3); }
-.reportes-page .reporte-card.reporte-urgente { border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.06); }
-.reportes-page .reporte-icono { font-size:2.2rem;min-width:2.5rem;text-align:center; }
-.reportes-page .reporte-info h3 { margin:0 0 .3rem;font-size:.95rem; }
-.reportes-page .reporte-info p { margin:0;font-size:.8rem;color:var(--text-secondary);line-height:1.4; }
-.reportes-page .btn-generar { position:absolute;bottom:.75rem;right:.75rem;padding:.3rem .75rem;border-radius:var(--radius-sm);background:#3b82f6;border:none;color:#fff;cursor:pointer;font-size:.8rem; }
 
-/* Vista de reporte */
-.reportes-page .reporte-vista { display:none; }
-.reportes-page .reporte-vista.activo { display:block; }
-.reportes-page .btn-volver { height:40px;padding:0 1rem;border-radius:var(--radius-sm);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem;margin-bottom:1rem; }
-.reportes-page .reporte-tabla { width:100%;border-collapse:collapse;font-size:.85rem; }
-.reportes-page .reporte-tabla th { text-align:left;padding:.5rem .75rem;background:var(--bg-tertiary);color:var(--text-secondary);font-size:.75rem;text-transform:uppercase;border-bottom:2px solid var(--border-primary); }
-.reportes-page .reporte-tabla td { padding:.5rem .75rem;border-bottom:1px solid var(--border-subtle); }
-.reportes-page .reporte-tabla tr:hover td { background:rgba(59,130,246,.05); }
-.prioridad-badge { padding:.2rem .5rem;border-radius:var(--radius-sm);font-size:.75rem;font-weight:700;text-transform:uppercase; }
-.prioridad-AGOTADO,.prioridad-agotado { background:rgba(239,68,68,.2);color:#ef4444; }
-.prioridad-URGENTE,.prioridad-urgente { background:rgba(239,68,68,.15);color:#f87171; }
-.prioridad-PRONTO,.prioridad-pronto { background:rgba(245,158,11,.2);color:#f59e0b; }
-.prioridad-PLANIFICAR,.prioridad-planificar { background:rgba(59,130,246,.15);color:#3b82f6; }
-.reportes-page .reporte-card:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
-</style>
-
-<!-- Menú de reportes -->
-<div id="menu-reportes">
   <div class="page-header">
     <div>
       <h1 class="page-title">Reportes y Análisis</h1>
-      <p class="page-subtitle">Indicadores operativos, financieros y de inventario · exportación Excel en los informes con botón verde</p>
+      <p class="page-subtitle">Consola de informes operativos, fiscales, de inventario y financieros · referencia $ BCV</p>
     </div>
     <div class="page-header-actions">
       <button type="button" id="btn-excel-precios" class="btn btn-success">
-        📥 Exportar precios
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar precios
       </button>
     </div>
   </div>
 
-  <!-- Filtro de fecha personalizado -->
-  <div style="background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:.9rem 1.1rem;margin-bottom:1.25rem;display:flex;flex-wrap:wrap;align-items:flex-end;gap:.75rem">
-    <div>
-      <label style="display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:.3rem">Desde</label>
-      <input type="date" id="rpt-desde" style="background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);border-radius:var(--radius-sm);padding:.35rem .6rem;font-size:.85rem" />
-    </div>
-    <div>
-      <label style="display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:.3rem">Hasta</label>
-      <input type="date" id="rpt-hasta" style="background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);border-radius:var(--radius-sm);padding:.35rem .6rem;font-size:.85rem" />
-    </div>
-    <button type="button" id="btn-rpt-rango" class="btn btn-primary" style="height:34px;padding:0 1.1rem;font-size:.85rem">
-      Ver ventas del rango
-    </button>
-    <span style="font-size:.78rem;color:var(--text-muted);align-self:center">Filtra las ventas por un período exacto y descarga Excel</span>
-    <button type="button" id="btn-rpt-rango-excel" class="btn btn-success" style="height:34px;padding:0 1rem;font-size:.85rem;margin-left:auto">
-      📥 Excel rango
-    </button>
+  <div class="reportes-layout">
+
+    <!-- Riel izquierdo: catálogo de reportes por dominio -->
+    <aside id="menu-reportes" class="rpt-nav" aria-label="Catálogo de reportes">
+      <div class="reportes-grid">
+
+        <div class="rpt-cat">
+          <div class="rpt-cat-header">Ventas</div>
+          <button type="button" class="reporte-card" data-reporte-id="ventas-dia" aria-label="Ver ventas de hoy">
+            <span class="reporte-card-nombre">Ventas de hoy</span>
+            <span class="reporte-card-desc">Detalle de cada venta del día actual</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="ventas-semana" aria-label="Ver ventas de la semana">
+            <span class="reporte-card-nombre">Últimos 7 días</span>
+            <span class="reporte-card-desc">Resumen diario de la semana en curso</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="ventas-mes" aria-label="Ver ventas del mes">
+            <span class="reporte-card-nombre">Últimos 30 días</span>
+            <span class="reporte-card-desc">Volumen mensual día por día</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="ventas-rango" aria-label="Ver ventas por rango de fechas">
+            <span class="reporte-card-nombre">Por fecha exacta</span>
+            <span class="reporte-card-desc">Selecciona un rango con el panel de la derecha</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="top-productos" aria-label="Ver productos más vendidos">
+            <span class="reporte-card-nombre">Productos más vendidos</span>
+            <span class="reporte-card-desc">Top 10 por unidades y ganancia (30 días)</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="ventas-cajero" aria-label="Ver ventas por cajero">
+            <span class="reporte-card-nombre">Ventas por cajero</span>
+            <span class="reporte-card-desc">Volumen, ganancia y margen por persona</span>
+          </button>
+        </div>
+
+        <div class="rpt-cat">
+          <div class="rpt-cat-header">Fiscal</div>
+          <button type="button" class="reporte-card" data-excel-url="/api/reportes/excel/libro-ventas" aria-label="Descargar Libro de Ventas IVA">
+            <span class="reporte-card-nombre">Libro de Ventas IVA<span class="reporte-card-flag">XLSX</span></span>
+            <span class="reporte-card-desc">Libro fiscal del mes para declaración SENIAT</span>
+          </button>
+          <button type="button" class="reporte-card" data-excel-url="/api/reportes/excel/libro-compras" aria-label="Descargar Libro de Compras IVA">
+            <span class="reporte-card-nombre">Libro de Compras IVA<span class="reporte-card-flag">XLSX</span></span>
+            <span class="reporte-card-desc">Libro fiscal de compras del mes (SENIAT)</span>
+          </button>
+        </div>
+
+        <div class="rpt-cat">
+          <div class="rpt-cat-header">Inventario</div>
+          <button type="button" class="reporte-card reporte-urgente" data-reporte-id="reposicion" aria-label="Ver sugerencias de reposición">
+            <span class="reporte-card-nombre">Sugerencia de reposición</span>
+            <span class="reporte-card-desc">Qué comprar según tu ritmo de ventas</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="inventario-valorizado" aria-label="Ver valor del inventario">
+            <span class="reporte-card-nombre">Valor del inventario</span>
+            <span class="reporte-card-desc">Mercancía valorizada en $ BCV</span>
+          </button>
+        </div>
+
+        <div class="rpt-cat">
+          <div class="rpt-cat-header">Financiero</div>
+          <button type="button" class="reporte-card" data-reporte-id="rentabilidad" aria-label="Ver rentabilidad por categoría">
+            <span class="reporte-card-nombre">Rentabilidad por categoría</span>
+            <span class="reporte-card-desc">Margen y ganancia por tipo de producto</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="deudas-clientes" aria-label="Ver deudas de clientes">
+            <span class="reporte-card-nombre">Clientes que me deben</span>
+            <span class="reporte-card-desc">Créditos pendientes ordenados por monto</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="historial-cierres" aria-label="Ver historial de cierres de caja">
+            <span class="reporte-card-nombre">Historial de cierres</span>
+            <span class="reporte-card-desc">Cuadre completo de cierres anteriores</span>
+          </button>
+          <button type="button" class="reporte-card" data-reporte-id="historial-tasas" aria-label="Ver historial de tasas">
+            <span class="reporte-card-nombre">Historial de tasas</span>
+            <span class="reporte-card-desc">Evolución de tasas BCV y USD</span>
+          </button>
+        </div>
+
+        <div class="rpt-cat">
+          <div class="rpt-cat-header">Cashea</div>
+          <button type="button" class="reporte-card" data-reporte-id="cashea-liquidaciones" aria-label="Ver ingresos Cashea por fecha de depósito">
+            <span class="reporte-card-nombre">Ingresos por depósito</span>
+            <span class="reporte-card-desc">Abonos en Bs. y $ BCV por fecha bancaria</span>
+          </button>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- Área de trabajo del reporte -->
+    <section class="rpt-workspace">
+
+      <div class="rpt-toolbar">
+        <div class="rpt-toolbar-campo">
+          <label class="form-label" for="rpt-desde">Desde</label>
+          <input type="date" id="rpt-desde" class="rpt-fecha-input" />
+        </div>
+        <div class="rpt-toolbar-campo">
+          <label class="form-label" for="rpt-hasta">Hasta</label>
+          <input type="date" id="rpt-hasta" class="rpt-fecha-input" />
+        </div>
+        <button type="button" id="btn-rpt-rango" class="btn btn-primary">Ver ventas del rango</button>
+        <button type="button" id="btn-rpt-cashea-liq" class="btn btn-secondary">Liquidaciones Cashea</button>
+        <button type="button" id="btn-rpt-rango-excel" class="btn btn-success rpt-toolbar-excel">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Excel rango
+        </button>
+        <span class="rpt-toolbar-nota">Filtra ventas o depósitos Cashea por fecha del rango seleccionado</span>
+      </div>
+
+      <!-- Vista detalle de reporte -->
+      <div id="reporte-detalle" class="reporte-vista">
+        <div class="rpt-detalle-head">
+          <h2 id="reporte-detalle-titulo" class="rpt-detalle-titulo"></h2>
+          <div class="rpt-detalle-acciones">
+            <button type="button" class="btn btn-secondary" id="btn-volver-reportes">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+              Cerrar reporte
+            </button>
+            <button type="button" class="btn btn-success" id="btn-exportar-reporte">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Descargar Excel
+            </button>
+          </div>
+        </div>
+        <div id="reporte-contenido" class="rpt-contenido">
+          <p class="rpt-contenido-cargando">Cargando reporte…</p>
+        </div>
+      </div>
+
+      <!-- Estado vacío del área de trabajo -->
+      <div id="rpt-empty" class="rpt-empty">
+        <svg class="rpt-empty-icon" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+        <p class="rpt-empty-titulo">Selecciona un reporte para generar</p>
+        <p class="rpt-empty-sub">Elige un informe del panel izquierdo o define un rango de fechas arriba para consultar ventas y liquidaciones Cashea.</p>
+      </div>
+
+    </section>
+
   </div>
-
-  <div class="reportes-grid">
-    <div class="reporte-card" data-reporte-id="ventas-dia" role="button" tabindex="0" aria-label="Ver ventas de hoy">
-      <div class="reporte-icono">📅</div>
-      <div class="reporte-info">
-        <h3>Ventas de hoy</h3>
-        <p>Ver todo lo que vendiste hoy con detalle de cada venta</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="ventas-semana" role="button" tabindex="0" aria-label="Ver ventas de la semana">
-      <div class="reporte-icono">📆</div>
-      <div class="reporte-info">
-        <h3>Ventas de esta semana</h3>
-        <p>Resumen de ventas de los últimos 7 días, día por día</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="ventas-mes" role="button" tabindex="0" aria-label="Ver ventas del mes">
-      <div class="reporte-icono">🗓️</div>
-      <div class="reporte-info">
-        <h3>Ventas del mes</h3>
-        <p>Cuánto vendiste este mes (últimos 30 días)</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="top-productos" role="button" tabindex="0" aria-label="Ver productos más vendidos">
-      <div class="reporte-icono">🏆</div>
-      <div class="reporte-info">
-        <h3>Productos más vendidos</h3>
-        <p>Los 10 productos que más se venden y cuánto ganas con cada uno</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="rentabilidad" role="button" tabindex="0" aria-label="Ver rentabilidad por categoría">
-      <div class="reporte-icono">💹</div>
-      <div class="reporte-info">
-        <h3>Rentabilidad por categoría</h3>
-        <p>Cuánto ganas con cada tipo de producto (¿cuáles son más rentables?)</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card reporte-urgente" data-reporte-id="reposicion" role="button" tabindex="0" aria-label="Ver sugerencias de reposición">
-      <div class="reporte-icono">🔔</div>
-      <div class="reporte-info">
-        <h3>¿Qué debo comprar? (Reposición)</h3>
-        <p>El sistema analiza tu ritmo de ventas y te dice qué comprar y cuánto</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="inventario-valorizado" role="button" tabindex="0" aria-label="Ver valor del inventario">
-      <div class="reporte-icono">📦</div>
-      <div class="reporte-info">
-        <h3>Valor de mi inventario</h3>
-        <p>Cuánto valen todos tus productos en USD (lo que tienes en mercancía)</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="deudas-clientes" role="button" tabindex="0" aria-label="Ver deudas de clientes">
-      <div class="reporte-icono">📋</div>
-      <div class="reporte-info">
-        <h3>Clientes que me deben</h3>
-        <p>Lista completa de créditos pendientes, ordenados por monto</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="historial-cierres" role="button" tabindex="0" aria-label="Ver historial de cierres de caja">
-      <div class="reporte-icono">🏦</div>
-      <div class="reporte-info">
-        <h3>Historial de cierres de caja</h3>
-        <p>Ver los cierres de caja anteriores con cuadre completo</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="ventas-cajero" role="button" tabindex="0" aria-label="Ver ventas por cajero">
-      <div class="reporte-icono">👤</div>
-      <div class="reporte-info">
-        <h3>Ventas por cajero</h3>
-        <p>Cuánto vendió cada persona, cuánto ganó el negocio y su margen</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="ventas-rango" role="button" tabindex="0" aria-label="Ver ventas por rango de fechas">
-      <div class="reporte-icono">📊</div>
-      <div class="reporte-info">
-        <h3>Ventas por fecha exacta</h3>
-        <p>Selecciona cualquier día o rango de días para ver el detalle de ventas</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <div class="reporte-card" data-reporte-id="historial-tasas" role="button" tabindex="0" aria-label="Ver historial de tasas">
-      <div class="reporte-icono">💱</div>
-      <div class="reporte-info">
-        <h3>Historial de tasas de cambio</h3>
-        <p>Ver cómo han cambiado las tasas BCV y Paralela con el tiempo</p>
-      </div>
-      <span class="btn-generar">Ver →</span>
-    </div>
-
-    <!-- Libros Fiscales -->
-    <div class="reporte-card" data-excel-url="/api/reportes/excel/libro-ventas" role="button" tabindex="0" aria-label="Descargar Libro de Ventas IVA">
-      <div class="reporte-icono">📖</div>
-      <div class="reporte-info">
-        <h3>Libro de Ventas IVA</h3>
-        <p>Exporta el libro fiscal de ventas del mes para tu declaración de IVA (SENIAT)</p>
-      </div>
-      <span class="btn-generar" style="background:#10b981">Excel →</span>
-    </div>
-
-    <div class="reporte-card" data-excel-url="/api/reportes/excel/libro-compras" role="button" tabindex="0" aria-label="Descargar Libro de Compras IVA">
-      <div class="reporte-icono">📗</div>
-      <div class="reporte-info">
-        <h3>Libro de Compras IVA</h3>
-        <p>Exporta el libro fiscal de compras del mes para tu declaración de IVA (SENIAT)</p>
-      </div>
-      <span class="btn-generar" style="background:#10b981">Excel →</span>
-    </div>
-  </div>
-</div>
-
-<!-- Vista detalle de reporte -->
-<div id="reporte-detalle" class="reporte-vista">
-  <h2 id="reporte-detalle-titulo" class="page-title" style="margin:0 0 1rem;font-size:1.15rem;font-weight:600"></h2>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.75rem">
-    <button type="button" class="btn-volver" id="btn-volver-reportes">← Volver a reportes</button>
-    <button type="button" style="height:40px;padding:0 1rem;border-radius:var(--radius-sm);background:#10b981;border:none;color:#fff;cursor:pointer;font-size:.85rem"
-            id="btn-exportar-reporte">📥 Descargar Excel</button>
-  </div>
-  <div id="reporte-contenido" style="background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem">
-    <p style="text-align:center;color:var(--text-secondary);padding:2rem">⏳ Cargando reporte...</p>
-  </div>
-</div>
 </section>

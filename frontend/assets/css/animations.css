@@ -1,3 +1,10 @@
+/* ═══════════════════════════════════════════════════════════════
+   NEXUS CORE — animations.css
+   Movimiento sobrio de instrumento financiero. PROHIBIDO bounce/pulse/wiggle.
+   Transiciones cortas, lineales-suaves; nada que distraiga del dato.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Transición entre vistas (router) ─────────────────────────── */
 .view-container.is-transitioning {
   opacity: 0;
   transform: translateY(6px);
@@ -9,4 +16,38 @@
   transition:
     opacity var(--transition-page),
     transform var(--transition-page);
+}
+
+/* ── Keyframes compartidos (entrada de paneles/filas) ─────────── */
+@keyframes nexus-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes nexus-slide-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Indicador visual sin glow: el borde acento se intensifica brevemente */
+@keyframes nexus-rate-pop {
+  0%   { border-color: var(--border-accent); }
+  40%  { border-color: var(--accent-primary); }
+  100% { border-color: var(--border-accent); }
+}
+
+.anim-fade-in  { animation: nexus-fade-in var(--transition-base) ease both; }
+.anim-slide-up { animation: nexus-slide-up var(--transition-slow) ease both; }
+
+/* Aplicado por JS al refrescar la tasa (clase opcional, no rompe si no se usa) */
+.tasa-input.is-updated { animation: nexus-rate-pop 700ms ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .view-container.is-visible,
+  .anim-fade-in,
+  .anim-slide-up,
+  .tasa-input.is-updated {
+    animation: none !important;
+    transition: none !important;
+  }
 }

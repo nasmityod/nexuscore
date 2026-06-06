@@ -65,7 +65,7 @@ async function verifyBootstrapSeed(db) {
 
   const tasasRows = await db.any(
     `SELECT clave FROM configuracion
-     WHERE clave IN ('tasa_bcv', 'tasa_usd', 'tasa_paralela')`
+     WHERE clave IN ('tasa_bcv', 'tasa_usd')`
   );
   const set = new Set(tasasRows.map((r) => r.clave));
   if (!set.has('tasa_bcv')) {
@@ -73,9 +73,9 @@ async function verifyBootstrapSeed(db) {
       'Semilla inicial incompleta: falta "tasa_bcv" en configuracion (esperado en 001_initial_schema.sql).'
     );
   }
-  if (!set.has('tasa_usd') && !set.has('tasa_paralela')) {
+  if (!set.has('tasa_usd')) {
     throw new Error(
-      'Semilla inicial incompleta: falta tasa mercado ("tasa_usd" o "tasa_paralela") en configuracion.'
+      'Semilla inicial incompleta: falta "tasa_usd" en configuracion.'
     );
   }
 }
@@ -145,6 +145,19 @@ const SCHEMA_PATCH_022_CLAVE = 'schema_patch_022_anulacion_credito_reversa';
 const SCHEMA_PATCH_023_CLAVE = 'schema_patch_023_roles_perm_dashboard_merge';
 const SCHEMA_PATCH_024_CLAVE = 'schema_patch_024_fix_idempotency_index';
 const SCHEMA_PATCH_025_CLAVE = 'schema_patch_025_usuario_permisos_override';
+const SCHEMA_PATCH_026_CLAVE = 'schema_patch_026_query_performance_indexes';
+const SCHEMA_PATCH_027_CLAVE = 'schema_patch_027_cashea_niveles_config_express';
+const SCHEMA_PATCH_028_CLAVE = 'schema_patch_028_moneda_costo_producto';
+const SCHEMA_PATCH_029_CLAVE = 'schema_patch_029_ventas_total_ref_usd_bcv';
+const SCHEMA_PATCH_030_CLAVE = 'schema_patch_030_ventas_tasa_bcv_aplicada';
+const SCHEMA_PATCH_031_CLAVE = 'schema_patch_031_idempotencia_ventas_indice_reconciliar';
+const SCHEMA_PATCH_032_CLAVE = 'schema_patch_032_ventas_cashea_pct_inicial_numeric';
+const SCHEMA_PATCH_033_CLAVE = 'schema_patch_033_cashea_tarifas_comision_oficial';
+const SCHEMA_PATCH_034_CLAVE = 'schema_patch_034_tasa_bcv_feriados_ve_2026';
+const SCHEMA_PATCH_035_CLAVE = 'schema_patch_035_nomenclatura_tasa_usd_sin_paralela';
+const SCHEMA_PATCH_036_CLAVE = 'schema_patch_036_setup_admin_legacy';
+const SCHEMA_PATCH_037_CLAVE = 'schema_patch_037_total_bs_bcv_modo_moneda';
+const SCHEMA_PATCH_038_CLAVE = 'schema_patch_038_cashea_pct_inicial_semilla_60';
 
 /**
  * Parches SQL idempotentes post-bootstrap (BD ya inicializada).
@@ -787,6 +800,151 @@ async function runPatch025UsuarioPermisosOverride(db) {
   );
 }
 
+async function runPatch026QueryPerformanceIndexes(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_026_CLAVE,
+    '026_query_performance_indexes.sql',
+    'Parche 026: índices ventas(estado,fecha), usuario_id, cashea liq_batch, detalles_prod_venta'
+  );
+}
+
+async function runPatch027CasheaNivelesConfigExpress(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_027_CLAVE,
+    '027_cashea_niveles_y_config_express.sql',
+    'Parche 027: cashea 6 niveles (semilla→araguaney), Express, día de pago configurable'
+  );
+}
+
+async function runPatch028MonedaCostoProducto(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_028_CLAVE,
+    '028_moneda_costo_producto.sql',
+    'Parche 028: metadato moneda_costo (usd_fisico|bcv) en productos y ajustes_inventario'
+  );
+}
+
+async function runPatch029VentasTotalRefUsdBcv(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_029_CLAVE,
+    '029_ventas_total_ref_usd_bcv.sql',
+    'Parche 029: ventas.total_ref_usd_bcv (TOTAL $ BCV histórico / cierres)'
+  );
+}
+
+async function runPatch030VentasTasaBcvAplicada(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_030_CLAVE,
+    '030_ventas_tasa_bcv_aplicada.sql',
+    'Parche 030: ventas.tasa_bcv_aplicada (BCV oficial al facturar)'
+  );
+}
+
+async function runPatch031IdempotenciaIndiceReconciliar(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_031_CLAVE,
+    '031_idempotency_ventas_indice_reconciliar.sql',
+    'Parche 031: índice idempotency ventas reconciliado por (usuario_id, idempotency_key)'
+  );
+}
+
+async function runPatch032VentasCasheaPctInicialNumeric(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_032_CLAVE,
+    '032_ventas_cashea_pct_inicial_numeric.sql',
+    'Parche 032: ventas_cashea.pct_inicial NUMERIC(5,2) (conserva decimales del % efectivo)'
+  );
+}
+
+async function runPatch033CasheaTarifasComisionOficial(db) {
+  return aplicarParcheIdempotente(
+    db, SCHEMA_PATCH_033_CLAVE,
+    '033_cashea_tarifas_comision_oficial.sql',
+    'Parche 033: comisiones cashea_config alineadas a tarifas oficiales Base/Express por línea'
+  );
+}
+
+async function runPatch034TasaBcvFeriadosVe2026(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_034_CLAVE,
+    '034_tasa_bcv_feriados_ve_2026.sql',
+    'Parche 034: calendario feriados VE 2026 para tasa BCV automática'
+  );
+}
+
+async function runPatch035NomenclaturaTasaUsdSinParalela(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_035_CLAVE,
+    '035_nomenclatura_tasa_usd_sin_paralela.sql',
+    'Parche 035: clave tasa_usd única + trigger historial sin tasa_paralela'
+  );
+}
+
+/**
+ * Instalaciones existentes con admin ya personalizado: omitir paso 3 del wizard.
+ */
+async function runPatch036SetupAdminLegacy(db) {
+  const marcador = await db.oneOrNone(
+    `SELECT 1 AS ok FROM configuracion WHERE clave = $1 LIMIT 1`,
+    [SCHEMA_PATCH_036_CLAVE]
+  );
+  if (marcador) {
+    return { ran: false };
+  }
+
+  const admin = await db.oneOrNone(
+    `SELECT id, password_hash FROM usuarios WHERE LOWER(TRIM(username)) = 'admin' LIMIT 1`
+  );
+  const { n: userCount } = await db.one(`SELECT COUNT(*)::int AS n FROM usuarios`);
+
+  let marcarCompletado = false;
+  if (admin && admin.password_hash !== ADMIN_DEFAULT_PASSWORD_HASH) {
+    marcarCompletado = true;
+  } else if (userCount > 1) {
+    marcarCompletado = true;
+  }
+
+  await db.tx(async (t) => {
+    if (marcarCompletado) {
+      await t.none(
+        `INSERT INTO configuracion (clave, valor, categoria, descripcion)
+         VALUES ('setup_admin_completado', 'true', 'sistema',
+                 'Administrador ya personalizado (parche legacy 036)')
+         ON CONFLICT (clave) DO UPDATE SET valor = 'true', actualizado_en = NOW()`
+      );
+    }
+    await t.none(
+      `INSERT INTO configuracion (clave, valor, categoria, descripcion)
+       VALUES ($1, '1', 'sistema', 'Parche 036: setup admin legacy aplicado')
+       ON CONFLICT (clave) DO NOTHING`,
+      [SCHEMA_PATCH_036_CLAVE]
+    );
+  });
+
+  logger.info('Parche 036 aplicado: setup admin legacy', { marcarCompletado });
+  return { ran: true, marcarCompletado };
+}
+
+async function runPatch037TotalBsBcvModoMoneda(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_037_CLAVE,
+    '037_total_bs_bcv_y_modo_moneda.sql',
+    'Parche 037: ventas.total_bs_bcv_operativo + modo_moneda_operacion'
+  );
+}
+
+async function runPatch038CasheaPctInicialSemilla60(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_038_CLAVE,
+    '038_cashea_pct_inicial_semilla_60.sql',
+    'Parche 038: pct_inicial_semilla 60% (Lv1 Semilla; corrige default erróneo 1%)'
+  );
+}
+
 /**
  * Cleanup al arrancar el backend: cerrar sesiones de caja huérfanas
  * (más de 24h abiertas sin cierre explícito).
@@ -915,6 +1073,19 @@ module.exports = {
   runPatch023RolesPermDashboardMerge,
   runPatch024FixIdempotencyIndex,
   runPatch025UsuarioPermisosOverride,
+  runPatch026QueryPerformanceIndexes,
+  runPatch027CasheaNivelesConfigExpress,
+  runPatch028MonedaCostoProducto,
+  runPatch029VentasTotalRefUsdBcv,
+  runPatch030VentasTasaBcvAplicada,
+  runPatch031IdempotenciaIndiceReconciliar,
+  runPatch032VentasCasheaPctInicialNumeric,
+  runPatch033CasheaTarifasComisionOficial,
+  runPatch034TasaBcvFeriadosVe2026,
+  runPatch035NomenclaturaTasaUsdSinParalela,
+  runPatch036SetupAdminLegacy,
+  runPatch037TotalBsBcvModoMoneda,
+  runPatch038CasheaPctInicialSemilla60,
   cleanupSesionesHuerfanas,
   ensureSemillaAdminSiFalta
 };

@@ -6,19 +6,20 @@ Esta carpeta contiene los archivos necesarios para construir el instalador de Ne
 
 ### Ícono de la aplicación
 
-Debes proporcionar los siguientes archivos de ícono:
+Los iconos se generan desde el isotipo oficial del proyecto:
 
-- **`icon.ico`** — Ícono para Windows (multi-resolución, mínimo 256x256 px).
-  - Recomendado: incluir los tamaños 16, 32, 48, 64, 128, 256 dentro del archivo ICO.
-  - Herramientas para crear: https://convertio.co/png-ico/ o https://www.icoconverter.com/
+```powershell
+npm run icons
+```
 
-- **`icon.png`** — Versión PNG 512x512 del ícono (para referencia y macOS si se porta).
+Esto crea **`icon.png`** (512×512) e **`icon.ico`** en esta carpeta a partir de `frontend/assets/img/logo.svg`.
 
-### Cómo crear el ícono
+Si cambias el logo, vuelve a ejecutar `npm run icons` y reinicia la app (`npm start`) o recompila el instalador (`npm run dist`).
 
-1. Diseña o consigue el logo en PNG de al menos 512×512 px.
-2. Convierte a ICO con todos los tamaños incluidos.
-3. Coloca el archivo como `build-resources/icon.ico`.
+### Archivos
+
+- **`icon.ico`** — Ícono para Windows (barra de tareas, acceso directo, instalador).
+- **`icon.png`** — Versión PNG de referencia.
 
 ## Estructura esperada
 
@@ -52,6 +53,8 @@ npm run dist:portable
 Para eliminar el aviso "Editor desconocido" en Windows, se necesita un certificado de firma de código (Code Signing Certificate).
 
 Sin firma, la app funciona perfectamente pero Windows mostrará la advertencia SmartScreen al instalar por primera vez.
+
+**No uses `"signAndEditExecutable": false`** en `package.json > build > win`: con eso electron-builder no aplica el `.ico` al `.exe` y queda el icono genérico de Electron. Para omitir firma sin perder el icono, no configures certificado (`CSC_*`); el build seguirá usando `rcedit` para el icono.
 
 Para firmar en el futuro, agregar en `package.json > build > win`:
 ```json

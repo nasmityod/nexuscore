@@ -154,10 +154,14 @@ router.post('/', asyncHandler(async (req, res) => {
     );
 
     for (const l of lineas) {
+      // cantidad_recibida = 0 al crear para NO disparar trg_costo_promedio_compra
+      // (suma stock + recalcula CPP). La recepción real ocurre en POST /:id/recibir,
+      // donde se valida estado != 'recibida' y se hace la entrada definitiva.
+      // Sin este 0, el stock se sumaba dos veces (crear + recibir).
       await t.none(
         `INSERT INTO detalles_compras
            (compra_id, producto_id, cantidad_pedida, cantidad_recibida, costo_unitario_usd, subtotal_usd)
-         VALUES ($1, $2, $3, $3, $4, $5)`,
+         VALUES ($1, $2, $3, 0, $4, $5)`,
         [c.id, l.producto_id, l.cantidad, l.costoUnit, l.subtotal.toFixed(4)]
       );
     }
@@ -223,9 +227,23 @@ router.post('/:id/recibir', asyncHandler(async (req, res) => {
 
       await t.none(
         `INSERT INTO ajustes_inventario
-           (producto_id, tipo, cantidad, costo_unitario_usd, referencia_id, referencia_tipo, usuario_id)
-         VALUES ($1, 'entrada_compra', $2, $3, $4, 'compra', $5)`,
-        [det.producto_id, cantNueva, costoNuevo, compraId, req.user.id]
+           (producto_id, tipo, cantidad, cantidad_anterior, cantidad_nueva,
+            costo_unitario_usd, referencia_id, referencia_tipo, usuario_id)
+         VALUES ($1, 'entrada_compra', $2, $3, $4, $5, $6, 'compra', $7)`,
+        [
+          det.producto_id, cantNueva,
+          stockActual, stockTotal,
+          costoNuevo, compraId, req.user.id
+        ]
+      );
+
+      // Reflejar la recepción en detalles_compras (cantidad_recibida) sin
+      // disparar el trigger AFTER INSERT (es UPDATE, no INSERT).
+      await t.none(
+        `UPDATE detalles_compras
+            SET cantidad_recibida = $1
+          WHERE id = $2`,
+        [cantNueva, det.id]
       );
     }
 

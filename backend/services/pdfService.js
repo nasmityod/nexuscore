@@ -6,6 +6,10 @@ const { jsPDF } = require('jspdf');
 const autoTable = require('jspdf-autotable').default;
 
 const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'resources', 'templates');
+const {
+  resolveTotalesBcvTicket,
+  mapDetalleLineaUsdBcv
+} = require('../utils/ventaTotalesBcv');
 
 function templatesDir() {
   return TEMPLATES_DIR;
@@ -71,13 +75,13 @@ function buildTemplateMap(ctx) {
     CLIENTE_NOMBRE: ctx.cliente_nombre || 'Cliente general',
     CLIENTE_DOC: ctx.cliente_doc || '',
     METODO_PAGO: ctx.metodo_pago || '—',
-    TASA_CAMBIO: fmtMoney(ctx.tasa_cambio_aplicada, 4),
-    SUBTOTAL_USD: fmtMoney(ctx.subtotal_usd, 4),
+    TASA_CAMBIO: fmtMoney(ctx.tasa_bcv_aplicada, 4),
+    SUBTOTAL_USD: fmtMoney(ctx.subtotal_usd_bcv_ref, 2),
     DESCUENTO_INFO: descInfo,
     IVA_PCT: fmtMoney(ctx.iva_porcentaje || 0, 2),
     IVA_USD: fmtMoney(ctx.iva_monto_usd, 4),
-    TOTAL_USD: fmtMoney(ctx.total_usd, 4),
-    TOTAL_BS: fmtMoney(ctx.total_bs, 2),
+    TOTAL_USD: fmtMoney(ctx.total_usd_bcv_ref, 2),
+    TOTAL_BS: fmtMoney(ctx.total_bs_bcv, 2),
     LINEAS_ROWS: ctx.lineas_rows_html,
     PAGOS_ROWS: ctx.pagos_rows_html,
     PIE_TICKET: ctx.pie_ticket || '',
@@ -107,7 +111,7 @@ async function loadEmpresa(db) {
     m[r.clave] = r.valor;
   });
   return {
-    nombre: m.nombre_empresa || 'Nexus-Core POS',
+    nombre: m.nombre_empresa || 'Nexus Core POS',
     rif: m.rif_empresa || '',
     direccion: m.direccion_empresa || '',
     telefono: m.telefono_empresa || ''
@@ -134,15 +138,19 @@ async function fetchVentaPdfContext(db, ventaId) {
   );
 
   const empresa = await loadEmpresa(db);
+  const bcv = resolveTotalesBcvTicket(venta);
+  const tasaBcv = bcv.tasaBcv;
+  const tasaCalle = Number(venta.tasa_cambio_aplicada) || 0;
 
-  const lineas = detalles.map((d) => ({
-    descripcion: d.producto_nombre,
-    cantidad: Number(d.cantidad),
-    precio_unitario_usd: Number(d.precio_unitario_usd),
-    subtotal_usd: Number(d.subtotal_usd)
-  }));
+  const lineas = detalles.map((d) => mapDetalleLineaUsdBcv(d, tasaBcv, tasaCalle));
 
   const pagos = normalizePagos(venta.pagos);
+
+  const subtotalRefBcv = lineas.reduce((s, l) => s + Number(l.subtotal_usd || 0), 0);
+  const totalRefBcv =
+    bcv.totalRefUsdBcv != null && bcv.totalRefUsdBcv > 0
+      ? bcv.totalRefUsdBcv
+      : subtotalRefBcv;
 
   return buildPrintContext({
     empresa,
@@ -151,14 +159,14 @@ async function fetchVentaPdfContext(db, ventaId) {
     cliente_nombre: venta.cliente_nombre,
     cliente_doc: venta.cliente_doc,
     metodo_pago: venta.metodo_pago,
-    tasa_cambio_aplicada: Number(venta.tasa_cambio_aplicada),
-    subtotal_usd: Number(venta.subtotal_usd),
+    tasa_bcv_aplicada: tasaBcv,
+    subtotal_usd_bcv_ref: subtotalRefBcv,
     descuento_porcentaje: Number(venta.descuento_porcentaje),
     descuento_monto_usd: Number(venta.descuento_monto_usd),
     iva_porcentaje: Number(venta.iva_porcentaje),
     iva_monto_usd: Number(venta.iva_monto_usd),
-    total_usd: Number(venta.total_usd),
-    total_bs: Number(venta.total_bs),
+    total_usd_bcv_ref: totalRefBcv,
+    total_bs_bcv: bcv.totalBsBcv != null ? bcv.totalBsBcv : Number(venta.total_bs),
     estado: venta.estado,
     lineas,
     pagos,
@@ -170,7 +178,7 @@ async function fetchVentaPdfContext(db, ventaId) {
 /** Snapshot desde POS (preview) o body manual */
 function contextFromSnapshot(snapshot) {
   const empresa = snapshot.empresa || {
-    nombre: snapshot.nombre_empresa || 'Nexus-Core POS',
+    nombre: snapshot.nombre_empresa || 'Nexus Core POS',
     rif: snapshot.rif_empresa || '',
     direccion: snapshot.direccion_empresa || '',
     telefono: snapshot.telefono_empresa || ''
@@ -179,11 +187,31 @@ function contextFromSnapshot(snapshot) {
   const lineas = (snapshot.lineas || snapshot.items || []).map((x) => ({
     descripcion: x.descripcion || x.nombre || x.producto_nombre || 'Ítem',
     cantidad: Number(x.cantidad),
-    precio_unitario_usd: Number(x.precio_unitario_usd != null ? x.precio_unitario_usd : x.precio_usd),
-    subtotal_usd: Number(x.subtotal_usd != null ? x.subtotal_usd : x.subtotal)
+    precio_unitario_usd: Number(
+      x.precio_usd_bcv != null
+        ? x.precio_usd_bcv
+        : x.precio_unitario_usd != null
+          ? x.precio_unitario_usd
+          : x.precio_usd
+    ),
+    subtotal_usd: Number(
+      x.subtotal_usd_bcv != null
+        ? x.subtotal_usd_bcv
+        : x.subtotal_usd != null
+          ? x.subtotal_usd
+          : x.subtotal
+    )
   }));
 
   const pagos = normalizePagos(snapshot.pagos);
+
+  const tasaBcvSnap = Number(
+    snapshot.tasa_bcv_aplicada != null
+      ? snapshot.tasa_bcv_aplicada
+      : snapshot.tasa_bcv != null
+        ? snapshot.tasa_bcv
+        : 0
+  );
 
   return buildPrintContext({
     empresa,
@@ -192,14 +220,26 @@ function contextFromSnapshot(snapshot) {
     cliente_nombre: snapshot.cliente_nombre || 'Mostrador',
     cliente_doc: snapshot.cliente_doc || '',
     metodo_pago: snapshot.metodo_pago || '—',
-    tasa_cambio_aplicada: Number(snapshot.tasa_cambio_aplicada || snapshot.tasa_usd || 1),
-    subtotal_usd: Number(snapshot.subtotal_usd != null ? snapshot.subtotal_usd : 0),
+    tasa_bcv_aplicada: tasaBcvSnap,
+    subtotal_usd_bcv_ref: Number(
+      snapshot.subtotal_usd_bcv_ref != null ? snapshot.subtotal_usd_bcv_ref : snapshot.subtotal_usd || 0
+    ),
     descuento_porcentaje: Number(snapshot.descuento_porcentaje || 0),
     descuento_monto_usd: Number(snapshot.descuento_monto_usd || 0),
     iva_porcentaje: Number(snapshot.iva_porcentaje != null ? snapshot.iva_porcentaje : 0),
     iva_monto_usd: Number(snapshot.iva_monto_usd != null ? snapshot.iva_monto_usd : 0),
-    total_usd: Number(snapshot.total_usd || 0),
-    total_bs: Number(snapshot.total_bs || 0),
+    total_usd_bcv_ref: Number(
+      snapshot.total_ref_usd_bcv != null
+        ? snapshot.total_ref_usd_bcv
+        : snapshot.total_usd_bcv_ref != null
+          ? snapshot.total_usd_bcv_ref
+          : snapshot.total_usd || 0
+    ),
+    total_bs_bcv: Number(
+      snapshot.total_bs_bcv != null
+        ? snapshot.total_bs_bcv
+        : snapshot.total_bs || 0
+    ),
     estado: snapshot.estado || 'borrador',
     lineas,
     pagos,
@@ -213,7 +253,7 @@ function buildLineasRowsHtml(lineas) {
     .map(
       (l) =>
         `<tr><td>${escapeHtml(l.descripcion)}</td><td class="num">${fmtMoney(l.cantidad, 3)}</td>` +
-        `<td class="num">${fmtMoney(l.precio_unitario_usd, 4)}</td><td class="num">${fmtMoney(l.subtotal_usd, 4)}</td></tr>`
+        `<td class="num">${fmtMoney(l.precio_unitario_usd, 2)}</td><td class="num">${fmtMoney(l.subtotal_usd, 2)}</td></tr>`
     )
     .join('\n');
 }
@@ -349,7 +389,7 @@ async function generateTicketPdfBuffer(ctx) {
   y += 4;
   doc.text(`Pago: ${truncDesc(ctx.metodo_pago || '', 30)}`, 4, y);
   y += 4;
-  doc.text(`Tasa Bs/USD: ${fmtMoney(ctx.tasa_cambio_aplicada, 4)}`, 4, y);
+  doc.text(`Tasa BCV: ${fmtMoney(ctx.tasa_bcv_aplicada, 4)}`, 4, y);
   y += 5;
 
   const body = ctx.lineas.map((l) => [
@@ -361,7 +401,7 @@ async function generateTicketPdfBuffer(ctx) {
 
   autoTable(doc, {
     startY: y,
-    head: [['Prod.', 'Cant', 'P.U', 'USD']],
+    head: [['Prod.', 'Cant', 'P.U', '$ BCV']],
     body,
     theme: 'plain',
     styles: { fontSize: 7, cellPadding: 0.6, textColor: [20, 20, 20], lineColor: [200, 200, 200], lineWidth: 0.1 },
@@ -395,7 +435,7 @@ async function generateTicketPdfBuffer(ctx) {
   y = doc.lastAutoTable.finalY + 4;
 
   doc.setFontSize(8);
-  doc.text(`Subtotal USD: ${fmtMoney(ctx.subtotal_usd, 4)}`, 4, y);
+  doc.text(`Subtotal $ BCV: ${fmtMoney(ctx.subtotal_usd_bcv_ref, 2)}`, 4, y);
   y += 4;
   doc.text(
     `Desc.: ${fmtMoney(ctx.descuento_porcentaje || 0, 2)}% + ${fmtMoney(ctx.descuento_monto_usd || 0, 4)} USD`,
@@ -407,9 +447,9 @@ async function generateTicketPdfBuffer(ctx) {
   y += 5;
 
   doc.setFont('helvetica', 'bold');
-  doc.text(`TOTAL USD: ${fmtMoney(ctx.total_usd, 4)}`, 4, y);
+  doc.text(`TOTAL $ BCV: ${fmtMoney(ctx.total_usd_bcv_ref, 2)}`, 4, y);
   y += 5;
-  doc.text(`TOTAL Bs: ${fmtMoney(ctx.total_bs, 2)}`, 4, y);
+  doc.text(`TOTAL Bs BCV: ${fmtMoney(ctx.total_bs_bcv, 2)}`, 4, y);
   y += 6;
 
   y = await appendTicketBarcodeToDoc(doc, ctx.numero_venta, 4, y, pageW - 8);
@@ -523,7 +563,7 @@ function generateNotaEntregaPdfBuffer(ctx) {
   doc.setFontSize(10);
   doc.text(`${ctx.numero_venta}`, 196 - mx, 25, { align: 'right' });
   doc.text(`Fecha: ${fmtDate(ctx.fecha_venta)}`, 196 - mx, 31, { align: 'right' });
-  doc.text(`Tasa Bs/USD: ${fmtMoney(ctx.tasa_cambio_aplicada, 4)}`, 196 - mx, 37, { align: 'right' });
+  doc.text(`Tasa BCV: ${fmtMoney(ctx.tasa_bcv_aplicada, 4)}`, 196 - mx, 37, { align: 'right' });
 
   y = Math.max(y, 48);
   doc.setDrawColor(37, 99, 235);
@@ -554,7 +594,7 @@ function generateNotaEntregaPdfBuffer(ctx) {
 
   autoTable(doc, {
     startY: y,
-    head: [['Descripción', 'Cant.', 'P. unit. USD', 'Subtotal USD']],
+    head: [['Descripción', 'Cant.', 'P. unit. $ BCV', 'Subtotal $ BCV']],
     body,
     theme: 'striped',
     headStyles: { fillColor: [243, 244, 246], textColor: [17, 24, 39], fontStyle: 'bold' },
@@ -592,7 +632,7 @@ function generateNotaEntregaPdfBuffer(ctx) {
 
   const tx = 196 - mx - 80;
   doc.setFontSize(10);
-  doc.text(`Subtotal USD: ${fmtMoney(ctx.subtotal_usd, 4)}`, tx, y);
+  doc.text(`Subtotal $ BCV: ${fmtMoney(ctx.subtotal_usd_bcv_ref, 2)}`, tx, y);
   y += 5;
   doc.text(
     `Descuento: ${fmtMoney(ctx.descuento_porcentaje || 0, 2)}% + ${fmtMoney(ctx.descuento_monto_usd || 0, 4)} USD`,
@@ -603,9 +643,9 @@ function generateNotaEntregaPdfBuffer(ctx) {
   doc.text(`IVA (${fmtMoney(ctx.iva_porcentaje || 0, 2)}%): ${fmtMoney(ctx.iva_monto_usd, 4)} USD`, tx, y);
   y += 6;
   doc.setFont('helvetica', 'bold');
-  doc.text(`TOTAL USD: ${fmtMoney(ctx.total_usd, 4)}`, tx, y);
+  doc.text(`TOTAL $ BCV: ${fmtMoney(ctx.total_usd_bcv_ref, 2)}`, tx, y);
   y += 6;
-  doc.text(`TOTAL Bs: ${fmtMoney(ctx.total_bs, 2)}`, tx, y);
+  doc.text(`TOTAL Bs BCV: ${fmtMoney(ctx.total_bs_bcv, 2)}`, tx, y);
   y += 18;
 
   doc.setFont('helvetica', 'normal');
@@ -687,7 +727,7 @@ class PdfService {
          COUNT(CASE WHEN estado = 'anulada' THEN 1 END)::int AS ventas_anuladas,
          COALESCE(AVG(CASE WHEN estado = 'completada' THEN total_usd END), 0)::numeric AS ticket_promedio
        FROM ventas
-       WHERE DATE(fecha_venta) = CURRENT_DATE`
+       WHERE fecha_venta >= CURRENT_DATE AND fecha_venta < CURRENT_DATE + INTERVAL '1 day'`
     );
 
     /* Bug-29: aggregate over JSONB pagos array (same logic as resumenCierre) instead of
@@ -699,13 +739,26 @@ class PdfService {
          COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'zelle'),            0)::numeric AS zelle_usd,
          COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'transferencia_bs'), 0)::numeric AS transferencia_bs,
          COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'pago_movil'),       0)::numeric AS pago_movil_bs,
-         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'punto'),            0)::numeric AS punto_bs,
-         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'cashea'),           0)::numeric AS cashea_usd
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'punto'),            0)::numeric AS punto_bs
        FROM ventas v,
             jsonb_array_elements(
               CASE jsonb_typeof(v.pagos) WHEN 'array' THEN v.pagos ELSE '[]'::jsonb END
             ) AS p(obj)
-       WHERE v.estado = 'completada' AND DATE(v.fecha_venta) = CURRENT_DATE`
+       WHERE v.estado = 'completada'
+         AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'`
+    );
+
+    // Volumen Cashea: usar ventas_cashea.total_venta_usd (incluye cuota inicial + financiado)
+    // en lugar del campo monto del JSONB pagos que solo contiene la cuota inicial.
+    const casheaResumenDia = await db.oneOrNone(
+      `SELECT
+         COALESCE(SUM(vc.total_venta_usd), 0)::numeric   AS cashea_total_facturado,
+         COALESCE(SUM(vc.monto_inicial_usd), 0)::numeric AS cashea_inicial_cobrado
+       FROM ventas_cashea vc
+       INNER JOIN ventas v ON v.id = vc.venta_id
+       WHERE v.estado = 'completada'
+         AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'
+         AND vc.estado_liquidacion != 'ANULADA'`
     );
 
     const hoy = await db.one(`SELECT CURRENT_DATE AS d`);
@@ -720,6 +773,8 @@ class PdfService {
       totalBs: parseFloat(resumenDia.total_bs_vendido) || 0,
       esperadoEfectivoUsd: parseFloat(montosEsperados.efectivo_usd) || 0,
       esperadoEfectivoBs: parseFloat(montosEsperados.efectivo_bs) || 0,
+      casheaInicialCobrado: parseFloat(casheaResumenDia && casheaResumenDia.cashea_inicial_cobrado || 0),
+      casheaTotalFacturado: parseFloat(casheaResumenDia && casheaResumenDia.cashea_total_facturado || 0),
       pie:
         'Resumen por ventas de hoy sin sesión vinculada. Para arqueo con fondo inicial, abra caja en el módulo Caja.'
     };
@@ -823,8 +878,7 @@ class PdfService {
          COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'zelle'),            0)::numeric AS zelle_usd,
          COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'transferencia_bs'), 0)::numeric AS transferencia_bs,
          COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'pago_movil'),       0)::numeric AS pago_movil_bs,
-         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'punto'),            0)::numeric AS punto_bs,
-         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'cashea'),           0)::numeric AS cashea_usd
+         COALESCE(SUM((p.obj->>'monto')::numeric) FILTER (WHERE p.obj->>'metodo' = 'punto'),            0)::numeric AS punto_bs
        FROM sesiones_caja sc
        LEFT JOIN ventas v ON v.sesion_caja_id = sc.id AND v.estado = 'completada'
        LEFT JOIN LATERAL jsonb_array_elements(
@@ -832,6 +886,19 @@ class PdfService {
        ) AS p(obj) ON TRUE
        WHERE sc.id = $1
        GROUP BY sc.id, sc.monto_inicial_usd, sc.monto_inicial_bs`,
+      [sesion.id]
+    );
+
+    // Volumen Cashea correcto: usar ventas_cashea.total_venta_usd, no el monto del JSONB pagos.
+    const casheaResumenSesion = await db.oneOrNone(
+      `SELECT
+         COALESCE(SUM(vc.total_venta_usd), 0)::numeric   AS cashea_total_facturado,
+         COALESCE(SUM(vc.monto_inicial_usd), 0)::numeric AS cashea_inicial_cobrado
+       FROM ventas_cashea vc
+       INNER JOIN ventas v ON v.id = vc.venta_id
+       WHERE v.sesion_caja_id = $1
+         AND v.estado = 'completada'
+         AND vc.estado_liquidacion != 'ANULADA'`,
       [sesion.id]
     );
 
@@ -851,6 +918,8 @@ class PdfService {
       totalBs: parseFloat(resumenDia.total_bs_vendido) || 0,
       esperadoEfectivoUsd: parseFloat(montosEsperados.efectivo_usd) || 0,
       esperadoEfectivoBs: parseFloat(montosEsperados.efectivo_bs) || 0,
+      casheaInicialCobrado: parseFloat(casheaResumenSesion && casheaResumenSesion.cashea_inicial_cobrado || 0),
+      casheaTotalFacturado: parseFloat(casheaResumenSesion && casheaResumenSesion.cashea_total_facturado || 0),
       pie: `Sesión #${sesion.id} · ${sesion.estado === 'abierta' ? 'Abierta' : 'Cerrada'}`
     };
 

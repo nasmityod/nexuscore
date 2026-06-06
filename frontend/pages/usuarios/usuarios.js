@@ -1,7 +1,7 @@
 'use strict';
 
 (function () {
-  var COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4'];
+  var COLORS = ['var(--accent-primary)','var(--accent-success)','var(--accent-warning)','var(--accent-danger)','var(--accent-primary-dim)','var(--accent-info)','var(--text-secondary)'];
 
   function apiBase() { return String(window.NEXUS_API_BASE || 'http://127.0.0.1:3000').replace(/\/$/, ''); }
   function apiFetch(path, init) {
@@ -69,9 +69,9 @@
       grupo: 'Tasas de cambio',
       items: [
         { key: 'tasas_ver', label: 'Ver tasas',
-          desc: 'Puede consultar las tasas BCV y tasa paralela (mercado) configuradas actualmente en el sistema.' },
+          desc: 'Puede consultar las tasas BCV y tasa USD (mercado) configuradas actualmente en el sistema.' },
         { key: 'tasas_edit', label: 'Actualizar tasas',
-          desc: 'Puede modificar la tasa BCV y la tasa paralela. Afecta el precio Bs de todos los productos en tiempo real.' }
+          desc: 'Puede modificar la tasa BCV y la tasa USD. Afecta el precio Bs de todos los productos en tiempo real.' }
       ]
     },
     {
@@ -211,13 +211,13 @@
       var html =
         '<div class="permisos-panel">' +
         '<div class="permisos-panel-header" id="perm-header">' +
-        '<span class="permisos-panel-title">⚙️ Permisos' + (tieneCustom ? ' <span style="font-size:.7rem;font-weight:600;color:#f59e0b;padding:.1rem .35rem;background:rgba(245,158,11,.15);border-radius:3px">Personalizados</span>' : '') + '</span>' +
+        '<span class="permisos-panel-title">⚙️ Permisos' + (tieneCustom ? ' <span style="font-size:.7rem;font-weight:600;color:var(--accent-warning);padding:.1rem .35rem;background:rgba(245,158,11,.15);border-radius:3px">Personalizados</span>' : '') + '</span>' +
         '<span id="perm-chevron" style="font-size:.85rem;color:var(--text-secondary);transition:transform .2s">' + (tieneCustom ? '▲' : '▼') + '</span>' +
         '</div>' +
         '<div id="perm-body" style="display:' + (tieneCustom ? 'block' : 'none') + '">' +
         '<div style="padding:.75rem 1rem .25rem">' +
         '<div class="permisos-custom-toggle">' +
-        '<input type="checkbox" id="perm-usar-custom" style="width:16px;height:16px;accent-color:#3b82f6;cursor:pointer" ' + (tieneCustom ? 'checked' : '') + '>' +
+        '<input type="checkbox" id="perm-usar-custom" style="width:16px;height:16px;accent-color:var(--accent-primary);cursor:pointer" ' + (tieneCustom ? 'checked' : '') + '>' +
         '<label for="perm-usar-custom">Usar permisos personalizados para este usuario (ignora los del rol)</label>' +
         '<button type="button" class="permisos-desde-rol" id="btn-cargar-rol">↩ Cargar desde rol</button>' +
         '</div>' +
@@ -437,8 +437,8 @@
       if (pasActualEl) pasActualEl.value = '';
       var miId = window.NexusAuth && window.NexusAuth.getUser ? (window.NexusAuth.getUser() || {}).id : null;
       var esMismo = miId && Number(miId) === Number(userId);
-      var esAdmin = window.NexusAuth && window.NexusAuth.can && window.NexusAuth.can('usuarios_all');
-      if (campoPasActual) campoPasActual.style.display = (esMismo && !esAdmin) ? '' : 'none';
+      // Siempre pedir contraseña actual al cambiar la propia (incluso admin).
+      if (campoPasActual) campoPasActual.style.display = esMismo ? '' : 'none';
       modalPass.classList.add('is-open');
     }
 
@@ -448,7 +448,13 @@
       var userId = host.querySelector('#cambiar-pass-usuario-id').value;
       var nueva  = (host.querySelector('#input-pass-nueva').value || '').trim();
       var actual = ((host.querySelector('#input-pass-actual') || {}).value || '').trim();
-      if (!nueva || nueva.length < 4) { toast('La contraseña debe tener al menos 4 caracteres', 'error'); return; }
+      if (!nueva || nueva.length < 8) { toast('La contraseña debe tener al menos 8 caracteres', 'error'); return; }
+      var miId = window.NexusAuth && window.NexusAuth.getUser ? (window.NexusAuth.getUser() || {}).id : null;
+      var esMismo = miId && Number(userId) === Number(miId);
+      if (esMismo && !actual) {
+        toast('Debes indicar la contraseña actual', 'error');
+        return;
+      }
       var btnC = host.querySelector('#btn-confirmar-cambiar-pass');
       if (btnC) btnC.disabled = true;
       var body = { password_nuevo: nueva };

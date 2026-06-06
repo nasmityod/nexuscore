@@ -14,6 +14,19 @@ router.get('/', requirePermission('config_read'), configuracionController.getAll
 router.patch('/', requirePermission('config_write'), configuracionController.updateGeneral);
 router.post('/tasas', requirePermission('tasas_edit'), configuracionController.saveTasas);
 
+router.get('/tasa-bcv-auto', requirePermission('config_read'), configuracionController.getTasaBcvAuto);
+router.patch('/tasa-bcv-auto', requirePermission('config_write'), configuracionController.patchTasaBcvAuto);
+router.post(
+  '/tasa-bcv-auto/sincronizar',
+  requirePermission('tasas_edit'),
+  configuracionController.postTasaBcvAutoSync
+);
+router.post(
+  '/tasa-bcv-auto/forzar-aplicar',
+  requirePermission('tasas_edit'),
+  configuracionController.postTasaBcvAutoForzarAplicar
+);
+
 router.post('/impresora/prueba', requirePermission('config_write'), async (req, res, next) => {
   try {
     const r = await ImpresionService.imprimirPrueba();
@@ -21,14 +34,9 @@ router.post('/impresora/prueba', requirePermission('config_write'), async (req, 
   } catch (err) { next(err); }
 });
 
-router.get('/respaldo', requirePermission('config_read'), async (req, res, next) => {
-  try {
-    const status = await SyncService.getBackupStatus();
-    res.json(status);
-  } catch (err) {
-    next(err);
-  }
-});
+router.get('/respaldo', requirePermission('config_read'), configuracionController.getRespaldoStatus);
+
+router.patch('/respaldo/scheduler', requirePermission('config_write'), configuracionController.patchRespaldoScheduler);
 
 router.post('/respaldo/manual', requirePermission('config_write'), async (req, res, next) => {
   try {

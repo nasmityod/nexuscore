@@ -8,6 +8,7 @@ const PdfService = require('../services/pdfService');
 const ReportesService = require('../services/reportesService');
 const ExcelService = require('../services/excelService');
 const { requirePermission, requireAnyPermission } = require('../middleware/permissions.middleware');
+const ReportesController = require('../controllers/reportes.controller');
 
 /** PDF de cierre: quien opera caja puede imprimirlo aunque no tenga todos los reportes. */
 router.use((req, res, next) => {
@@ -31,53 +32,9 @@ router.use((req, res, next) => {
   return requirePermission('reportes_all')(req, res, next);
 });
 
-// ─── Rutas existentes (mantener compatibilidad) ────────────────────────────
-router.get('/analytics/dashboard', asyncHandler(async (req, res) => {
-  const diasRaw = parseInt(req.query.dias, 10);
-  const dias = Number.isFinite(diasRaw) && diasRaw >= 1 ? Math.min(diasRaw, 365) : 30;
-  const kpis = await db.one(`
-    SELECT
-      COALESCE((SELECT SUM(total_usd)  FROM ventas WHERE estado='completada' AND DATE(fecha_venta)=CURRENT_DATE),0)::numeric AS ventas_hoy,
-      COALESCE((SELECT COUNT(*)        FROM ventas WHERE estado='completada' AND DATE(fecha_venta)=CURRENT_DATE),0)::int      AS num_ventas_hoy,
-      COALESCE((SELECT SUM(total_usd)  FROM ventas WHERE estado='completada' AND DATE(fecha_venta)=CURRENT_DATE-1),0)::numeric AS ventas_ayer,
-      COALESCE((SELECT SUM(total_usd)  FROM ventas WHERE estado='completada' AND fecha_venta >= date_trunc('month',CURRENT_DATE)),0)::numeric AS ventas_mes
-  `);
-
-  const ventasDiarias = await db.any(`
-    SELECT DATE(fecha_venta) AS fecha, COALESCE(SUM(total_usd),0)::numeric AS total
-    FROM ventas WHERE estado='completada' AND fecha_venta >= NOW() - ($1::integer * INTERVAL '1 day')
-    GROUP BY DATE(fecha_venta) ORDER BY fecha
-  `, [dias]);
-
-  const categorias = await db.any(`
-    SELECT COALESCE(cat.nombre,'Sin categoría') AS nombre,
-           COALESCE(SUM(dv.subtotal_usd),0)::numeric AS total
-    FROM detalles_ventas dv
-    JOIN productos p ON p.id=dv.producto_id
-    LEFT JOIN categorias cat ON cat.id=p.categoria_id
-    JOIN ventas v ON v.id=dv.venta_id
-    WHERE v.estado='completada' AND v.fecha_venta>=NOW() - (30::integer * INTERVAL '1 day')
-    GROUP BY cat.id, cat.nombre ORDER BY total DESC LIMIT 6
-  `);
-
-  const stockAlerta = await db.any(`
-    SELECT nombre, stock_actual::numeric, stock_minimo::numeric
-    FROM productos WHERE activo=TRUE AND stock_actual <= stock_minimo*1.5
-    ORDER BY stock_actual ASC LIMIT 8
-  `);
-
-  const topProductos = await db.any(`
-    SELECT p.nombre, COALESCE(SUM(dv.cantidad),0)::numeric AS unidades,
-           COALESCE(SUM(dv.subtotal_usd),0)::numeric AS total_usd
-    FROM detalles_ventas dv
-    JOIN productos p ON p.id=dv.producto_id
-    JOIN ventas v ON v.id=dv.venta_id
-    WHERE v.estado='completada' AND v.fecha_venta>=NOW() - (30::integer * INTERVAL '1 day')
-    GROUP BY p.id, p.nombre ORDER BY total_usd DESC LIMIT 5
-  `);
-
-  res.json({ kpis, ventasDiarias, categorias, stockAlerta, topProductos });
-}));
+// ─── Analytics dashboard (ganancia real, KPIs completos) ───────────────────
+// Usa analyticsDashboard del controlador para retornar kpis.hoy.gananciaRealUsd correctamente.
+router.get('/analytics/dashboard', asyncHandler(ReportesController.analyticsDashboard));
 
 router.get('/cierre/termico.pdf', asyncHandler(async (req, res) => {
   const raw = req.query.sesion_id ?? req.query.sesion_caja_id;
@@ -102,7 +59,17 @@ router.get('/ventas-dia', asyncHandler(async (req, res) => {
 // GET /api/reportes/ventas-periodo?dias=7|30
 router.get('/ventas-periodo', asyncHandler(async (req, res) => {
   const data = await ReportesService.ventasPeriodo(db, req.query.dias);
-  res.json(data);
+  const rows = Array.isArray(data) ? data : [];
+  res.json(rows.map(function (row) {
+    const totalUsd = parseFloat(row.total_usd || row.total || 0);
+    const totalBcv = row.total_bcv != null
+      ? parseFloat(row.total_bcv)
+      : totalUsd;
+    return Object.assign({}, row, {
+      total_usd: totalUsd,
+      total_bcv: Math.round(totalBcv * 100) / 100
+    });
+  }));
 }));
 
 // GET /api/reportes/top-productos?limite=10&dias=30
@@ -165,6 +132,16 @@ router.get('/ventas-rango-resumen', asyncHandler(async (req, res) => {
   res.json(data);
 }));
 
+// GET /api/reportes/cashea-liquidaciones?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+router.get('/cashea-liquidaciones', asyncHandler(async (req, res) => {
+  const data = await ReportesService.liquidacionesCasheaPorDeposito(
+    db,
+    req.query.desde,
+    req.query.hasta
+  );
+  res.json(data);
+}));
+
 // GET /api/reportes/excel/control-precios  — descarga Excel
 router.get('/excel/control-precios', asyncHandler(async (req, res) => {
   const wb = await ExcelService.exportarControlPrecios(db);
@@ -177,10 +154,16 @@ router.get('/excel/control-precios', asyncHandler(async (req, res) => {
   res.end();
 }));
 
-// GET /api/reportes/excel/ventas?dias=30
+// GET /api/reportes/excel/ventas?dias=30  — o ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 router.get('/excel/ventas', asyncHandler(async (req, res) => {
-  const wb = await ExcelService.exportarReporteVentas(db, req.query.dias);
-  const filename = `nexus-ventas-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const desde = String(req.query.desde || '').trim().slice(0, 10);
+  const hasta = String(req.query.hasta || '').trim().slice(0, 10);
+  const wb = (desde && hasta)
+    ? await ExcelService.exportarVentasRango(db, desde, hasta)
+    : await ExcelService.exportarReporteVentas(db, req.query.dias);
+  const filename = (desde && hasta)
+    ? `nexus-ventas-${desde}_${hasta}.xlsx`
+    : `nexus-ventas-${new Date().toISOString().slice(0, 10)}.xlsx`;
   res.set({
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'Content-Disposition': `attachment; filename="${filename}"`
@@ -236,6 +219,17 @@ router.get('/excel/ventas-cajero', asyncHandler(async (req, res) => {
 router.get('/excel/historial-cierres', asyncHandler(async (req, res) => {
   const wb = await ExcelService.exportarHistorialCierres(db, req.query.limite);
   const filename = `nexus-historial-cierres-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${filename}"`
+  });
+  await wb.xlsx.write(res);
+  res.end();
+}));
+
+router.get('/excel/cashea-liquidaciones', asyncHandler(async (req, res) => {
+  const wb = await ExcelService.exportarCasheaLiquidaciones(db, req.query.desde, req.query.hasta);
+  const filename = `nexus-cashea-liquidaciones-${new Date().toISOString().slice(0, 10)}.xlsx`;
   res.set({
     'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'Content-Disposition': `attachment; filename="${filename}"`

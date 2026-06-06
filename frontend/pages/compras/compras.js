@@ -109,16 +109,16 @@
       var accionBtn = '';
       if (c.estado === 'pendiente') {
         accionBtn = '<button class="btn-secondary" style="height:44px;font-size:.8rem" onclick="ComprasPage.recibirCompra(' + c.id + ')">📦 Marcar Recibida</button>' +
-          ' <button style="height:44px;font-size:.8rem;background:transparent;border:1px solid rgba(239,68,68,.4);color:#ef4444;border-radius:var(--radius-sm);padding:0 .75rem;cursor:pointer" onclick="ComprasPage.cancelarCompra(' + c.id + ')">✕ Cancelar</button>';
+          ' <button style="height:44px;font-size:.8rem;background:transparent;border:1px solid rgba(239,68,68,.4);color:var(--accent-danger);border-radius:var(--radius-sm);padding:0 .75rem;cursor:pointer" onclick="ComprasPage.cancelarCompra(' + c.id + ')">✕ Cancelar</button>';
       }
       var diasCell = c.estado === 'pendiente' && c.dias_abierta != null
-        ? '<span style="color:' + (c.dias_abierta > 7 ? '#ef4444' : '#f59e0b') + ';font-weight:600">' + c.dias_abierta + 'd</span>'
+        ? '<span style="color:' + (c.dias_abierta > 7 ? 'var(--accent-danger)' : 'var(--accent-warning)') + ';font-weight:600">' + c.dias_abierta + 'd</span>'
         : '—';
       return '<tr>' +
         '<td><strong>' + esc(c.numero_compra || '#' + c.id) + '</strong></td>' +
         '<td>' + formatFecha(c.fecha_compra) + '</td>' +
         '<td>' + esc(c.proveedor || 'Compra directa') + '</td>' +
-        '<td style="text-align:right;font-weight:600;color:#10b981">$' + fUsd(c.total_usd) + '</td>' +
+        '<td style="text-align:right;font-weight:600;color:var(--accent-success)">$' + fUsd(c.total_usd) + '</td>' +
         '<td style="text-align:center">' + (c.num_items || '—') + '</td>' +
         '<td><span class="estado-badge ' + estadoClass + '">' + estadoLabel + '</span></td>' +
         '<td style="text-align:center">' + diasCell + '</td>' +
@@ -231,8 +231,8 @@
         '<input type="number" min="0" step="0.0001" value="' + item.costo_usd + '" style="width:90px;height:36px;padding:0 .4rem;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.85rem" ' +
         'onchange="ComprasPage.actualizarCarritoItem(' + idx + ',\'costo_usd\',this.value)">' +
         '</div>' +
-        '<div style="min-width:80px;text-align:right;font-weight:600;color:#10b981">$' + fUsd(item.cantidad * item.costo_usd) + '</div>' +
-        '<button onclick="ComprasPage.eliminarCarritoItem(' + idx + ')" style="background:transparent;border:none;color:#ef4444;cursor:pointer;font-size:1rem;padding:.2rem .4rem">✕</button>' +
+        '<div style="min-width:80px;text-align:right;font-weight:600;color:var(--accent-success)">$' + fUsd(item.cantidad * item.costo_usd) + '</div>' +
+        '<button onclick="ComprasPage.eliminarCarritoItem(' + idx + ')" style="background:transparent;border:none;color:var(--accent-danger);cursor:pointer;font-size:1rem;padding:.2rem .4rem">✕</button>' +
         '</div>';
     }).join('');
 

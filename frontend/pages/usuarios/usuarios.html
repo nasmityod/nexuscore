@@ -1,72 +1,30 @@
 <section class="page-content usuarios-page">
-<style>
-.usuarios-page .btn-primary{height:40px;padding:0 1.1rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.875rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem}
-.usuarios-page .btn-primary:hover{background:#2563eb}
-.usuarios-page .btn-secondary{height:40px;padding:0 .9rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem}
-.usuarios-page .btn-danger{height:36px;padding:.0 .75rem;border-radius:var(--radius-md);background:transparent;border:1px solid rgba(239,68,68,.4);color:#ef4444;cursor:pointer;font-size:.8rem}
-.usuarios-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
-.usuario-card{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.1rem}
-.usuario-card-header{display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem}
-.usuario-avatar{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;flex-shrink:0;color:#fff}
-.usuario-card-info{flex:1;min-width:0}
-.usuario-nombre{font-weight:700;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.usuario-username{font-size:.78rem;color:var(--text-secondary)}
-.badge-rol{padding:.1rem .45rem;border-radius:var(--radius-sm);font-size:.7rem;font-weight:700;background:rgba(59,130,246,.15);color:#3b82f6}
-.badge-inactivo{background:rgba(239,68,68,.1);color:#ef4444}
-.badge-custom-perm{background:rgba(245,158,11,.15);color:#f59e0b}
-.usuario-card-acciones{display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;padding:1rem}
-.modal-overlay.is-open{display:flex}
-.modal-box{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-lg);max-width:500px;width:100%;padding:1.5rem;max-height:90vh;overflow-y:auto}
-.modal-box--wide{max-width:720px}
-.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem}
-.modal-close{background:transparent;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-secondary)}
-.campo-grupo{margin-bottom:.9rem}
-.campo-grupo label{display:block;font-size:.83rem;font-weight:600;color:var(--text-secondary);margin-bottom:.3rem}
-.input-g{width:100%;height:42px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.93rem;box-sizing:border-box}
-.input-g:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
-
-/* Permissions panel */
-.permisos-panel{margin-top:1rem;border:1px solid var(--border-primary);border-radius:var(--radius-md);overflow:hidden}
-.permisos-panel-header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;background:var(--bg-tertiary);cursor:pointer;user-select:none;gap:.5rem}
-.permisos-panel-header:hover{background:var(--bg-hover,var(--bg-tertiary))}
-.permisos-panel-title{font-size:.85rem;font-weight:700;display:flex;align-items:center;gap:.4rem}
-.permisos-panel-body{padding:0 1rem 1rem}
-.permisos-toggle-row{display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,.06))}
-.permisos-toggle-row:last-child{border-bottom:none}
-.permisos-check{width:17px;height:17px;flex-shrink:0;accent-color:#3b82f6;cursor:pointer}
-.permisos-info{flex:1;min-width:0}
-.permisos-label{font-size:.83rem;font-weight:600;color:var(--text-primary)}
-.permisos-desc{font-size:.75rem;color:var(--text-secondary);margin-top:.1rem;line-height:1.4}
-.permisos-grupo-title{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#3b82f6;padding:.75rem 0 .25rem;opacity:.8}
-.permisos-custom-toggle{display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;padding:.6rem .75rem;background:rgba(59,130,246,.06);border-radius:var(--radius-sm);border:1px solid rgba(59,130,246,.15)}
-.permisos-custom-toggle label{font-size:.82rem;font-weight:600;cursor:pointer;flex:1}
-.permisos-desde-rol{font-size:.78rem;padding:.35rem .7rem;border-radius:var(--radius-sm);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-secondary);cursor:pointer;white-space:nowrap}
-.permisos-desde-rol:hover{border-color:#3b82f6;color:#3b82f6}
-.permisos-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 1.5rem}
-@media(max-width:540px){.permisos-grid{grid-template-columns:1fr}}
-</style>
-
 <div class="page-header">
-  <div>
+  <div class="page-header-info">
     <h1 class="page-title">Usuarios y Roles</h1>
     <p class="page-subtitle">Gestión de accesos, contraseñas y permisos del sistema</p>
   </div>
-  <div class="page-header-actions" style="display:flex;gap:.5rem">
-    <button class="btn-secondary" id="btn-gestionar-roles" style="height:40px">🔐 Gestionar Roles</button>
-    <button class="btn-primary" id="btn-nuevo-usuario">➕ Nuevo Usuario</button>
+  <div class="page-header-actions">
+    <button class="btn-secondary" id="btn-gestionar-roles">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Gestionar Roles
+    </button>
+    <button class="btn-primary" id="btn-nuevo-usuario">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Nuevo Usuario
+    </button>
   </div>
 </div>
 
 <div id="usuarios-grid" class="usuarios-grid">
-  <div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--text-secondary)">Cargando...</div>
+  <div class="td-cargando" style="grid-column:1/-1">Cargando...</div>
 </div>
 
 <!-- Modal Crear/Editar Usuario -->
 <div class="modal-overlay" id="modal-usuario">
   <div class="modal-box" id="modal-usuario-box">
     <div class="modal-header">
-      <h2 id="modal-usuario-titulo" style="font-size:1rem;font-weight:700;margin:0">Nuevo Usuario</h2>
+      <h2 id="modal-usuario-titulo">Nuevo Usuario</h2>
       <button class="modal-close" id="btn-cerrar-modal-usuario">✕</button>
     </div>
     <input type="hidden" id="usuario-id">
@@ -98,9 +56,9 @@
     <!-- Permissions panel: only rendered if current user has usuarios_all -->
     <div id="permisos-panel-wrap"></div>
 
-    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem">
+    <div class="modal-footer-row">
       <button class="btn-secondary" id="btn-cancelar-modal-usuario">Cancelar</button>
-      <button class="btn-primary" id="btn-guardar-usuario">💾 Guardar</button>
+      <button class="btn-primary" id="btn-guardar-usuario">Guardar</button>
     </div>
   </div>
 </div>
@@ -109,10 +67,10 @@
 <div class="modal-overlay" id="modal-cambiar-pass">
   <div class="modal-box" style="max-width:400px">
     <div class="modal-header">
-      <h2 style="font-size:1rem;font-weight:700;margin:0">🔑 Cambiar Contraseña</h2>
+      <h2>Cambiar Contraseña</h2>
       <button class="modal-close" id="btn-cerrar-cambiar-pass">✕</button>
     </div>
-    <p id="cambiar-pass-info" style="font-size:.83rem;color:var(--text-secondary);margin-bottom:1rem"></p>
+    <p id="cambiar-pass-info" class="modal-info-text"></p>
     <input type="hidden" id="cambiar-pass-usuario-id">
     <div class="campo-grupo" id="campo-pass-actual" style="display:none">
       <label>Contraseña actual</label>
@@ -122,7 +80,7 @@
       <label>Nueva contraseña *</label>
       <input type="password" id="input-pass-nueva" class="input-g" placeholder="Mínimo 4 caracteres" autocomplete="new-password">
     </div>
-    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:.5rem">
+    <div class="modal-footer-row">
       <button class="btn-secondary" id="btn-cancelar-cambiar-pass">Cancelar</button>
       <button class="btn-primary" id="btn-confirmar-cambiar-pass">Cambiar</button>
     </div>
@@ -133,23 +91,23 @@
 <div class="modal-overlay" id="modal-roles">
   <div class="modal-box" style="max-width:600px">
     <div class="modal-header">
-      <h2 style="font-size:1rem;font-weight:700;margin:0">🔐 Roles y Permisos</h2>
+      <h2>Roles y Permisos</h2>
       <button class="modal-close" id="btn-cerrar-roles">✕</button>
     </div>
     <div id="roles-lista" style="margin-bottom:1rem"></div>
-    <div style="border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:1rem;margin-top:.75rem">
-      <h3 style="margin:0 0 .75rem;font-size:.85rem;font-weight:700">Nuevo Rol</h3>
-      <div style="display:flex;gap:.5rem;align-items:flex-end">
-        <div style="flex:1">
+    <div class="roles-nuevo-panel">
+      <p class="roles-nuevo-panel-title">Nuevo Rol</p>
+      <div class="roles-crear-row">
+        <div>
           <div class="campo-grupo" style="margin-bottom:0">
             <label>Nombre del rol</label>
-            <input type="text" id="nuevo-rol-nombre" class="input-g" placeholder="Ej: supervisor" style="height:38px">
+            <input type="text" id="nuevo-rol-nombre" class="input-g" placeholder="Ej: supervisor">
           </div>
         </div>
-        <button class="btn-primary" id="btn-crear-rol" style="height:38px;white-space:nowrap">Crear Rol</button>
+        <button class="btn-primary" id="btn-crear-rol" style="white-space:nowrap">Crear Rol</button>
       </div>
     </div>
-    <div style="text-align:right;margin-top:1rem">
+    <div class="modal-footer-row">
       <button class="btn-secondary" id="btn-cerrar-roles-2">Cerrar</button>
     </div>
   </div>

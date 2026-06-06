@@ -5,8 +5,13 @@ const fsSync = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const { cn } = require('../config/database');
+const { cn, db } = require('../config/database');
 const { logger } = require('../config/logger');
+const {
+  resolvePgDumpCandidates,
+  warmupPgDumpResolution,
+  clearPgDumpResolutionCache
+} = require('../utils/pgDumpResolver');
 
 const BACKUP_PREFIX = 'nexus_backup_';
 const BACKUP_NAME_RE = /^nexus_backup_\d{4}_\d{2}_\d{2}_\d{4}(?:_\d+)?\.sql$/;
@@ -40,46 +45,29 @@ class SyncService {
     return path.join(process.cwd(), 'backups');
   }
 
-  static getPgDumpCandidates() {
-    const win = process.platform === 'win32';
-    const exe = win ? 'pg_dump.exe' : 'pg_dump';
-    const list = [];
-    const seen = new Set();
-
-    const add = (p) => {
-      if (!p || typeof p !== 'string') return;
-      const x = path.resolve(p.trim());
-      if (!seen.has(x)) {
-        seen.add(x);
-        list.push(x);
-      }
-    };
-
-    if (process.env.NEXUS_PG_DUMP && process.env.NEXUS_PG_DUMP.trim().length > 0) {
-      add(process.env.NEXUS_PG_DUMP.trim());
+  /**
+   * Candidatos ordenados (misma versión mayor que el servidor primero).
+   * @param {object} [dbConn] pg-promise (default: pool global)
+   */
+  static async getPgDumpCandidates(dbConn) {
+    const conn = dbConn || db;
+    try {
+      const { candidates } = await resolvePgDumpCandidates(conn);
+      return candidates;
+    } catch (e) {
+      logger.warn('getPgDumpCandidates: resolución falló', { error: e.message });
+      return [];
     }
-
-    const pathToken = win ? 'pg_dump.exe' : 'pg_dump';
-    if (!seen.has(pathToken)) {
-      seen.add(pathToken);
-      list.push(pathToken);
-    }
-
-    const binDir = process.env.NEXUS_PG_BIN_DIR;
-    if (binDir && binDir.trim().length > 0) {
-      const p = path.join(path.resolve(binDir.trim()), exe);
-      if (fsSync.existsSync(p)) add(p);
-    }
-    const rel = path.join(__dirname, '..', '..', 'database', 'postgres', 'bin', exe);
-    if (fsSync.existsSync(rel)) add(rel);
-
-    return list;
   }
 
-  /** @deprecated usar getPgDumpCandidates; se mantiene por compatibilidad */
+  /** Precalienta pg_dump tras conectar a PostgreSQL (server.js). */
+  static async ensurePgDumpReady(dbConn) {
+    return warmupPgDumpResolution(dbConn || db);
+  }
+
   static getPgDumpPath() {
-    const c = this.getPgDumpCandidates();
-    return c.length ? c[0] : null;
+    const fromEnv = process.env.NEXUS_PG_DUMP && String(process.env.NEXUS_PG_DUMP).trim();
+    return fromEnv || null;
   }
 
   static buildBackupBaseName(d) {
@@ -187,15 +175,20 @@ class SyncService {
    */
   static async runFullBackup(options) {
     const source = (options && options.source) || 'unknown';
-    const candidates = this.getPgDumpCandidates().filter((p, i, arr) => {
-      if (path.isAbsolute(p) || p.includes(path.sep)) return fsSync.existsSync(p);
-      return true;
-    });
+    let candidates = await this.getPgDumpCandidates(db);
+    candidates = candidates.filter((p) => fsSync.existsSync(p));
     const dir = this.getBackupDir();
 
     if (!candidates.length) {
+      try {
+        await warmupPgDumpResolution(db);
+        candidates = (await this.getPgDumpCandidates(db)).filter((p) => fsSync.existsSync(p));
+      } catch (_e) {}
+    }
+
+    if (!candidates.length) {
       const msg =
-        'No se encontró pg_dump. Coloque PostgreSQL portable en database/postgres/bin o defina NEXUS_PG_BIN_DIR / NEXUS_PG_DUMP.';
+        'No se encontró pg_dump compatible con su PostgreSQL. Instale el cliente de la misma versión mayor o defina NEXUS_PG_BIN_DIR en .env (ej. C:\\Program Files\\PostgreSQL\\18\\bin).';
       logger.error(msg);
       return { ok: false, error: msg };
     }
@@ -232,8 +225,9 @@ class SyncService {
         } catch (_u) {}
         if (!retry) {
           if (isPgDumpVersionMismatch(msg)) {
+            clearPgDumpResolutionCache();
             logger.warn(
-              'Respaldo omitido: versión de pg_dump distinta al servidor. Define NEXUS_PG_BIN_DIR en .env con el bin de la misma versión mayor que el servidor.',
+              'Respaldo omitido: versión de pg_dump distinta al servidor. Nexus intentará redescubrir el binario en el próximo respaldo.',
               { dumpPath, error: msg.split('\n')[0] }
             );
             await this.mergeState({

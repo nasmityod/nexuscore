@@ -7,8 +7,10 @@
     transferencia_bs: { label: '🏦 Transferencia Bs', moneda: 'BS'      },
     pago_movil:       { label: '📱 Pago Móvil',       moneda: 'BS'      },
     zelle:            { label: 'Zelle',               moneda: 'USD'     },
-    punto:            { label: '💳 Punto TDD',        moneda: 'BS'      },
+    punto:            { label: '💳 Punto De Venta',   moneda: 'BS'      },
     credito:          { label: '📋 Crédito',          moneda: 'USD_BCV' },
+    // moneda USD: validación servidor y cuadre en USD calle iguales a efectivo físico.
+    // En pantalla cobro Usd Bcv tasa/ref (no tasa USD calle): ver cobroConversionCellMeta / cobroMontoBsFila cashea.
     cashea:           { label: 'Cashea',              moneda: 'USD'     }
   };
 
@@ -27,28 +29,47 @@
   var SEARCH_DEBOUNCE_MS = 320;
   var searchSeq = 0; // contador de busquedas - descarta respuestas viejas
 
+  /** false hasta hidratar tasas desde el servidor (B7: sin fallback 489/625). */
+  var tasasHidratadasOk = false;
+
   function getTasas() {
+    if (!tasasHidratadasOk) {
+      return { bcv: 0, usd: 0, hidratadas: false };
+    }
     var c = window.NexusComponents && window.NexusComponents.loadTasasLocal;
     if (c) {
       var t = window.NexusComponents.loadTasasLocal();
-      return { bcv: t.bcv, usd: t.usd };
+      return { bcv: t.bcv, usd: t.usd, hidratadas: true };
     }
-    return { bcv: 489.5547, usd: 625.0 };
+    return { bcv: 0, usd: 0, hidratadas: false };
   }
 
-  /** Ref. USD BCV derivado del monto Bs cobrador (cadena), 1 decimal (coherente con subtotales tras desc.). */
+  function tasasListasParaVender() {
+    var t = getTasas();
+    return !!(t.hidratadas && t.bcv > 0 && t.usd > 0);
+  }
+
+  function mensajeTasasNoDisponibles() {
+    return 'Las tasas de cambio no están disponibles. Espere la conexión con el servidor o recargue el POS.';
+  }
+
+  /** Ref. USD BCV derivado del monto Bs cobrador (cadena), 2 decimales (coherente con subtotales tras desc.). */
   function refUsdBcvDesdeBsCobrar(bsCobrar) {
     var bcv = Math.round(getTasas().bcv * 10000) / 10000;
     if (!bcv || bcv <= 0) return 0;
-    return Math.round((Number(bsCobrar || 0) / bcv) * 10) / 10;
+    return Math.round((Number(bsCobrar || 0) / bcv) * 100) / 100;
   }
 
-  /** USD efectivo (tasa paralela) equivalente a un monto en Bs cadena BCV (|residual|). */
+  /** USD efectivo (tasa USD) equivalente a un monto en Bs cadena BCV (|residual|).
+   *  Descuenta la tolerancia de absorción (0,02 × tasa) para mostrar el mínimo USD real
+   *  que el cajero necesita agregar; diferencias menores quedan absorbidas por el cierre. */
   function usdEfectivoDesdeBsBcvResidual(bsResidualAbs) {
     var usdPar = Number(getTasas().usd) || 0;
     var bs = Math.abs(Number(bsResidualAbs) || 0);
     if (!(usdPar > 0)) return 0;
-    return Math.round((bs / usdPar) * 100) / 100;
+    var toleranciaAbs = 0.02 * usdPar; // misma tolerancia de cobroResidualUsdOperativo
+    var bsNeto = Math.max(0, bs - toleranciaAbs);
+    return Math.ceil((bsNeto / usdPar) * 100) / 100;
   }
 
   function formatBs(n) {
@@ -56,6 +77,43 @@
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     });
+  }
+
+  function formatUsd(n) {
+    return Number(n || 0).toLocaleString('es-VE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+
+  /** Ref. $ BCV cadena (2 decimales, miles con punto). NEXUS-DUAL: currencyDisplay.formatRefUsdBcv */
+  function formatRefUsdBcv(n) {
+    if (window.NexusComponents && typeof window.NexusComponents.formatRefUsdBcv === 'function') {
+      return window.NexusComponents.formatRefUsdBcv(n);
+    }
+    return Number(n || 0).toLocaleString('es-VE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function cobroFormatSuPago(n, moneda) {
+    if (!(Number(n) > 0)) return '';
+    if (moneda === 'BS') return formatBs(n);
+    return formatUsd(n);
+  }
+
+  /** Muestra el buffer del teclado (decimal interno «.») en es-VE. */
+  function cobroFormatNumpadBuffer(buf, moneda) {
+    var s = String(buf == null ? '' : buf).trim();
+    if (!s || s === '0') {
+      return moneda === 'BS' ? formatBs(0) : formatUsd(0);
+    }
+    if (s === '0.') return '0,';
+    var v = parseMontoUsuario(s.replace('.', ','));
+    if (Number.isNaN(v)) return s;
+    if (moneda === 'BS') return formatBs(v);
+    return formatUsd(v);
   }
 
   /**
@@ -76,7 +134,17 @@
     return parseFloat(t);
   }
 
-  /** Texto tooltip: paralelo USD×calle; cobrar depende también de BCV (redondeos 1 dec en ref. USD). */
+  /** Resumen de totales en modal de cobro (solo cadena BCV). */
+  function formatResumenTotalesBcv(totals) {
+    return (
+      'Bs. ' +
+      formatBs(totals.totalBsBcv) +
+      ' (BCV) · USD BCV $' +
+      formatRefUsdBcv(totals.totalUsdBcvRef || 0)
+    );
+  }
+
+  /** Texto cobro/status: Bs cadena BCV + ref. USD BCV (sin equivalente tasa USD). */
   function formatMontoTripleUsd(usdValEfectivo) {
     var tas = getTasas();
     try {
@@ -86,25 +154,21 @@
       var cad = window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo(
         usdValEfectivo,
         tas.bcv,
-        tas.usd
+        tas.usd,
+        { precisionPe: 4 }
       );
       return (
         'Bs cobrar (BCV): ' +
         formatBs(cad.precio_bs) +
-        ' · Paralelo ref.: ' +
-        formatBs(cad.precio_bs_paralelo_equiv) +
         ' · Ref. USD BCV $' +
-        cad.precio_usd_bcv.toFixed(1)
+        formatRefUsdBcv(cad.precio_usd_bcv)
       );
     } catch (_e) {
       var u = Number(usdValEfectivo) || 0;
-      var bsPar = Math.round(u * tas.usd * 100) / 100;
       var bsLegacy = Math.round(u * tas.bcv * 100) / 100;
       return (
         'Bs cobrar (BCV): ' +
         formatBs(bsLegacy) +
-        ' · Paralelo ref.: ' +
-        formatBs(bsPar) +
         ' · Ref. USD BCV $' +
         u.toFixed(2)
       );
@@ -112,18 +176,18 @@
   }
 
   /**
-   * Cobrar cadena BCV en negrita (reacciona a tasa BCV); paralelo ref. segundo (solo tasa paralela).
+   * Cobrar cadena BCV en negrita (reacciona a tasa BCV); ref. USD segundo (solo tasa USD).
    */
-  function htmlPrecioCarrito(bsCobrarCadenaBcv, bsParaleloEquiv, precioUsdBcvRef) {
+  function htmlPrecioCarrito(bsCobrarCadenaBcv, bsUsdEquiv, precioUsdBcvRef) {
     return (
       '<div style="font-weight:700;color:var(--accent-success)">Bs cobrar (BCV): Bs. ' +
       formatBs(bsCobrarCadenaBcv) +
       '</div>' +
-      '<div class="pos-cart-line-meta">Equiv. paralela: Bs. ' +
-      formatBs(bsParaleloEquiv) +
+      '<div class="pos-cart-line-meta">Equiv. USD: Bs. ' +
+      formatBs(bsUsdEquiv) +
       '</div>' +
       '<div class="pos-cart-line-meta">Ref. USD BCV $' +
-      Number(precioUsdBcvRef).toFixed(1) +
+      formatRefUsdBcv(precioUsdBcvRef) +
       '</div>'
     );
   }
@@ -174,14 +238,83 @@
     return round4(s);
   }
 
+  function casheaUsdEfectivoTotalDesdeObj(d) {
+    if (!d || typeof d !== 'object') return 0;
+    return round4(Number(d.montoInicial || 0) + Number(d.montoPrestado || 0));
+  }
+
   /**
-   * Suma todos los pagos convertidos a Bs BCV (misma base que totalBsBcv).
-   *   moneda USD     → monto × tasa_usd (Bs a tasa calle/paralelo)
+   * Equivalente del tramo Cashea en Bs cobro cadena BCV (no tasa USD calle).
+   * Prioriza proporción contra el total del carrito para igualar banner totalBsBcv.
+   *
+   * @param {object} desglose - cashea_desglose (montoInicial + montoPrestado = USD efectivo)
+   * @param {{ totalUsd:number, totalBsBcv:number|null|undefined }} [totalesCarrito]
+   */
+  function bsBcvEquivalenteCasheaUsdEfectivo(desglose, totalesCarrito) {
+    var ue = casheaUsdEfectivoTotalDesdeObj(desglose);
+    if (!(ue > 0)) return 0;
+    var ct = totalesCarrito || null;
+    if (ct && Number(ct.totalUsd) > 0 && ct.totalBsBcv != null) {
+      var totBs = Number(ct.totalBsBcv);
+      if (Number.isFinite(totBs) && !(totBs < 0)) {
+        return Math.round((ue / Number(ct.totalUsd)) * totBs * 100) / 100;
+      }
+    }
+    var tas = getTasas();
+    if (
+      window.PreciosServiceClient &&
+      typeof window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo === 'function'
+    ) {
+      try {
+        var r = window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo(ue, tas.bcv, tas.usd, { precisionPe: 4 });
+        return Math.round(Number(r.precio_bs || 0) * 100) / 100;
+      } catch (_eCc) {}
+    }
+    return 0;
+  }
+
+  /**
+   * Bolívares BCV que el cliente debe pagar hoy en mostrador (solo cuota inicial Cashea).
+   * No incluye el tramo financiado (paga Cashea/banco después).
+   */
+  function bsBcvCuotaInicialCobroCashea(desglose, totalesCarrito) {
+    if (!desglose || typeof desglose !== 'object') return 0;
+    if (desglose.inicialBsBcv != null && Number.isFinite(Number(desglose.inicialBsBcv))) {
+      return Math.round(Number(desglose.inicialBsBcv) * 100) / 100;
+    }
+    var mi = round4(Number(desglose.montoInicial || 0));
+    if (!(mi > 0)) return 0;
+    var ct = totalesCarrito || null;
+    if (ct && Number(ct.totalUsd) > 0 && ct.totalBsBcv != null) {
+      var totBs = Number(ct.totalBsBcv);
+      if (Number.isFinite(totBs) && !(totBs < 0)) {
+        return Math.round((mi / Number(ct.totalUsd)) * totBs * 100) / 100;
+      }
+    }
+    var tas = getTasas();
+    if (
+      window.PreciosServiceClient &&
+      typeof window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo === 'function'
+    ) {
+      try {
+        var r = window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo(mi, tas.bcv, tas.usd, { precisionPe: 4 });
+        return Math.round(Number(r.precio_bs || 0) * 100) / 100;
+      } catch (_eCi) {}
+    }
+    return 0;
+  }
+
+  /**
+   * Suma todos los pagos convertidos a Bs BCV (misma base que totalBsBcv del ticket).
+   *   moneda USD     → monto × tasa_usd (equiv. Bs a tasa USD; mixtos se auditan también en USD calle)
    *   moneda USD_BCV → monto × tasa_bcv usando aritmética entera (= totalBolivaresDesdeRefUsdBcv)
    *   moneda BS      → monto directo
-   *   Cashea         → (inicial + prestado) × tasa_usd
+   *   Cashea         → tramo inicial+prestado en USD efectivo → proporción sobre totalUsd/totalBsBcv (cadena BCV), no × tasa_usd
+   *
+   * @param {Array} payments
+   * @param {{ totalUsd:number, totalBsBcv:number|null|undefined }} [totalesCarrito] necesario cuadrar Cashea con totales pantalla
    */
-  function paidBsBcv(payments) {
+  function paidBsBcv(payments, totalesCarrito) {
     var s = 0;
     var tas = getTasas();
     var tasaUsd = tas.usd;
@@ -193,9 +326,12 @@
       if (metodo === 'cashea') {
         var d = p.cashea_desglose;
         if (d && typeof d === 'object') {
-          s += (Number(d.montoInicial || 0) + Number(d.montoPrestado || 0)) * tasaUsd;
+          s += bsBcvEquivalenteCasheaUsdEfectivo(d, totalesCarrito);
         } else {
-          s += (Number(p.monto) || 0) * tasaUsd;
+          s += bsBcvEquivalenteCasheaUsdEfectivo(
+            { montoInicial: Number(p.monto) || 0, montoPrestado: 0 },
+            totalesCarrito
+          );
         }
         return;
       }
@@ -240,10 +376,13 @@
   }
 
   function mapProductoApi(p) {
-    var manual =
-      p.precio_manual_usd != null && String(p.precio_manual_usd).length > 0
-        ? parseFloat(String(p.precio_manual_usd).replace(',', '.'))
-        : null;
+    // L2: usar tienePrecioManualActivo canónico (contraparte dual de preciosService.js)
+    var rawManual = p.precio_manual_usd != null
+      ? parseFloat(String(p.precio_manual_usd).replace(/\s/g, '').replace(',', '.'))
+      : null;
+    var tieneManual = window.PreciosServiceClient
+      ? window.PreciosServiceClient.tienePrecioManualActivo(p.precio_manual_usd)
+      : (rawManual != null && !Number.isNaN(rawManual) && rawManual > 0);
     return {
       id: p.id,
       codigo_barras: p.codigo_barras ? String(p.codigo_barras) : '',
@@ -251,8 +390,7 @@
       nombre: p.nombre,
       costo_usd: parseFloat(p.costo_usd) || 0,
       margen_ganancia_pct: parseFloat(p.margen_ganancia_pct) || 0,
-      precio_manual_usd:
-        manual != null && !Number.isNaN(manual) && manual > 0 ? manual : null,
+      precio_manual_usd: tieneManual ? rawManual : null,
       stock_actual: p.stock_actual != null ? parseFloat(p.stock_actual) : null,
       activo: p.activo !== false,
       aplica_iva: p.aplica_iva !== false && p.aplica_iva !== 'f' && p.aplica_iva !== 'false',
@@ -373,22 +511,21 @@
       ? tasasOverride
       : getTasas();
     var d = (100 - line.descuento_pct) / 100;
-    var manual =
-      line.precio_manual_usd != null &&
-      !Number.isNaN(line.precio_manual_usd) &&
-      line.precio_manual_usd > 0
-        ? Number(line.precio_manual_usd)
-        : null;
+    // L2: centralizar detección en tienePrecioManualActivo (mismo criterio que inventario y backend)
+    var manual = window.PreciosServiceClient.tienePrecioManualActivo(line.precio_manual_usd)
+      ? Number(line.precio_manual_usd)
+      : null;
 
     if (manual != null) {
       var cadManual = window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo(
         manual,
         t.bcv,
-        t.usd
+        t.usd,
+        { precisionPe: 4 }
       );
       line.precio_usd = cadManual.precio_usd_efectivo;
       line.precio_usd_bcv = cadManual.precio_usd_bcv;
-      line.precio_bs = cadManual.precio_bs_paralelo_equiv;
+      line.precio_bs = cadManual.bs_usd_equiv;
       line.precio_bs_bcv = cadManual.precio_bs;
     } else {
       var costo = Number(line.costo_usd);
@@ -410,7 +547,7 @@
         t.usd
       );
       line.precio_usd = pr.precio_usd_efectivo;
-      line.precio_bs = pr.precio_bs_paralelo_equiv;
+      line.precio_bs = pr.bs_usd_equiv;
       line.precio_usd_bcv = pr.precio_usd_bcv;
       line.precio_bs_bcv = pr.precio_bs;
     }
@@ -420,14 +557,20 @@
     line.subtotal_usd_bcv = round4(line.cantidad * line.precio_usd_bcv * d);
   }
 
-  function escapeHtml(s) {
-    var d = document.createElement('div');
-    d.textContent = s == null ? '' : String(s);
-    return d.innerHTML;
-  }
+    var escapeHtml =
+      window.NexusDomSafe && typeof window.NexusDomSafe.escapeHtml === 'function'
+        ? function (s) {
+            return window.NexusDomSafe.escapeHtml(s);
+          }
+        : function (s) {
+            var d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+          };
 
   function mountPos(host) {
     if (host._posDestroy) host._posDestroy();
+    tasasHidratadasOk = false;
     var cleanup = [];
     var add = function (el, ev, fn) {
       if (!el) return;
@@ -446,7 +589,10 @@
       payments: [], // pagos confirmados al cerrar el modal de cobro
       sesionCajaId: null, // sesión abierta del usuario (arqueo /api/caja/resumen-cierre)
       cajaAbierta: false,
-      pendingIdempotencyKey: null // se genera al abrir cobro y se reusa en reintentos
+      pendingIdempotencyKey: null, // se genera al abrir cobro y se reusa en reintentos
+      /** null = consumidor final / mostrador (sin cliente_id en la venta) */
+      clienteId: null,
+      clienteNombre: null
     };
 
     /** Evita avalancha de toasts y redirecciones si varios requests devuelven 401 a la vez. */
@@ -503,8 +649,14 @@
           return hex;
         }
       } catch (_e) {}
-      // Fallback inseguro pero único en práctica
-      return 'pos-' + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
+      var uidPart = '';
+      try {
+        if (window.NexusAuth && typeof window.NexusAuth.getUser === 'function') {
+          var u = window.NexusAuth.getUser();
+          if (u && u.id != null && String(u.id).length > 0) uidPart = 'u' + String(u.id) + '-';
+        }
+      } catch (_e2) {}
+      return 'pos-' + uidPart + Date.now() + '-' + Math.random().toString(36).slice(2, 11);
     }
 
     // Persistencia de emergencia: guardar antes de que la página/proceso muera
@@ -522,15 +674,15 @@
       window.removeEventListener('pagehide', beforeUnloadHandler);
     });
 
-    function roundedTasaMercado() {
-      var u = getTasas().usd;
+    function roundedTasaBcv() {
+      var b = getTasas().bcv;
       if (
         window.PreciosServiceClient &&
         typeof window.PreciosServiceClient.redondearTasa4 === 'function'
       ) {
-        return window.PreciosServiceClient.redondearTasa4(u);
+        return window.PreciosServiceClient.redondearTasa4(b);
       }
-      return Math.round(Number(u) * 10000) / 10000;
+      return Math.round(Number(b) * 10000) / 10000;
     }
 
     function refreshSesionCaja() {
@@ -558,12 +710,12 @@
       numpadBuffer: '0',
       casheaCfg: null,
       casheaDesglose: null,
-      casheaNivel: 'BRONCE',
-      casheaModoExpress: false,
-      casheaCalcPending: false
+      casheaNivel: 'semilla',
+      casheaCalcPending: false,
+      casheaCreditoDisponibleUsd: null
     };
 
-    /** Residual USD en cobro vs API; holgura alineada con EPS_USD_PAGOS (ajuste paralelo‑BCV / redondeos). */
+    /** Residual USD en cobro vs API; holgura alineada con EPS_USD_PAGOS (ajuste USD‑BCV / redondeos). */
     var EPS_USD_PAGOS = 0.01;
     var EPS_BS_PAGOS = 1.0; // 1 Bs de tolerancia para redondeos
 
@@ -672,7 +824,7 @@
     var elTotalUsd = host.querySelector('[data-pos-total-usd]');
     var elTotalUsdFoot = host.querySelector('[data-pos-total-usd-footer]');
     var elTotalUsdBcvFoot = host.querySelector('[data-pos-total-usd-bcv-footer]');
-    var elTotalBsParalelo = host.querySelector('[data-pos-total-bs-paralelo]');
+    var elTotalBsUsd = host.querySelector('[data-pos-total-bs-usd]');
     var elTotalBsBcv = host.querySelector('[data-pos-total-bs-bcv]');
     var elGlobalDisc = host.querySelector('[data-pos-global-disc]');
     var elSearch = host.querySelector('[data-pos-search]');
@@ -756,6 +908,7 @@
           elGlobalDisc.value = String(dump.globalDiscPct);
         }
         localStorage.removeItem('nexus_pos_emergency_cart');
+        setMarqueeTicketDraft();
         renderCart();
         renderTotals();
         showToast(
@@ -796,6 +949,52 @@
       });
     }
 
+    var MARQUEE_TICKET_DRAFT = 'BORRADOR';
+    var MARQUEE_TICKET_COMPLETED_MS = 5000;
+    var marqueeTicketMode = 'draft';
+    var marqueeTicketRevertTimer = null;
+
+    function getMarqueeTicketEl() {
+      return host.querySelector('[data-pos-marquee-ticket]');
+    }
+
+    function clearMarqueeTicketRevertTimer() {
+      if (marqueeTicketRevertTimer) {
+        clearTimeout(marqueeTicketRevertTimer);
+        marqueeTicketRevertTimer = null;
+      }
+    }
+
+    function setMarqueeTicketDraft() {
+      clearMarqueeTicketRevertTimer();
+      marqueeTicketMode = 'draft';
+      var el = getMarqueeTicketEl();
+      if (!el) return;
+      el.textContent = MARQUEE_TICKET_DRAFT;
+      el.classList.remove('pos-marquee-ticket--completed');
+      el.setAttribute('title', 'Venta en curso — aún sin número de factura');
+    }
+
+    function showMarqueeTicketCompleted(numeroVenta) {
+      clearMarqueeTicketRevertTimer();
+      marqueeTicketMode = 'completed';
+      var label =
+        numeroVenta != null && String(numeroVenta).trim()
+          ? String(numeroVenta).trim()
+          : '—';
+      var el = getMarqueeTicketEl();
+      if (!el) return;
+      el.textContent = label;
+      el.classList.add('pos-marquee-ticket--completed');
+      el.setAttribute('title', 'Venta registrada: ' + label);
+      marqueeTicketRevertTimer = setTimeout(function () {
+        marqueeTicketRevertTimer = null;
+        if (marqueeTicketMode === 'completed') {
+          setMarqueeTicketDraft();
+        }
+      }, MARQUEE_TICKET_COMPLETED_MS);
+    }
+
     function sumItemsQty() {
       return state.cart.reduce(function (acc, l) {
         return acc + (Number(l.cantidad) || 0);
@@ -818,6 +1017,40 @@
       renderCart();
     }
 
+    function bumpMarqueeClassicNumerics() {
+      var selectors = [
+        '[data-pos-marquee-precio-bs]',
+        '[data-pos-marquee-precio-usd]',
+        '[data-pos-marquee-precio-usd-bcv]',
+        '[data-pos-marquee-items]',
+        '[data-pos-total-bs-bcv]',
+        '[data-pos-total-usd]',
+        '[data-pos-total-usd-bcv-ref]'
+      ];
+      selectors.forEach(function (sel) {
+        var el = host.querySelector(sel);
+        if (!el) return;
+        el.classList.remove('marquee-bump');
+        void el.offsetWidth;
+        el.classList.add('marquee-bump');
+        setTimeout(function () {
+          el.classList.remove('marquee-bump');
+        }, 260);
+      });
+    }
+
+    function flashCartRowAdded(lineId) {
+      if (!elCart || lineId == null) return;
+      var tr = elCart.querySelector('tr[data-line-id="' + String(lineId) + '"]');
+      if (!tr) return;
+      tr.classList.remove('cart-row--added');
+      void tr.offsetWidth;
+      tr.classList.add('cart-row--added');
+      setTimeout(function () {
+        tr.classList.remove('cart-row--added');
+      }, 420);
+    }
+
     function updateClassicMarquee() {
       var line =
         state.selectedLineId != null
@@ -838,16 +1071,17 @@
             'USD efectivo $' + Number(line.precio_usd || 0).toFixed(2);
         if (pub)
           pub.textContent =
-            'Ref. USD BCV $' + Number(line.precio_usd_bcv || 0).toFixed(1);
+            'Ref. USD BCV $' + formatRefUsdBcv(line.precio_usd_bcv || 0);
       } else {
         if (pe) pe.textContent = 'USD efectivo $0.00';
         if (pb) pb.textContent = 'Bs.\u00A00,00 (BCV)';
-        if (pub) pub.textContent = 'Ref. USD BCV $0.0';
+        if (pub) pub.textContent = 'Ref. USD BCV $0,00';
       }
       if (it) it.textContent = String(sumItemsQty());
 
       var idx = host.querySelector('[data-pos-line-idx]');
       var nm = host.querySelector('[data-pos-line-name]');
+      var wrapPz = host.querySelector('[data-pos-preview-image-wrap]');
       var img = host.querySelector('[data-pos-preview-img]');
       var ph = host.querySelector('[data-pos-preview-ph]');
       var pn = host.querySelector('[data-pos-preview-name]');
@@ -855,11 +1089,12 @@
       if (!line) {
         if (idx) idx.textContent = '—';
         if (nm) nm.textContent = 'Agrega productos con F5 o el escáner';
+        if (wrapPz) wrapPz.style.display = 'none';
         if (img) {
           img.style.display = 'none';
           img.removeAttribute('src');
         }
-        if (ph) ph.style.display = '';
+        if (ph) ph.style.display = 'none';
         if (pn) pn.textContent = '—';
         if (pc) pc.textContent = '';
         return;
@@ -873,57 +1108,60 @@
       var url = previewImageSrc(line.imagen_path);
       if (img && ph) {
         if (url) {
+          if (wrapPz) wrapPz.style.display = 'flex';
           img.src = url;
           img.style.display = '';
           ph.style.display = 'none';
           img.onerror = function () {
             img.style.display = 'none';
-            ph.style.display = '';
+            img.removeAttribute('src');
+            ph.style.display = 'none';
+            if (wrapPz) wrapPz.style.display = 'none';
           };
         } else {
           img.style.display = 'none';
           img.removeAttribute('src');
-          ph.style.display = '';
+          ph.style.display = 'none';
+          if (wrapPz) wrapPz.style.display = 'none';
         }
       }
     }
 
-    function htmlPrecioCeldaUnit(line) {
+    /** Precio / Total carrito: Bs cadena BCV + ref. USD BCV. */
+    function htmlPrecioCeldaCarrito(line, isTotal) {
+      var bsBcv = isTotal ? line.subtotal_bs_bcv || 0 : line.precio_bs_bcv || 0;
+      var refBcv = isTotal ? line.subtotal_usd_bcv || 0 : line.precio_usd_bcv || 0;
+      var wrapCls =
+        'pos-cart-line-precio-simple' +
+        (isTotal ? ' pos-cart-line-precio-simple--total' : '');
       return (
-        '<div class="pos-cell-precio-main">Bs. ' +
-        formatBs(line.precio_bs_bcv || 0) +
+        '<div class="' +
+        wrapCls +
+        '">' +
+        '<div class="pos-cart-line-bs">Bs. ' +
+        formatBs(bsBcv) +
         ' <span class="pos-precio-etiq">BCV</span></div>' +
-        '<div class="pos-cart-line-meta">USD efectivo <strong>$' +
-        Number(line.precio_usd || 0).toFixed(2) +
-        '</strong> · Ref. USD BCV <strong>$' +
-        Number(line.precio_usd_bcv || 0).toFixed(1) +
-        '</strong></div>' +
-        '<div class="pos-cart-line-meta">Equiv. paralela Bs. ' +
-        formatBs(line.precio_bs || 0) +
+        '<div class="pos-cart-line-ref"><span class="pos-cart-line-ref-val">$' +
+        formatRefUsdBcv(refBcv) +
+        '</span> <span class="pos-precio-etiq">ref. BCV</span></div>' +
         '</div>'
       );
+    }
+
+    function htmlPrecioCeldaUnit(line) {
+      return htmlPrecioCeldaCarrito(line, false);
     }
 
     function htmlTotalCelda(line) {
-      return (
-        '<div class="pos-cell-precio-main">Bs. ' +
-        formatBs(line.subtotal_bs_bcv || 0) +
-        ' <span class="pos-precio-etiq">BCV</span></div>' +
-        '<div class="pos-cart-line-meta">USD efectivo <strong>$' +
-        Number(line.subtotal_usd || 0).toFixed(2) +
-        '</strong> · Ref. USD BCV <strong>$' +
-        Number(line.subtotal_usd_bcv || 0).toFixed(1) +
-        '</strong></div>' +
-        '<div class="pos-cart-line-meta">Equiv. paralela Bs. ' +
-        formatBs(line.subtotal_bs || 0) +
-        '</div>'
-      );
+      return htmlPrecioCeldaCarrito(line, true);
     }
 
     tickMarqueeTime();
+    setMarqueeTicketDraft();
     var marqueeTimer = setInterval(tickMarqueeTime, 1000);
     cleanup.push(function () {
       clearInterval(marqueeTimer);
+      clearMarqueeTicketRevertTimer();
     });
 
     applyVendedorPanel();
@@ -971,17 +1209,29 @@
     }
 
     function applyCajaUiGate() {
+      var tasasOk = tasasListasParaVender();
       var abierta =
         !!(state.cajaAbierta && state.sesionCajaId != null && state.sesionCajaId > 0);
       var btn = host.querySelector('[data-pos-cobrar]');
       var banner = host.querySelector('[data-pos-caja-banner]');
       if (btn) {
-        btn.disabled = !abierta;
-        btn.title = abierta
-          ? ''
-          : 'Realice la apertura de caja en el módulo Caja antes de cobrar.';
+        btn.disabled = !abierta || !tasasOk;
+        if (!tasasOk) {
+          btn.title = mensajeTasasNoDisponibles();
+        } else if (!abierta) {
+          btn.title = 'Realice la apertura de caja en el módulo Caja antes de cobrar.';
+        } else {
+          btn.title = '';
+        }
       }
       if (!banner) return;
+      if (!tasasOk) {
+        banner.hidden = false;
+        banner.innerHTML =
+          '<strong>Tasas no cargadas.</strong> ' +
+          escapeHtml(mensajeTasasNoDisponibles());
+        return;
+      }
       if (abierta) {
         banner.hidden = true;
         banner.innerHTML = '';
@@ -1072,9 +1322,20 @@
 
     function syncPreciosServidorHydrateThenRefresh() {
       if (window.NexusComponents && typeof window.NexusComponents.hydrateTasasDesdeServidorSilent === 'function') {
-        return window.NexusComponents.hydrateTasasDesdeServidorSilent().then(function () {});
+        return window.NexusComponents.hydrateTasasDesdeServidorSilent().then(function (r) {
+          // 401: sesión expirada — handle401() ya limpió la sesión y redirige al login.
+          // No mostrar el mensaje de "tasas no disponibles" ya que confunde la causa real.
+          if (r && r.unauthorized) return r;
+          tasasHidratadasOk = !!(r && r.ok);
+          if (!tasasHidratadasOk) {
+            showToast(mensajeTasasNoDisponibles(), 'danger');
+          }
+          return r;
+        });
       }
-      return Promise.resolve();
+      tasasHidratadasOk = false;
+      showToast(mensajeTasasNoDisponibles(), 'danger');
+      return Promise.resolve(null);
     }
 
     function loadSuspendedList() {
@@ -1223,6 +1484,7 @@
       });
       renderCart();
       renderTotals();
+      renderClientePanel();
     }
 
     function renderCart() {
@@ -1313,19 +1575,19 @@
 
     function renderTotals() {
       var t = cartTotals();
-      if (elTotalBsParalelo) elTotalBsParalelo.textContent = formatBs(t.totalBs);
+      if (elTotalBsUsd) elTotalBsUsd.textContent = formatBs(t.totalBs);
       if (elTotalBsBcv)
         elTotalBsBcv.textContent = 'Bs.\u00A0' + formatBs(t.totalBsBcv) + ' (BCV)';
       if (elTotalUsd)
         elTotalUsd.textContent = 'USD efectivo $ ' + t.totalUsd.toFixed(2);
       if (elTotalUsdFoot) elTotalUsdFoot.textContent = t.totalUsd.toFixed(2);
       if (elTotalUsdBcvFoot)
-        elTotalUsdBcvFoot.textContent = t.totalUsdBcvRef.toFixed(1);
+        elTotalUsdBcvFoot.textContent = formatRefUsdBcv(t.totalUsdBcvRef);
       updateClassicMarquee();
 
       var ptBcv = host.querySelector('[data-pos-total-usd-bcv-ref]');
       if (ptBcv)
-        ptBcv.textContent = 'Ref. USD BCV $' + t.totalUsdBcvRef.toFixed(1);
+        ptBcv.textContent = 'Ref. USD BCV $' + formatRefUsdBcv(t.totalUsdBcvRef);
     }
 
     function renderSearchResults(rows) {
@@ -1339,27 +1601,30 @@
       }
       rows.forEach(function (p) {
         var prod = mapProductoApi(p);
+        // L2: tienePrecioManualActivo canónico; prod.precio_manual_usd ya normalizado
+        // por mapProductoApi (null cuando inactivo), pero usamos el check explícito
+        // por simetría con recalcLine y para ser robustos ante futuros cambios.
+        var tieneManualBusq = window.PreciosServiceClient
+          ? window.PreciosServiceClient.tienePrecioManualActivo(prod.precio_manual_usd)
+          : (prod.precio_manual_usd != null && prod.precio_manual_usd > 0);
         var hasPrecio =
-          prod.precio_manual_usd != null ||
+          tieneManualBusq ||
           (prod.costo_usd && prod.costo_usd > 0);
-        var paraleloBv = 0;
         var cobrarBs = 0;
         var refUsdBcvDisp = '';
-        var usdEfectivoDisp = '';
 
         var t = getTasas();
 
-        if (prod.precio_manual_usd != null && window.PreciosServiceClient) {
+        if (tieneManualBusq && window.PreciosServiceClient) {
           try {
             var cMan = window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo(
               prod.precio_manual_usd,
               t.bcv,
-              t.usd
+              t.usd,
+              { precisionPe: 4 }
             );
-            paraleloBv = cMan.precio_bs_paralelo_equiv;
             cobrarBs = cMan.precio_bs;
-            refUsdBcvDisp = cMan.precio_usd_bcv.toFixed(1);
-            usdEfectivoDisp = Number(cMan.precio_usd_efectivo || 0).toFixed(2);
+            refUsdBcvDisp = formatRefUsdBcv(cMan.precio_usd_bcv);
           } catch (_eMan) {}
         } else if (hasPrecio && window.PreciosServiceClient) {
           try {
@@ -1369,10 +1634,8 @@
               t.bcv,
               t.usd
             );
-            paraleloBv = prSku.precio_bs_paralelo_equiv;
             cobrarBs = prSku.precio_bs;
-            refUsdBcvDisp = prSku.precio_usd_bcv.toFixed(1);
-            usdEfectivoDisp = Number(prSku.precio_usd_efectivo || 0).toFixed(2);
+            refUsdBcvDisp = formatRefUsdBcv(prSku.precio_usd_bcv);
           } catch (_eSku) {}
         }
 
@@ -1394,17 +1657,11 @@
           (meta ? '<span class="pos-result-meta">' + escapeHtml(meta) + '</span>' : '') +
           '</div>' +
           '<div class="pos-result-price">' +
-          '<div style="font-weight:700">Bs cobrar (BCV): Bs. ' +
+          '<div style="font-weight:700">Bs. ' +
           formatBs(cobrarBs) +
           '</div>' +
-          '<span class="pos-result-meta" style="display:block;margin-top:0.2rem">USD efectivo $' +
-          usdEfectivoDisp +
-          '</span>' +
-          '<span class="pos-result-meta" style="display:block;margin-top:0.15rem">Ref. USD BCV $' +
+          '<span class="pos-result-meta" style="display:block;margin-top:0.2rem">USD BCV $' +
           refUsdBcvDisp +
-          '</span>' +
-          '<span class="pos-result-meta" style="display:block;margin-top:0.15rem">Equiv. paralela: Bs. ' +
-          formatBs(paraleloBv) +
           '</span></div>';
 
         function onPick() {
@@ -1492,6 +1749,13 @@
 
     function addProductToCart(product, qty) {
       if (!product) return;
+      if (marqueeTicketMode === 'completed') {
+        setMarqueeTicketDraft();
+      }
+      if (!tasasListasParaVender()) {
+        showToast(mensajeTasasNoDisponibles(), 'danger');
+        return;
+      }
       if (!qty || qty <= 0) qty = 1;
       qty = normalizeCantidadCarrito(qty);
       if (
@@ -1573,7 +1837,9 @@
         state.selectedLineId = line.lineId;
       }
       renderCart();
+      flashCartRowAdded(state.selectedLineId);
       renderTotals();
+      bumpMarqueeClassicNumerics();
       showToast(product.nombre + ' agregado', 'success');
     }
 
@@ -1623,8 +1889,19 @@
       })
     );
 
-    var onTasas = function () {
+    var _ultimaTasaBcvPos = 0;
+    var _ultimaTasaUsdPos = 0;
+    var onTasas = function (e) {
+      var d = e && e.detail ? e.detail : {};
+      var bcv = Number(d.tasa_bcv) || 0;
+      var usd = Number(d.tasa_usd) || 0;
+      if (Math.abs(bcv - _ultimaTasaBcvPos) < 0.00005 && Math.abs(usd - _ultimaTasaUsdPos) < 0.00005) return;
+      _ultimaTasaBcvPos = bcv;
+      _ultimaTasaUsdPos = usd;
       refreshAll();
+      if (cobroModal && cobroModal.classList.contains('is-open')) {
+        refreshCobroMontosYFooter();
+      }
       showToast('Carrito recalculado con nuevas tasas', 'info');
     };
     window.addEventListener('nexus:tasas', onTasas);
@@ -1640,6 +1917,7 @@
       if (!state.cart.length) return;
       state.cart = [];
       state.payments = [];
+      resetClienteVentaPos();
       renderCart();
       renderTotals();
     });
@@ -1781,6 +2059,7 @@
               .catch(function () {
                 loadSuspendedList();
               });
+            setMarqueeTicketDraft();
             renderCart();
             renderTotals();
             showToast('Venta recuperada desde base de datos', 'success');
@@ -1794,29 +2073,30 @@
     function buildTicketPreviewPayload() {
       var totals = cartTotals();
       var descGlob = parseFloat(String(elGlobalDisc.value).replace(',', '.')) || 0;
-      var sumLines = lineSumUsdBeforeGlobalDisc();
       var metodo =
         state.payments.length === 1 ? state.payments[0].metodo : 'mixto';
       return {
         numero_venta: 'POS-' + Date.now(),
         fecha_venta: new Date().toISOString(),
-        cliente_nombre: 'Mostrador',
+        cliente_nombre: state.clienteNombre || 'Consumidor final',
         metodo_pago: metodo,
-        tasa_cambio_aplicada: roundedTasaMercado(),
-        subtotal_usd: sumLines,
+        tasa_bcv_aplicada: roundedTasaBcv(),
+        subtotal_usd_bcv_ref: totals.totalUsdBcvRef,
         descuento_porcentaje: descGlob,
         descuento_monto_usd: 0,
         iva_porcentaje: impuestoIvaGlobalPct,
         iva_monto_usd: totals.ivaUsd,
-        total_usd: totals.totalUsd,
-        total_bs: totals.totalBs,
+        total_ref_usd_bcv: totals.totalUsdBcvRef,
+        total_usd_bcv_ref: totals.totalUsdBcvRef,
+        total_bs_bcv: totals.totalBsBcv,
+        total_bs: totals.totalBsBcv,
         pagos: state.payments.map(mapPagoVentaPayload),
         lineas: state.cart.map(function (l) {
           return {
             descripcion: l.nombre,
             cantidad: l.cantidad,
-            precio_usd: l.precio_usd,
-            subtotal_usd: l.subtotal_usd
+            precio_usd_bcv: l.precio_usd_bcv,
+            subtotal_usd_bcv: l.subtotal_usd_bcv
           };
         }),
         pie_ticket:
@@ -1825,6 +2105,9 @@
     }
 
     function postVenta(baseUrl) {
+      if (!tasasListasParaVender()) {
+        return Promise.reject(new Error(mensajeTasasNoDisponibles()));
+      }
       var descGlob = parseFloat(String(elGlobalDisc.value).replace(',', '.')) || 0;
       var totalsPost = cartTotals();
 
@@ -1852,12 +2135,15 @@
           state.payments.length === 1 ? state.payments[0].metodo : 'mixto',
         pagos: state.payments.map(mapPagoVentaPayload),
         total_usd: round4(totalsPost.totalUsd),
-        total_bs: Math.round(totalsPost.totalBs * 100) / 100,
+        total_bs: Math.round(totalsPost.totalBsBcv * 100) / 100,
         sesion_caja_id:
           state.sesionCajaId != null && state.sesionCajaId > 0
             ? state.sesionCajaId
             : undefined
       };
+      if (state.clienteId != null && state.clienteId > 0) {
+        body.cliente_id = state.clienteId;
+      }
       return apiFetch(baseUrl + '/api/ventas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1926,15 +2212,15 @@
     var cobroBannerDescPct = document.getElementById('cobro-banner-desc-pct');
     var cobroBannerDescUsd = document.getElementById('cobro-banner-desc-usd');
     var cobroBannerTotalPago = document.getElementById('cobro-banner-total-pago');
-    var cobroBannerTotalPagoBcRef = document.getElementById('cobro-banner-total-pago-bc-ref');
+    var cobroBannerTotalPagoRef = document.getElementById('cobro-banner-total-pago-ref');
     var cobroSumPagadoBsEl = document.getElementById('cobro-sum-pagado-bs');
     var cobroSaldoBsEl = document.getElementById('cobro-saldo-bs');
     var cobroSaldoLabelEl = document.getElementById('cobro-saldo-label');
     var cobroSaldoWrapEl = document.getElementById('cobro-linea-saldo-wrap');
-    var cobroSaldoUsdWrapEl = document.getElementById('cobro-saldo-usd-wrap');
-    var cobroSaldoUsdBcvEl = document.getElementById('cobro-saldo-usd-bcv');
-    var cobroSaldoUsdEfEl = document.getElementById('cobro-saldo-usd-efectivo');
-    var cobroBcRefValueEl = document.getElementById('cobro-bc-ref-value');
+    var cobroSaldoRefsWrapEl = document.getElementById('cobro-saldo-refs-wrap');
+    var cobroSaldoRefBcvEl = document.getElementById('cobro-saldo-ref-bcv');
+    var cobroSaldoUsdCalleEl = document.getElementById('cobro-saldo-usd-calle');
+
     var cobroStatusEl = document.getElementById('cobro-status');
     var cobroStatusLbl = document.getElementById('cobro-status-label');
     var cobroStatusAmt = document.getElementById('cobro-status-amount');
@@ -1950,31 +2236,205 @@
     }
 
     var cobroCasheaPanel = document.getElementById('cashea-desglose');
-    var cobroCasheaExpressWrap = document.getElementById('cashea-express-wrap');
     var cobroCasheaNivelSel = document.getElementById('cashea-nivel-cliente');
+    var cobroCasheaCreditoInp = document.getElementById('cashea-credito-disponible');
+    var cobroCasheaLimiteAviso = document.getElementById('cashea-limite-aviso');
+    var cobroCasheaCardFoot = document.getElementById('cashea-card-foot');
+    var cobroNumpadStack = document.getElementById('cobro-numpad-stack');
+    var cobroSplitRight = document.getElementById('cobro-split-right');
+    var cobroBannerRedLabel = document.getElementById('cobro-banner-red-label');
+    var cobroBannerGreenLabel = document.getElementById('cobro-banner-green-label');
+    var cobroSumPagadoLabel = document.getElementById('cobro-sum-pagado-label');
 
     function formatUsdCashea(v) {
       return '$' + (Number(v) || 0).toFixed(2);
     }
 
+    /** Porcentaje Cashea con 2 decimales (coincide con round2 del backend). */
+    function formatPctCashea(pct) {
+      return (
+        Number(pct || 0).toLocaleString('es-VE', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }) + '%'
+      );
+    }
+
+    /** Ref. $ BCV en aviso de límite (2 decimales, legible en caja). */
+    function formatRefUsdBcvLimite(val) {
+      return (
+        '$' +
+        Number(val || 0).toLocaleString('es-VE', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }) +
+        ' BCV'
+      );
+    }
+
+    /** Monto en aviso de límite: ref. $ BCV o USD efectivo (2 dec.). */
+    function formatMontoCasheaLimite(val, enRefBcv) {
+      if (enRefBcv) return formatRefUsdBcvLimite(val);
+      return '$' + formatUsd(val);
+    }
+
+    /** Columna «Su pago» Cashea: cuota inicial en referencia $ BCV (no USD calle). */
+    function textoSuPagoCasheaUsdBcvRef(d) {
+      if (!d || typeof d !== 'object') return '';
+      var refIni = Number(d.refInicialUsdBcv);
+      if (Number.isFinite(refIni) && refIni > 0) {
+        return '$' + formatRefUsdBcv(refIni) + ' BCV';
+      }
+      var mi = Number(d.montoInicial);
+      var tu = Number(d.totalVentaUsd);
+      if (!Number.isFinite(tu) || tu <= 0) tu = Number(cartTotals().totalUsd) || 0;
+      var tRef = Number(d.totalVentaUsdBcvRef);
+      if (!Number.isFinite(tRef) || tRef <= 0) tRef = Number(cartTotals().totalUsdBcvRef) || 0;
+      if (mi > 0 && tu > 0 && tRef > 0) {
+        var r = (mi / tu) * tRef;
+        return '$' + formatRefUsdBcv(r) + ' BCV';
+      }
+      return '';
+    }
+
+    function textoLineaCasheaBsRef(d, tramo) {
+      if (!d || typeof d !== 'object') return '—';
+      var bs =
+        tramo === 'inicial'
+          ? d.inicialBsBcv != null
+            ? Number(d.inicialBsBcv)
+            : NaN
+          : d.prestadoBsBcv != null
+            ? Number(d.prestadoBsBcv)
+            : NaN;
+      var ref =
+        tramo === 'inicial'
+          ? d.refInicialUsdBcv != null
+            ? Number(d.refInicialUsdBcv)
+            : NaN
+          : d.refPrestadoUsdBcv != null
+            ? Number(d.refPrestadoUsdBcv)
+            : NaN;
+      var usd =
+        tramo === 'inicial' ? Number(d.montoInicial || 0) : Number(d.montoPrestado || 0);
+      if (Number.isFinite(bs) && bs >= 0 && Number.isFinite(ref) && ref >= 0) {
+        return 'Bs. ' + formatBs(bs) + ' · $' + formatRefUsdBcv(ref) + ' BCV';
+      }
+      if (Number.isFinite(bs) && bs >= 0) {
+        return 'Bs. ' + formatBs(bs);
+      }
+      if (usd > 0) return formatUsdCashea(usd) + ' USD';
+      return '—';
+    }
+
     function cobroSetCasheaSpans(d) {
-      function setTxt(id, val) {
-        var el = document.getElementById(id);
-        if (el) el.textContent = formatUsdCashea(val);
+      cobroSetCasheaHero(d);
+      cobroSetCasheaLimiteAviso(d);
+    }
+
+    function cobroLeerCreditoCasheaDisponible() {
+      if (!cobroCasheaCreditoInp) return null;
+      var raw = String(cobroCasheaCreditoInp.value || '').trim();
+      if (!raw) return null;
+      var n = parseMontoUsuario(raw.replace(/\s/g, ''));
+      if (!Number.isFinite(n) || n < 0) return null;
+      return Math.round(n * 100) / 100;
+    }
+
+    /** Aviso cuando la línea Cashea es menor que el financiamiento del nivel. */
+    function cobroSetCasheaLimiteAviso(d) {
+      if (!cobroCasheaLimiteAviso) return;
+      if (!d || !d.ajustadoPorLimiteCredito) {
+        cobroCasheaLimiteAviso.hidden = true;
+        cobroCasheaLimiteAviso.replaceChildren();
+        if (cobroCasheaCardFoot) {
+          cobroCasheaCardFoot.hidden = false;
+          cobroCasheaCardFoot.textContent =
+            'Indica nivel y crédito disponible en la app Cashea.';
+        }
+        return;
       }
-      if (!d || typeof d !== 'object') return;
-      setTxt('cashea-inicial-span', d.montoInicial);
-      setTxt('cashea-prestado-span', d.montoPrestado);
-      setTxt('cashea-com-base-span', d.comisionBase);
-      setTxt('cashea-com-express-span', d.comisionExpress || 0);
-      var rowExpress = document.getElementById('cashea-row-express');
-      if (rowExpress) {
-        rowExpress.style.display =
-          cobroState.casheaCfg && cobroState.casheaCfg.modo_express_activo
-            ? ''
-            : 'none';
+      var pctNivel = Number(d.pctInicialNivel);
+      if (!Number.isFinite(pctNivel)) pctNivel = Number(d.pctInicial) || 0;
+      var pctEfec = Number(d.pctInicialEfectivo);
+      if (!Number.isFinite(pctEfec)) pctEfec = Number(d.pctInicial) || 0;
+      var cred = Number(d.creditoDisponibleUsd);
+      var idealPre = Number(d.montoPrestadoIdealUsd);
+      var enRefBcv = d.creditoEnRefUsdBcv === true;
+      var refIni = Number(d.refInicialUsdBcv);
+      var bsIni = Number(d.inicialBsBcv);
+
+      function lineaAviso(texto) {
+        var li = document.createElement('li');
+        li.textContent = texto;
+        return li;
       }
-      setTxt('cashea-neto-span', d.netoLiquidacion);
+
+      var titulo = document.createElement('p');
+      titulo.className = 'cobro-cashea-limite-titulo';
+      titulo.textContent = 'Línea Cashea insuficiente para el nivel del cliente';
+
+      var lista = document.createElement('ul');
+      lista.className = 'cobro-cashea-limite-lista';
+
+      lista.appendChild(
+        lineaAviso(
+          'Crédito disponible en la app: ' +
+            formatMontoCasheaLimite(cred, enRefBcv) +
+            ' (máximo a financiar en este ticket).'
+        )
+      );
+
+      if (idealPre > 0) {
+        lista.appendChild(
+          lineaAviso(
+            'Con línea completa y ' +
+              formatPctCashea(pctNivel) +
+              ' inicial, Cashea financiaría ' +
+              formatMontoCasheaLimite(idealPre, enRefBcv) +
+              '.'
+          )
+        );
+      }
+
+      var lineaHoy =
+        'Hoy el cliente paga ' +
+        formatPctCashea(pctEfec) +
+        ' de la compra (cuota inicial ajustada por el tope).';
+      if (Number.isFinite(bsIni) && bsIni > 0 && Number.isFinite(refIni) && refIni > 0) {
+        lineaHoy +=
+          ' Equivale a Bs. ' +
+          formatBs(bsIni) +
+          ' · ' +
+          formatRefUsdBcvLimite(refIni) +
+          '.';
+      } else if (Number.isFinite(refIni) && refIni > 0) {
+        lineaHoy += ' Equivale a ' + formatRefUsdBcvLimite(refIni) + '.';
+      }
+      lista.appendChild(lineaAviso(lineaHoy));
+
+      cobroCasheaLimiteAviso.replaceChildren(titulo, lista);
+      cobroCasheaLimiteAviso.hidden = false;
+      if (cobroCasheaCardFoot) cobroCasheaCardFoot.hidden = true;
+    }
+
+    /** Desglose Cashea: cuota inicial y financiado en Bs BCV + ref. $ BCV. */
+    function cobroSetCasheaHero(d) {
+      var elPending = document.getElementById('cashea-card-pending');
+      var elBreakdown = document.getElementById('cashea-breakdown');
+      var elIni = document.getElementById('cashea-line-inicial');
+      var elPre = document.getElementById('cashea-line-prestado');
+      var pending = Boolean(cobroState.casheaCalcPending);
+      if (elPending) elPending.hidden = !pending;
+      if (elBreakdown) elBreakdown.hidden = pending;
+      if (pending || !d || typeof d !== 'object') {
+        if (elIni) elIni.textContent = pending ? '…' : '—';
+        if (elPre) elPre.textContent = '—';
+        if (pending) cobroSetCasheaLimiteAviso(null);
+        return;
+      }
+      if (elIni) elIni.textContent = textoLineaCasheaBsRef(d, 'inicial');
+      if (elPre) elPre.textContent = textoLineaCasheaBsRef(d, 'prestado');
     }
 
     function cobroUpdateCasheaPanelVisible() {
@@ -1985,43 +2445,67 @@
         (cobroState.activeMetodo === 'cashea' ||
           (Number(cobroState.rowAmounts.cashea) > 0 && cobroState.casheaDesglose));
       cobroCasheaPanel.style.display = mostrar ? '' : 'none';
-      if (cobroCasheaExpressWrap)
-        cobroCasheaExpressWrap.style.display =
-          cfgOk &&
-          cobroState.casheaCfg.modo_express_activo &&
-          (cobroState.activeMetodo === 'cashea' || Number(cobroState.rowAmounts.cashea) > 0)
-            ? ''
-            : 'none';
+      cobroCasheaPanel.setAttribute('aria-hidden', mostrar ? 'false' : 'true');
+      if (cobroNumpadStack) cobroNumpadStack.hidden = mostrar;
+      if (cobroSplitRight) cobroSplitRight.classList.toggle('cobro-split-right--cashea', mostrar);
+      if (!mostrar && cobroCasheaPanel.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+      if (mostrar) cobroSetCasheaHero(cobroState.casheaDesglose);
     }
 
-    /** GET config + POST /api/cashea/calcular; sincroniza fila inicial y spans. */
-    function calcularDesgloseCashea(totalVenta, nivelClienteOpt) {
+    /** GET config + POST /api/cashea/calcular; cobra desde totales cadena BCV (% nivel sobre Bs/ref. $BCV, proyectado a USD efectivo).
+     * @param {(string|undefined|null)=} nivelClienteOpt nivel a usar (select); si viene vacío se usa estado actual/cfg.
+     */
+    function calcularDesgloseCashea(nivelClienteOpt) {
       var api = getApiBase();
+      var totalsC = cartTotals();
       var nivelSel =
         nivelClienteOpt ||
         (cobroCasheaNivelSel && cobroCasheaNivelSel.value) ||
         cobroState.casheaNivel ||
-        'BRONCE';
+        'semilla';
       cobroState.casheaCalcPending = true;
-      cobroState.casheaNivel = nivelSel.toUpperCase();
+      cobroSetCasheaHero(null);
+      cobroState.casheaCalcSeq = (Number(cobroState.casheaCalcSeq) || 0) + 1;
+      var seqCasheaAbierto = cobroState.casheaCalcSeq;
+      renderCobroStatus();
+      // Normalizar: nuevos nombres en minúsculas, legacy en mayúsculas se mantienen
+      var NIVELES_NUEVOS = ['semilla', 'raiz', 'hoja', 'tronco', 'arbol', 'araguaney'];
+      cobroState.casheaNivel = NIVELES_NUEVOS.indexOf(nivelSel.toLowerCase()) >= 0
+        ? nivelSel.toLowerCase()
+        : nivelSel.toUpperCase();
       return apiFetch(api + '/api/cashea/config')
         .then(function (res) {
           return res.ok ? res.json() : {};
         })
         .then(function (cfg) {
+          if (seqCasheaAbierto !== cobroState.casheaCalcSeq) return null;
           cobroState.casheaCfg = cfg || {};
           if (!cfg || cfg.activo === false) {
             cobroState.casheaDesglose = null;
             cobroState.rowAmounts.cashea = 0;
             cobroUpdateCasheaPanelVisible();
+            cobroSyncSuPagoInputs();
             return null;
           }
           var body = {
-            totalVenta: Number(totalVenta),
+            totalVenta: Number(totalsC.totalUsd),
             nivelCliente: nivelSel,
-            modoExpress: Boolean(cobroState.casheaModoExpress && cfg.modo_express_activo),
+            // El modo Express lo decide el servidor según cfg.modo_express_activo.
+            // Siempre se pasa true; si en la BD está desactivado, el servicio lo ignora.
+            modoExpress: true,
             pctExtra: cfg.pct_express != null ? cfg.pct_express : 0
           };
+          if (totalsC.totalBsBcv != null && Number(totalsC.totalBsBcv) > 0) {
+            body.totalVentaBsBcv = Number(totalsC.totalBsBcv);
+          }
+          if (totalsC.totalUsdBcvRef != null && Number(totalsC.totalUsdBcvRef) > 0) {
+            body.totalVentaUsdBcvRef = Number(totalsC.totalUsdBcvRef);
+          }
+          var credDisp = cobroLeerCreditoCasheaDisponible();
+          cobroState.casheaCreditoDisponibleUsd = credDisp;
+          if (credDisp != null) body.creditoDisponibleUsd = credDisp;
           return apiFetch(api + '/api/cashea/calcular', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2034,25 +2518,34 @@
           });
         })
         .then(function (des) {
+          if (seqCasheaAbierto !== cobroState.casheaCalcSeq) return;
           if (!des || typeof des !== 'object') return;
           cobroState.casheaDesglose = des;
           cobroState.rowAmounts.cashea = des.montoInicial;
           cobroUpdateCasheaPanelVisible();
           cobroSetCasheaSpans(des);
           cobroSyncSuPagoInputs();
-          refreshCobroMontosYFooter();
-          renderCobroStatus();
+          // No llamar refreshCobroMontosYFooter aquí: casheaCalcPending sigue true y
+          // cobroPaymentsArray() omitiría Cashea → pie con residual erróneo (ticket completo).
         })
         .catch(function () {
+          if (seqCasheaAbierto !== cobroState.casheaCalcSeq) return;
           cobroState.casheaDesglose = null;
           cobroState.rowAmounts.cashea = 0;
           cobroUpdateCasheaPanelVisible();
           cobroSyncSuPagoInputs();
-          refreshCobroMontosYFooter();
-          renderCobroStatus();
         })
-        .then(function () {
-          cobroState.casheaCalcPending = false;
+        .finally(function () {
+          if (seqCasheaAbierto === cobroState.casheaCalcSeq) {
+            cobroState.casheaCalcPending = false;
+            // Refrescar hero y aviso DESPUÉS de limpiar el flag pending para que
+            // cobroSetCasheaHero muestre los valores en lugar de "Calculando…"
+            cobroSetCasheaHero(cobroState.casheaDesglose);
+            cobroSetCasheaLimiteAviso(cobroState.casheaDesglose);
+            refreshCobroMontosYFooter();
+            renderCobroStatus();
+            updateNumpadDisplay();
+          }
         });
     }
 
@@ -2064,28 +2557,32 @@
 
     function cobroClearSoloCashea() {
       cobroState.casheaDesglose = null;
-      cobroState.casheaModoExpress = false;
+      cobroState.casheaCreditoDisponibleUsd = null;
       cobroState.rowAmounts.cashea = 0;
-      var cx = document.getElementById('cashea-modo-express');
-      if (cx) cx.checked = false;
+      if (cobroCasheaCreditoInp) cobroCasheaCreditoInp.value = '';
+      cobroSetCasheaHero(null);
+      cobroSetCasheaLimiteAviso(null);
+    }
+
+    var cobroCasheaCreditoTimer = null;
+    if (cobroCasheaCreditoInp) {
+      cobroCasheaCreditoInp.addEventListener('input', function () {
+        if (cobroState.activeMetodo !== 'cashea') return;
+        if (cobroCasheaCreditoTimer) clearTimeout(cobroCasheaCreditoTimer);
+        cobroCasheaCreditoTimer = setTimeout(function () {
+          void calcularDesgloseCashea();
+        }, 400);
+      });
+      cobroCasheaCreditoInp.addEventListener('change', function () {
+        if (cobroState.activeMetodo !== 'cashea') return;
+        void calcularDesgloseCashea();
+      });
     }
 
     if (cobroCasheaNivelSel) {
       cobroCasheaNivelSel.addEventListener('change', function () {
         if (cobroState.activeMetodo !== 'cashea') return;
-        void calcularDesgloseCashea(
-          cartTotals().totalUsd,
-          cobroCasheaNivelSel.value || 'BRONCE'
-        );
-      });
-    }
-    var cobroCasheaExpressCh = document.getElementById('cashea-modo-express');
-    if (cobroCasheaExpressCh) {
-      cobroCasheaExpressCh.addEventListener('change', function () {
-        cobroState.casheaModoExpress = cobroCasheaExpressCh.checked;
-        if (cobroState.activeMetodo === 'cashea') {
-          void calcularDesgloseCashea(cartTotals().totalUsd);
-        }
+        void calcularDesgloseCashea(cobroCasheaNivelSel.value || 'semilla');
       });
     }
 
@@ -2122,6 +2619,12 @@
     function cobroMontoBsFila(metodo, suPago) {
       var meta = COBRO_METODOS[metodo];
       if (!meta) return 0;
+      if (metodo === 'cashea') {
+        var dCh = cobroState.casheaDesglose;
+        if (!dCh || typeof dCh !== 'object') return 0;
+        // Solo cuota inicial en Bs BCV (lo de hoy); no el ticket completo.
+        return bsBcvCuotaInicialCobroCashea(dCh, cartTotals());
+      }
       var sp = Number(suPago) || 0;
       if (sp <= 0) return 0;
       var tas = getTasas();
@@ -2144,17 +2647,76 @@
       return Math.round(s * 100) / 100;
     }
 
-    function cobroTasaDisplayFor(metodo) {
+    function formatTasaCobroDisplay(n) {
+      return Number(n || 0).toLocaleString('es-VE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    /** Metadatos de celda «Conversión» (— directo Bs, BCV o USD calle). */
+    function cobroConversionCellMeta(metodo) {
       var meta = COBRO_METODOS[metodo];
-      if (!meta) return '1.00';
+      if (!meta) {
+        return { text: '—', title: 'Sin conversión; el monto ya está en bolívares BCV.', kind: 'directo' };
+      }
       var tas = getTasas();
-      if (meta.moneda === 'USD_BCV') {
-        return Number(tas.bcv).toFixed(2); // tasa BCV aplicada al crédito
+      if (meta.moneda === 'BS') {
+        return {
+          text: '—',
+          title: 'Sin conversión; el monto ya está en bolívares BCV.',
+          kind: 'directo'
+        };
+      }
+      if (metodo === 'cashea' || meta.moneda === 'USD_BCV') {
+        var tBcv = formatTasaCobroDisplay(tas.bcv);
+        return {
+          text: tBcv,
+          suffix: 'BCV',
+          title: '1 $ BCV = ' + tBcv + ' Bs (tasa BCV)',
+          kind: 'bcv'
+        };
       }
       if (meta.moneda === 'USD') {
-        return Number(tas.usd).toFixed(2);
+        var tUsd = formatTasaCobroDisplay(tas.usd);
+        return {
+          text: tUsd,
+          suffix: 'USD',
+          title: '1 USD = ' + tUsd + ' Bs (tasa USD calle)',
+          kind: 'usd'
+        };
       }
-      return '1.00';
+      return { text: '—', title: 'Sin conversión; el monto ya está en bolívares BCV.', kind: 'directo' };
+    }
+
+    function cobroConversionCellHtml(metodo) {
+      var c = cobroConversionCellMeta(metodo);
+      if (c.kind === 'directo') {
+        return (
+          '<span class="cobro-conv cobro-conv--directo" title="' +
+          escapeHtml(c.title) +
+          '">—</span>'
+        );
+      }
+      return (
+        '<span class="cobro-conv cobro-conv--' +
+        c.kind +
+        '" title="' +
+        escapeHtml(c.title) +
+        '">' +
+        escapeHtml(c.text) +
+        ' <span class="cobro-conv-tag">' +
+        escapeHtml(c.suffix) +
+        '</span></span>'
+      );
+    }
+
+    function syncCobroConversionCells() {
+      if (!cobroTablaBody) return;
+      COBRO_TABLA_ORDEN.forEach(function (mid) {
+        var td = cobroTablaBody.querySelector('[data-cobro-conv-metodo="' + mid + '"]');
+        if (td) td.innerHTML = cobroConversionCellHtml(mid);
+      });
     }
 
     function updateCobroActiveRowVisual() {
@@ -2166,7 +2728,17 @@
     }
 
     function updateNumpadDisplay() {
-      if (cobroNumpadDisplay) cobroNumpadDisplay.value = cobroState.numpadBuffer || '0';
+      if (!cobroNumpadDisplay) return;
+      if (cobroState.activeMetodo === 'cashea') {
+        var tSu = textoSuPagoCasheaUsdBcvRef(cobroState.casheaDesglose);
+        cobroNumpadDisplay.value = tSu || (cobroState.casheaCalcPending ? '…' : '—');
+        cobroNumpadDisplay.setAttribute('data-cashea-readonly', '1');
+        return;
+      }
+      cobroNumpadDisplay.removeAttribute('data-cashea-readonly');
+      var metaNp = cobroState.activeMetodo && COBRO_METODOS[cobroState.activeMetodo];
+      var monNp = metaNp ? metaNp.moneda : 'BS';
+      cobroNumpadDisplay.value = cobroFormatNumpadBuffer(cobroState.numpadBuffer || '0', monNp);
     }
 
     function setCobroActiveMetodo(mid) {
@@ -2176,10 +2748,21 @@
         cobroClearOtrasSinCashea();
         cobroState.activeMetodo = mid;
         if (prev !== 'cashea') {
-          void calcularDesgloseCashea(cartTotals().totalUsd);
+          void calcularDesgloseCashea();
         }
       } else {
         cobroClearSoloCashea();
+        // Si el cajero sale de «Crédito» tras el auto‑relleno del total ref. BCV y elige otra fila
+        // (p. ej. Bs), vaciar crédito para no dar venta por cubierta sin ingresar la forma activa.
+        if (prev === 'credito' && mid !== 'credito') {
+          var totalsUx = cartTotals();
+          var credAmt = Number(cobroState.rowAmounts.credito) || 0;
+          var refFull = Math.round(totalsUx.totalUsdBcvRef * 100) / 100;
+          if (credAmt > 0 && refFull > 0 && Math.abs(credAmt - refFull) <= 0.02) {
+            cobroState.rowAmounts.credito = 0;
+            cobroSyncSuPagoInputs();
+          }
+        }
         cobroState.activeMetodo = mid;
       }
 
@@ -2204,6 +2787,12 @@
     }
 
     function cobroApplyNumpadKey(k) {
+      if (cobroState.activeMetodo === 'cashea') {
+        if (k === 'OK') {
+          showToast('Elige el nivel del cliente en el panel Cashea.', 'info');
+        }
+        return;
+      }
       var b = cobroState.numpadBuffer || '0';
       if (k === 'C') {
         cobroState.numpadBuffer = '0';
@@ -2225,7 +2814,7 @@
         refreshCobroMontosYFooter();
         renderCobroStatus();
         return;
-      } else if (k === '.') {
+      } else if (k === '.' || k === ',') {
         if (b.indexOf('.') >= 0) return;
         cobroState.numpadBuffer = b === '0' ? '0.' : b + '.';
       } else if (k === '00') {
@@ -2237,18 +2826,109 @@
       updateNumpadDisplay();
     }
 
+    /**
+     * Normaliza «Su pago» con miles (.) y decimales (,).
+     * forceFormat=false mientras se escribe (no reformatear el campo); true en blur/pegar.
+     */
+    function cobroApplySuPagoInputVe(inp, mid, forceFormat) {
+      var meta = COBRO_METODOS[mid];
+      var mon = meta ? meta.moneda : 'BS';
+      var raw = String(inp.value || '');
+      var trimmed = raw.trim();
+      if (!trimmed) {
+        cobroState.rowAmounts[mid] = 0;
+        if (forceFormat) inp.value = '';
+        if (cobroState.activeMetodo === mid) {
+          cobroState.numpadBuffer = '0';
+          updateNumpadDisplay();
+        }
+        return;
+      }
+      if (!forceFormat && /[.,]$/.test(trimmed)) {
+        var core = trimmed.slice(0, -1);
+        var vPartial = core ? parseMontoUsuario(core) : 0;
+        if (!Number.isNaN(vPartial) && vPartial >= 0) cobroState.rowAmounts[mid] = vPartial;
+        if (cobroState.activeMetodo === mid) {
+          cobroState.numpadBuffer =
+            vPartial > 0 ? String(Math.round(vPartial * 100) / 100) : '0';
+          updateNumpadDisplay();
+        }
+        return;
+      }
+      var v = parseMontoUsuario(trimmed);
+      if (Number.isNaN(v) || v < 0) v = 0;
+      cobroState.rowAmounts[mid] = v;
+      if (forceFormat) {
+        inp.value = v > 0 ? cobroFormatSuPago(v, mon) : '';
+      }
+      if (cobroState.activeMetodo === mid) {
+        cobroState.numpadBuffer = v > 0 ? String(Math.round(v * 100) / 100) : '0';
+        updateNumpadDisplay();
+      }
+    }
+
     function cobroSyncSuPagoInputs() {
       if (!cobroTablaBody) return;
       COBRO_TABLA_ORDEN.forEach(function (mid) {
+        if (mid === 'cashea') {
+          var elCas = cobroTablaBody.querySelector('.cobro-su-pago-cashea[data-cobro-metodo="cashea"]');
+          if (!elCas) return;
+          var tSu = textoSuPagoCasheaUsdBcvRef(cobroState.casheaDesglose);
+          elCas.textContent = tSu || (cobroState.casheaCalcPending ? '…' : '—');
+          elCas.title =
+            'Cuota inicial en referencia $ BCV (cadena oficial). El cobro en caja hoy es la columna «Monto a pagar» (Bs BCV).';
+          return;
+        }
         var inp = cobroTablaBody.querySelector('.cobro-su-pago-input[data-cobro-metodo="' + mid + '"]');
         if (!inp) return;
         var v = cobroState.rowAmounts[mid];
-        inp.value = v != null && Number(v) > 0 ? formatBs(Number(v)) : '';
+        inp.title = '';
+        var metaSp = COBRO_METODOS[mid];
+        inp.value =
+          v != null && Number(v) > 0
+            ? cobroFormatSuPago(Number(v), metaSp ? metaSp.moneda : 'BS')
+            : '';
       });
     }
 
-    /** Bs paralelo cobradero equivalente al residualUSD (≡ (totalUsd−paid)×tasa con redondeo API). */
-    function cobroParaleloBsDesdeUsdResidual(remUsdResidual) {
+    /**
+     * Referencias informativas del saldo (orden caja: $ BCV cadena, luego USD calle).
+     * USD calle: resta directa (totalUsd − sumUsdEquivCalle) para no inflar por brecha BCV/USD.
+     */
+    function cobroResidualRefsInformativos(remBs) {
+      var magBs = Math.abs(Number(remBs) || 0);
+      if (magBs <= EPS_BS_PAGOS) return { refBcv: 0, usdCalle: 0 };
+
+      var refBcv = refUsdBcvDesdeBsCobrar(magBs);
+
+      var tots = cartTotals();
+      var sumCalle = paidUsdEquivCalle(cobroPaymentsArray());
+      var resUsdCalle = round4(tots.totalUsd - sumCalle);
+      var usdCalle = 0;
+      if (resUsdCalle > EPS_USD_PAGOS) {
+        usdCalle = Math.ceil(resUsdCalle * 100) / 100;
+      } else if (resUsdCalle < -EPS_USD_PAGOS) {
+        usdCalle = Math.ceil(Math.abs(resUsdCalle) * 100) / 100;
+      } else if (magBs >= 1) {
+        usdCalle = usdEfectivoDesdeBsBcvResidual(magBs);
+      }
+
+      return { refBcv: refBcv, usdCalle: usdCalle };
+    }
+
+    /** Línea completa de saldo: Bs (BCV) · $ BCV · USD calle. */
+    function formatCobroResidualLinea(remBs) {
+      if (Math.abs(remBs) <= EPS_BS_PAGOS) return '';
+      var mag = Math.abs(remBs);
+      var refs = cobroResidualRefsInformativos(remBs);
+      var parts = ['Bs ' + formatBs(mag)];
+      if (refs.refBcv > 0) parts.push('$ BCV $' + formatRefUsdBcv(refs.refBcv));
+      if (refs.usdCalle > 0) parts.push('USD $' + formatUsd(refs.usdCalle));
+      return parts.join(' · ');
+    }
+
+    /** Bs a tasa USD cobradero equivalente al residualUSD (≡ (totalUsd−paid)×tasa con redondeo API). */
+    function cobroBsUsdDesdeUsdResidual(remUsdResidual) {
       return totalBsMercadoDesdeUsdTotal(remUsdResidual);
     }
 
@@ -2295,6 +2975,7 @@
 
     function refreshCobroMontosYFooter() {
       if (cobroTablaBody) {
+        syncCobroConversionCells();
         COBRO_TABLA_ORDEN.forEach(function (mid) {
           var td = cobroTablaBody.querySelector('[data-cobro-monto-metodo="' + mid + '"]');
           if (td) td.textContent = formatBs(cobroMontoBsFila(mid, cobroState.rowAmounts[mid]));
@@ -2302,7 +2983,11 @@
       }
       var sumPagosBsCols = cobroSumPagosBs();
       if (cobroSumPagadoBsEl) cobroSumPagadoBsEl.textContent = formatBs(sumPagosBsCols);
-      var remRawBs = cobroUsdResidualRounded(); // Bs BCV crudo
+      if (cobroSumPagadoLabel) {
+        cobroSumPagadoLabel.textContent = cobroEsCasheaPuroConDesglose()
+          ? 'Cobrado hoy en caja'
+          : 'Su pago (suma en Bs)';
+      }
       var remOpBs = cobroResidualUsdOperativo(); // Bs BCV operativo (con EPS)
 
       if (cobroSaldoBsEl && cobroSaldoLabelEl && cobroSaldoWrapEl) {
@@ -2320,29 +3005,20 @@
         }
       }
 
-      if (cobroSaldoUsdWrapEl && cobroSaldoUsdBcvEl && cobroSaldoUsdEfEl) {
+      if (cobroSaldoRefsWrapEl && cobroSaldoRefBcvEl && cobroSaldoUsdCalleEl) {
         if (Math.abs(remOpBs) <= EPS_BS_PAGOS) {
-          cobroSaldoUsdBcvEl.textContent = '—';
-          cobroSaldoUsdEfEl.textContent = '—';
+          cobroSaldoRefBcvEl.textContent = '—';
+          cobroSaldoUsdCalleEl.textContent = '—';
         } else {
-          var bsMagUsdLine = Math.abs(remOpBs);
-          cobroSaldoUsdBcvEl.textContent =
-            '$' + refUsdBcvDesdeBsCobrar(bsMagUsdLine).toFixed(1);
-          cobroSaldoUsdEfEl.textContent =
-            '$' + usdEfectivoDesdeBsBcvResidual(bsMagUsdLine).toFixed(2);
+          var refsSaldo = cobroResidualRefsInformativos(remOpBs);
+          cobroSaldoRefBcvEl.textContent =
+            refsSaldo.refBcv > 0 ? '$' + formatRefUsdBcv(refsSaldo.refBcv) : '—';
+          cobroSaldoUsdCalleEl.textContent =
+            refsSaldo.usdCalle > 0 ? '$' + formatUsd(refsSaldo.usdCalle) : '—';
         }
       }
 
-      // Referencia informativa paralelo (solo para libro contable)
-      var parResidualBs = Math.abs(
-        remRawBs > 0 ? (remRawBs / getTasas().bcv) * getTasas().usd : 0
-      );
-      if (cobroBcRefValueEl) {
-        cobroBcRefValueEl.textContent =
-          parResidualBs <= 1
-            ? '—'
-            : formatBs(Math.round(parResidualBs * 100) / 100) + ' Bs (equiv. paralelo ref.)';
-      }
+      renderCobroBanners();
     }
 
     function renderCobroBanners() {
@@ -2354,16 +3030,47 @@
       var descUsd = round4(bruto * (g / 100));
       if (cobroBannerTotalUsdBcv)
         cobroBannerTotalUsdBcv.textContent =
-          'TOTAL $$' + totals.totalUsdBcvRef.toFixed(1) + ' BCV';
+          'TOTAL $' + formatRefUsdBcv(totals.totalUsdBcvRef) + ' BCV';
       if (cobroBannerTotalBs)
         cobroBannerTotalBs.textContent = 'Bs.\u00A0' + formatBs(totals.totalBsBcv);
       if (cobroBannerTotalUsd)
-        cobroBannerTotalUsd.textContent = 'USD $' + totals.totalUsd.toFixed(2);
+        cobroBannerTotalUsd.textContent = 'USD $' + formatUsd(totals.totalUsd);
       if (cobroBannerDescPct) cobroBannerDescPct.textContent = g.toFixed(2) + '%';
-      if (cobroBannerDescUsd) cobroBannerDescUsd.textContent = descUsd > 0 ? '−$' + descUsd.toFixed(2) : '$0.00';
-      if (cobroBannerTotalPago) cobroBannerTotalPago.textContent = formatBs(totals.totalBsBcv);
-      if (cobroBannerTotalPagoBcRef)
-        cobroBannerTotalPagoBcRef.textContent = formatBs(totals.totalBs);
+      if (cobroBannerDescUsd)
+        cobroBannerDescUsd.textContent = descUsd > 0 ? '−$' + formatUsd(descUsd) : '$0,00';
+      // Banner rojo: en Cashea lo operativo hoy es la cuota inicial en Bs, no el ticket completo.
+      var bsOperativoCobro = totals.totalBsBcv;
+      if (
+        cobroState.activeMetodo === 'cashea' &&
+        cobroState.casheaDesglose &&
+        !cobroState.casheaCalcPending
+      ) {
+        var iniOp = bsBcvCuotaInicialCobroCashea(cobroState.casheaDesglose, totals);
+        if (iniOp > 0) bsOperativoCobro = iniOp;
+      }
+      if (cobroBannerTotalPago) cobroBannerTotalPago.textContent = formatBs(bsOperativoCobro);
+      var esCasheaUi =
+        cobroState.activeMetodo === 'cashea' &&
+        cobroState.casheaCfg &&
+        cobroState.casheaCfg.activo !== false;
+      var esCasheaCobroHoy =
+        esCasheaUi && cobroState.casheaDesglose && !cobroState.casheaCalcPending;
+      if (cobroBannerTotalPagoRef) {
+        if (esCasheaCobroHoy) {
+          var refIniTxt = textoSuPagoCasheaUsdBcvRef(cobroState.casheaDesglose);
+          cobroBannerTotalPagoRef.textContent = refIniTxt || '—';
+          cobroBannerTotalPagoRef.hidden = false;
+        } else {
+          cobroBannerTotalPagoRef.hidden = true;
+          cobroBannerTotalPagoRef.textContent = '';
+        }
+      }
+      if (cobroBannerRedLabel) {
+        cobroBannerRedLabel.textContent = esCasheaCobroHoy
+          ? 'Cobrar hoy (cuota inicial)'
+          : 'Total a cobrar (BCV)';
+      }
+      if (cobroBannerGreenLabel) cobroBannerGreenLabel.hidden = !esCasheaUi;
     }
 
     function renderCobroTabla() {
@@ -2379,14 +3086,42 @@
         tr.className = 'cobro-tabla-row';
         tr.setAttribute('data-cobro-metodo', mid);
         var val = cobroState.rowAmounts[mid];
-        var su = val != null && Number(val) > 0 ? formatBs(Number(val)) : '';
+        var suPagoCell;
+        if (mid === 'cashea') {
+          var suCasTxt = textoSuPagoCasheaUsdBcvRef(cobroState.casheaDesglose);
+          suPagoCell =
+            '<td class="num">' +
+            '<span class="cobro-su-pago-cashea pos-no-scan" data-cobro-metodo="cashea" tabindex="-1" ' +
+            'title="Cuota inicial en referencia $ BCV. Cobro en caja: «Monto a pagar» (Bs BCV).">' +
+            escapeHtml(suCasTxt || (cobroState.casheaCalcPending ? '…' : '—')) +
+            '</span></td>';
+        } else {
+          var su =
+            val != null && Number(val) > 0
+              ? cobroFormatSuPago(Number(val), meta.moneda)
+              : '';
+          suPagoCell =
+            '<td class="num">' +
+            '<input type="text" inputmode="decimal" autocomplete="off" min="0" data-step="0.01" placeholder="0,00" class="cobro-su-pago-input pos-no-scan" data-cobro-metodo="' +
+            mid +
+            '" data-cobro-moneda="' +
+            escapeHtml(meta.moneda) +
+            '" value="' +
+            su +
+            '" />' +
+            '</td>';
+        }
         var labelTd;
         if (mid === 'cashea') {
           labelTd =
-            '<td class="cobro-metodo-cell cobro-metodo-cell--cashea"><img class="cobro-metodo-icon cobro-metodo-icon--cashea" src="assets/images/cashea.webp" alt="" width="20" height="20" /> ' +
+            '<td class="cobro-metodo-cell cobro-metodo-cell--cashea"><img class="cobro-metodo-icon cobro-metodo-icon--cashea" src="' +
+            (window.NexusCasheaBrand && window.NexusCasheaBrand.ICON_SRC
+              ? window.NexusCasheaBrand.ICON_SRC
+              : 'assets/images/cashea.webp') +
+            '" alt="" width="20" height="20" /> ' +
             escapeHtml(meta.label) +
             ' <span class="cobro-cell-moneda">' +
-            escapeHtml(meta.moneda) +
+            '$BCV' +
             '</span></td>';
         } else if (mid === 'zelle') {
           labelTd =
@@ -2405,16 +3140,12 @@
         }
         tr.innerHTML =
           labelTd +
-          '<td class="num">' +
-          cobroTasaDisplayFor(mid) +
-          '</td>' +
-          '<td class="num">' +
-          '<input type="text" inputmode="decimal" autocomplete="off" min="0" data-step="0.01" class="cobro-su-pago-input pos-no-scan" data-cobro-metodo="' +
+          '<td class="num" data-cobro-conv-metodo="' +
           mid +
-          '" value="' +
-          su +
-          '" />' +
+          '">' +
+          cobroConversionCellHtml(mid) +
           '</td>' +
+          suPagoCell +
           '<td class="num" data-cobro-monto-metodo="' +
           mid +
           '">' +
@@ -2428,55 +3159,306 @@
       updateCobroActiveRowVisual();
     }
 
-    function openCobroModal() {
-      function openCobroModalBody() {
-        var totalsInner = cartTotals();
-        if (totalsInner.totalUsd <= 0) {
-          showToast('El carrito está vacío', 'warning');
-          return;
+    var pendingClienteVentaContinue = null;
+    var clienteModalSearchTimer = null;
+
+    function renderClientePanel() {
+      var nameEl = host.querySelector('[data-pos-cliente-nombre]');
+      var subEl = host.querySelector('[data-pos-cliente-sub]');
+      if (!nameEl || !subEl) return;
+      if (state.clienteId != null && state.clienteId > 0 && state.clienteNombre) {
+        nameEl.textContent = state.clienteNombre;
+        subEl.textContent = 'Cliente registrado · clic para cambiar';
+      } else {
+        nameEl.textContent = 'Consumidor final';
+        subEl.textContent = 'Mostrador · clic para cambiar';
+      }
+    }
+
+    function resetClienteVentaPos() {
+      state.clienteId = null;
+      state.clienteNombre = null;
+      renderClientePanel();
+    }
+
+    function resetClienteVentaModalPanels() {
+      var menu = document.getElementById('pos-cliente-venta-menu');
+      var bus = document.getElementById('pos-cliente-buscar-panel');
+      var nue = document.getElementById('pos-cliente-nuevo-panel');
+      var inp = document.getElementById('pos-cliente-buscar-input');
+      var res = document.getElementById('pos-cliente-buscar-results');
+      var nNom = document.getElementById('pos-cliente-nuevo-nombre');
+      var nDoc = document.getElementById('pos-cliente-nuevo-doc');
+      var nTel = document.getElementById('pos-cliente-nuevo-tel');
+      if (menu) menu.style.display = '';
+      if (bus) bus.style.display = 'none';
+      if (nue) nue.style.display = 'none';
+      if (inp) inp.value = '';
+      if (res) res.innerHTML = '';
+      if (nNom) nNom.value = '';
+      if (nDoc) nDoc.value = '';
+      if (nTel) nTel.value = '';
+    }
+
+    function closeClienteVentaModalOnly() {
+      var m = document.getElementById('pos-cliente-venta-modal');
+      if (m) m.classList.remove('is-open');
+      pendingClienteVentaContinue = null;
+      resetClienteVentaModalPanels();
+    }
+
+    function finishClienteVentaChoice() {
+      var cb = pendingClienteVentaContinue;
+      pendingClienteVentaContinue = null;
+      var m = document.getElementById('pos-cliente-venta-modal');
+      if (m) m.classList.remove('is-open');
+      resetClienteVentaModalPanels();
+      renderClientePanel();
+      if (typeof cb === 'function') cb();
+    }
+
+    function openClienteVentaModal(onContinue) {
+      pendingClienteVentaContinue = typeof onContinue === 'function' ? onContinue : null;
+      resetClienteVentaModalPanels();
+      var m = document.getElementById('pos-cliente-venta-modal');
+      var canEdit =
+        window.NexusAuth &&
+        typeof window.NexusAuth.can === 'function' &&
+        window.NexusAuth.can('clientes_edit');
+      var btnNuevo = document.getElementById('pos-cliente-opt-nuevo');
+      var hint = document.getElementById('pos-cliente-nuevo-perm-hint');
+      var guardar = document.getElementById('pos-cliente-nuevo-guardar');
+      if (btnNuevo) btnNuevo.style.display = canEdit ? '' : 'none';
+      if (hint) hint.style.display = canEdit ? 'none' : '';
+      if (guardar) guardar.disabled = !canEdit;
+      if (m) m.classList.add('is-open');
+    }
+
+    function runClienteVentaSearch(q) {
+      var resEl = document.getElementById('pos-cliente-buscar-results');
+      if (!resEl) return;
+      var qq = String(q || '').trim();
+      if (qq.length < 2) {
+        resEl.innerHTML =
+          '<li class="muted" style="cursor:default;padding:0.65rem 0.75rem">Escribe al menos 2 caracteres</li>';
+        return;
+      }
+      apiFetch('/api/clientes?limit=15&q=' + encodeURIComponent(qq))
+        .then(function (r) {
+          return r.ok ? r.json() : [];
+        })
+        .then(function (rows) {
+          if (!Array.isArray(rows) || rows.length === 0) {
+            resEl.innerHTML =
+              '<li class="muted" style="cursor:default;padding:0.65rem 0.75rem">Sin resultados</li>';
+            return;
+          }
+          resEl.innerHTML = rows
+            .map(function (row) {
+              var meta = [row.cedula_rif, row.telefono].filter(Boolean).join(' · ');
+              return (
+                '<li role="button" tabindex="0" data-cli-id="' +
+                Number(row.id) +
+                '">' +
+                '<strong>' +
+                escapeHtml(row.nombre || '—') +
+                '</strong>' +
+                (meta
+                  ? '<div class="muted">' + escapeHtml(meta) + '</div>'
+                  : '') +
+                '</li>'
+              );
+            })
+            .join('');
+        })
+        .catch(function () {
+          resEl.innerHTML =
+            '<li class="muted" style="cursor:default;color:var(--accent-danger);padding:0.65rem 0.75rem">Error al buscar</li>';
+        });
+    }
+
+    function initClienteVentaModalOnce() {
+      var modal = document.getElementById('pos-cliente-venta-modal');
+      if (!modal || modal._posClienteBound) return;
+      var cerrar = document.getElementById('pos-cliente-venta-cerrar');
+      var optFinal = document.getElementById('pos-cliente-opt-final');
+      var optBuscar = document.getElementById('pos-cliente-opt-buscar');
+      var optNuevo = document.getElementById('pos-cliente-opt-nuevo');
+      var btnGuardarNuevo = document.getElementById('pos-cliente-nuevo-guardar');
+      if (!cerrar || !optFinal || !optBuscar || !optNuevo || !btnGuardarNuevo) return;
+      modal._posClienteBound = true;
+
+      var nTelElInit = document.getElementById('pos-cliente-nuevo-tel');
+      if (nTelElInit && window.NexusTelefonoVe) window.NexusTelefonoVe.enlazarInput(nTelElInit);
+
+      cerrar.addEventListener('click', closeClienteVentaModalOnly);
+      optFinal.addEventListener('click', function () {
+        state.clienteId = null;
+        state.clienteNombre = null;
+        finishClienteVentaChoice();
+      });
+      optBuscar.addEventListener('click', function () {
+        document.getElementById('pos-cliente-venta-menu').style.display = 'none';
+        document.getElementById('pos-cliente-buscar-panel').style.display = 'block';
+        var inp = document.getElementById('pos-cliente-buscar-input');
+        if (inp) {
+          inp.focus();
+          runClienteVentaSearch(inp.value);
         }
-        // Bug-21: refresh IVA from server every time cobro opens so stale config won't mismatch
-        void loadImpuestoIvaVentas().then(function () {
-          renderTotals();
-          refreshCobroMontosYFooter();
+      });
+      document.getElementById('pos-cliente-buscar-volver').addEventListener('click', resetClienteVentaModalPanels);
+      optNuevo.addEventListener('click', function () {
+        document.getElementById('pos-cliente-venta-menu').style.display = 'none';
+        document.getElementById('pos-cliente-nuevo-panel').style.display = 'block';
+        var n = document.getElementById('pos-cliente-nuevo-nombre');
+        if (n) setTimeout(function () { n.focus(); }, 50);
+      });
+      document.getElementById('pos-cliente-nuevo-volver').addEventListener('click', resetClienteVentaModalPanels);
+
+      var bin = document.getElementById('pos-cliente-buscar-input');
+      if (bin) {
+        bin.addEventListener('input', function () {
+          clearTimeout(clienteModalSearchTimer);
+          var v = bin.value;
+          clienteModalSearchTimer = setTimeout(function () {
+            runClienteVentaSearch(v);
+          }, SEARCH_DEBOUNCE_MS);
         });
-        void refreshSesionCaja();
-        cobroState.rowAmounts = {};
-        COBRO_TABLA_ORDEN.forEach(function (m) {
-          cobroState.rowAmounts[m] = 0;
-        });
-        cobroState.casheaCfg = null;
-        cobroState.casheaDesglose = null;
-        cobroState.casheaModoExpress = false;
-        cobroState.casheaCalcPending = false;
-        if (cobroCasheaNivelSel) cobroState.casheaNivel = cobroCasheaNivelSel.value || 'BRONCE';
-        var cx0 = document.getElementById('cashea-modo-express');
-        if (cx0) cx0.checked = false;
-        cobroState.activeMetodo = COBRO_TABLA_ORDEN[0];
-        cobroState.numpadBuffer = '0';
-        renderCobroBanners();
-        renderCobroTabla();
-        setCobroActiveMetodo(cobroState.activeMetodo);
-        refreshCobroMontosYFooter();
-        renderCobroStatus();
-        if (cobroOptPdf) cobroOptPdf.checked = readAbrirPdfCobro();
-        if (cobroModal) cobroModal.classList.add('is-open');
-        void apiFetch(getApiBase() + '/api/cashea/config')
-          .then(function (res) {
-            return res.ok ? res.json() : {};
-          })
-          .then(function (cfg) {
-            cobroState.casheaCfg = cfg || {};
-            cobroUpdateCasheaPanelVisible();
-            renderCobroTabla();
-          })
-          .catch(function () {});
       }
 
+      var resUl = document.getElementById('pos-cliente-buscar-results');
+      if (resUl) {
+        resUl.addEventListener('click', function (ev) {
+          var li = ev.target.closest('[data-cli-id]');
+          if (!li) return;
+          var cid = Number(li.getAttribute('data-cli-id'));
+          var nom = '';
+          var st = li.querySelector('strong');
+          if (st) nom = String(st.textContent || '').trim();
+          if (!cid || cid < 1) return;
+          state.clienteId = cid;
+          state.clienteNombre = nom || 'Cliente #' + cid;
+          finishClienteVentaChoice();
+        });
+      }
+
+      btnGuardarNuevo.addEventListener('click', function () {
+        var nom = (document.getElementById('pos-cliente-nuevo-nombre') || {}).value || '';
+        nom = String(nom).trim();
+        if (!nom) {
+          showToast('El nombre del cliente es obligatorio', 'warning');
+          return;
+        }
+        var doc = String((document.getElementById('pos-cliente-nuevo-doc') || {}).value || '').trim();
+        var telRaw = String((document.getElementById('pos-cliente-nuevo-tel') || {}).value || '').trim();
+        var Ve = window.NexusTelefonoVe;
+        if (!Ve) {
+          showToast('No se cargó la validación de celular. Recargue la página.', 'warning');
+          return;
+        }
+        var vt = Ve.validarOpcional(telRaw);
+        if (!vt.ok) {
+          showToast(vt.mensaje, 'warning');
+          return;
+        }
+        var telPayload = vt.normalizado;
+        var btn = document.getElementById('pos-cliente-nuevo-guardar');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = '⏳ Guardando…';
+        }
+        apiFetch('/api/clientes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nombre: nom,
+            cedula_rif: doc || null,
+            telefono: telPayload
+          })
+        })
+          .then(function (r) {
+            return r.ok ? r.json() : r.json().then(function (d) { throw new Error(d.error || 'HTTP ' + r.status); });
+          })
+          .then(function (row) {
+            state.clienteId = row.id;
+            state.clienteNombre = row.nombre || nom;
+            finishClienteVentaChoice();
+            showToast('Cliente registrado y asociado a la venta', 'success');
+          })
+          .catch(function (e) {
+            showToast(e.message || 'No se pudo crear el cliente', 'danger');
+          })
+          .finally(function () {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = 'Guardar y usar en esta venta';
+            }
+          });
+      });
+    }
+
+    function openCobroModalBody() {
+      var totalsInner = cartTotals();
+      if (totalsInner.totalUsd <= 0) {
+        showToast('El carrito está vacío', 'warning');
+        return;
+      }
+      // Bug-21: refresh IVA from server every time cobro opens so stale config won't mismatch
+      void loadImpuestoIvaVentas().then(function () {
+        renderTotals();
+        refreshCobroMontosYFooter();
+      });
+      void refreshSesionCaja();
+      cobroState.rowAmounts = {};
+      COBRO_TABLA_ORDEN.forEach(function (m) {
+        cobroState.rowAmounts[m] = 0;
+      });
+      cobroState.casheaCfg = null;
+      cobroState.casheaDesglose = null;
+      cobroState.casheaCreditoDisponibleUsd = null;
+      cobroState.casheaCalcPending = false;
+      cobroState.casheaCalcSeq = (Number(cobroState.casheaCalcSeq) || 0) + 1;
+      if (cobroCasheaNivelSel) cobroState.casheaNivel = cobroCasheaNivelSel.value || 'BRONCE';
+      if (cobroCasheaCreditoInp) cobroCasheaCreditoInp.value = '';
+      cobroSetCasheaLimiteAviso(null);
+      cobroState.activeMetodo = COBRO_TABLA_ORDEN[0];
+      cobroState.numpadBuffer = '0';
+      renderCobroBanners();
+      renderCobroTabla();
+      setCobroActiveMetodo(cobroState.activeMetodo);
+      refreshCobroMontosYFooter();
+      renderCobroStatus();
+      if (cobroOptPdf) cobroOptPdf.checked = readAbrirPdfCobro();
+      if (cobroModal) cobroModal.classList.add('is-open');
+      void apiFetch(getApiBase() + '/api/cashea/config')
+        .then(function (res) {
+          return res.ok ? res.json() : {};
+        })
+        .then(function (cfg) {
+          cobroState.casheaCfg = cfg || {};
+          cobroUpdateCasheaPanelVisible();
+          renderCobroTabla();
+        })
+        .catch(function () {});
+    }
+
+    function openCobroModal() {
+      if (!tasasListasParaVender()) {
+        showToast(mensajeTasasNoDisponibles(), 'danger');
+        void syncPreciosServidorHydrateThenRefresh().then(function () {
+          applyCajaUiGate();
+          refreshAll();
+        });
+        return;
+      }
       var totals = cartTotals();
       if (totals.totalUsd <= 0) {
         showToast('El carrito está vacío', 'warning');
         return;
+      }
+
+      function afterCajaOk() {
+        openClienteVentaModal(openCobroModalBody);
       }
 
       if (!(state.cajaAbierta && state.sesionCajaId)) {
@@ -2486,12 +3468,12 @@
             showBloqueoCajaModal();
             return;
           }
-          openCobroModalBody();
+          afterCajaOk();
         });
         return;
       }
 
-      openCobroModalBody();
+      afterCajaOk();
     }
 
     function closeCobroModal() {
@@ -2504,7 +3486,7 @@
      */
     function computeBsBcvResidual() {
       var t = cartTotals();
-      var paid = paidBsBcv(cobroPaymentsArray());
+      var paid = paidBsBcv(cobroPaymentsArray(), t);
       return round4(t.totalBsBcv - paid);
     }
 
@@ -2520,7 +3502,29 @@
       return round4(computeUsdResidualVsTotal());
     }
 
+    /** Solo Cashea cubre la venta: el residual del ticket en Bs no es lo que se cobra en mostrador. */
+    function cobroEsCasheaPuroConDesglose() {
+      if (cobroState.casheaCalcPending) return false;
+      if (!cobroState.casheaDesglose) return false;
+      var pagos = cobroPaymentsArray();
+      return (
+        pagos.length === 1 &&
+        pagos[0] &&
+        String(pagos[0].metodo || '').toLowerCase() === 'cashea'
+      );
+    }
+
     function cobroResidualUsdOperativo() {
+      // Venta 100 % Cashea: validar cobertura en USD efectivo (servidor); no exigir
+      // «missing» en Bs igual al total del ticket (financiado va con Cashea).
+      if (cobroEsCasheaPuroConDesglose()) {
+        var pagosC = cobroPaymentsArray();
+        var totsC = cartTotals();
+        var sumUsdCalleC = paidUsdEquivCalle(pagosC);
+        var resUsdC = round4(sumUsdCalleC - totsC.totalUsd);
+        if (Math.abs(resUsdC) <= EPS_USD_PAGOS) return 0;
+      }
+
       var raw = cobroUsdResidualRounded(); // Bs BCV
       if (Math.abs(raw) <= EPS_BS_PAGOS) return 0;
 
@@ -2542,10 +3546,18 @@
         if (Math.abs(resUsd) <= EPS_USD_PAGOS) return 0;
       }
 
+      // Absorber diferencia de Bs < $0.02 a tasa USD cuando hay USD en el cobro.
+      // A 710 Bs/$: umbral ≈ 14,2 Bs (≈ 1 centavo y medio de dólar).
+      // Evita rechazar ventas por redondeo de centavos entre la cadena BCV y la tasa USD.
+      if (hayUsd) {
+        var tasaParAbs = Number(getTasas().usd) || 0;
+        if (tasaParAbs > 0 && Math.abs(raw) < 0.02 * tasaParAbs) return 0;
+      }
+
       return raw;
     }
 
-    /** Residual efectivo tras política Cobro‑BCV (0 ⇒ servidor tolera con EPS paralelo hasta 1¢ USD). */
+    /** Residual efectivo tras política Cobro‑BCV (0 ⇒ servidor tolera con EPS USD hasta 1¢ USD). */
     function pendingUsd() {
       var rem = cobroResidualUsdOperativo(); // Bs BCV
       if (Math.abs(rem) <= EPS_BS_PAGOS) return 0;
@@ -2555,6 +3567,7 @@
     function renderCobroStatus() {
       if (!cobroStatusEl || !cobroStatusLbl || !cobroStatusAmt || !cobroBtnConfirmar) return;
       cobroStatusEl.classList.remove('is-pending', 'is-change', 'is-exact');
+      cobroStatusLbl.classList.remove('cobro-status-label--ingresando');
 
       if (cobroState.casheaCalcPending) {
         cobroStatusLbl.textContent = 'Calculando financiamiento Cashea…';
@@ -2565,31 +3578,29 @@
 
       var pagos = cobroPaymentsArray();
       if (!pagos.length) {
-        cobroStatusLbl.textContent = 'Ingresa montos en las filas o usa el teclado';
+        var metaIng = cobroState.activeMetodo && COBRO_METODOS[cobroState.activeMetodo];
+        if (metaIng) {
+          cobroStatusLbl.textContent = 'Ingresando: ' + metaIng.label;
+          cobroStatusLbl.classList.add('cobro-status-label--ingresando');
+        } else {
+          cobroStatusLbl.textContent = 'Selecciona una fila e ingresa el monto';
+        }
         var totals0 = cartTotals();
-        cobroStatusAmt.textContent = formatMontoTripleUsd(totals0.totalUsd);
+        cobroStatusAmt.textContent = formatResumenTotalesBcv(totals0);
         cobroBtnConfirmar.disabled = true;
         return;
       }
 
       var remBs = pendingUsd(); // Bs BCV
-      var remBsMag = Math.abs(remBs);
-      var remUsdRefsTxt =
-        remBsMag <= EPS_BS_PAGOS
-          ? ''
-          : ' · Ref. USD BCV $' +
-            refUsdBcvDesdeBsCobrar(remBsMag).toFixed(1) +
-            ' · USD $' +
-            usdEfectivoDesdeBsBcvResidual(remBsMag).toFixed(2);
       if (remBs > EPS_BS_PAGOS) {
         cobroStatusEl.classList.add('is-pending');
-        cobroStatusLbl.textContent = 'Falta por cobrar (BCV)';
-        cobroStatusAmt.textContent = 'Bs ' + formatBs(remBs) + remUsdRefsTxt;
+        cobroStatusLbl.textContent = 'Falta por cobrar';
+        cobroStatusAmt.textContent = formatCobroResidualLinea(remBs);
         cobroBtnConfirmar.disabled = true;
       } else if (remBs < -EPS_BS_PAGOS) {
         cobroStatusEl.classList.add('is-change');
         cobroStatusLbl.textContent = 'Vuelto (BCV)';
-        cobroStatusAmt.textContent = 'Bs ' + formatBs(remBsMag) + remUsdRefsTxt;
+        cobroStatusAmt.textContent = formatCobroResidualLinea(remBs);
         cobroBtnConfirmar.disabled = false;
       } else {
         cobroStatusEl.classList.add('is-exact');
@@ -2620,9 +3631,29 @@
         if (!inp) return;
         var mid = inp.getAttribute('data-cobro-metodo');
         if (!mid) return;
-        var v = parseMontoUsuario(inp.value);
-        cobroState.rowAmounts[mid] = Number.isNaN(v) || v < 0 ? 0 : v;
+        cobroApplySuPagoInputVe(inp, mid, false);
         if (mid !== 'cashea' && cobroState.rowAmounts[mid] > 0) cobroClearSoloCashea();
+        refreshCobroMontosYFooter();
+        renderCobroStatus();
+      });
+      cobroTablaBody.addEventListener('paste', function (e) {
+        var inp = e.target.closest('.cobro-su-pago-input');
+        if (!inp) return;
+        var mid = inp.getAttribute('data-cobro-metodo');
+        if (!mid) return;
+        var txt = e.clipboardData && e.clipboardData.getData('text/plain');
+        if (!txt || !/\S/.test(txt)) return;
+        var pv = parseMontoUsuario(txt.trim());
+        if (Number.isNaN(pv) || pv < 0) return;
+        e.preventDefault();
+        cobroState.rowAmounts[mid] = pv;
+        var metaPaste = COBRO_METODOS[mid];
+        inp.value = pv > 0 ? cobroFormatSuPago(pv, metaPaste ? metaPaste.moneda : 'BS') : '';
+        if (cobroState.activeMetodo === mid) {
+          cobroState.numpadBuffer = pv > 0 ? String(Math.round(pv * 100) / 100) : '0';
+          updateNumpadDisplay();
+        }
+        if (mid !== 'cashea' && pv > 0) cobroClearSoloCashea();
         refreshCobroMontosYFooter();
         renderCobroStatus();
       });
@@ -2633,10 +3664,11 @@
           if (!inp) return;
           var mid = inp.getAttribute('data-cobro-metodo');
           if (!mid) return;
-          var v = parseMontoUsuario(inp.value);
-          if (Number.isNaN(v) || v < 0) v = 0;
-          cobroState.rowAmounts[mid] = v;
-          inp.value = v > 0 ? formatBs(v) : '';
+          var raw = String(inp.value || '').trim();
+          if (raw && /[.,]$/.test(raw)) {
+            inp.value = raw.slice(0, -1);
+          }
+          cobroApplySuPagoInputVe(inp, mid, true);
           refreshCobroMontosYFooter();
           renderCobroStatus();
         },
@@ -2670,6 +3702,14 @@
           return;
         }
 
+        var tieneCredito = pagosPre.some(function (p) {
+          return p && String(p.metodo || '').toLowerCase() === 'credito';
+        });
+        if (tieneCredito && !(state.clienteId != null && state.clienteId > 0)) {
+          showToast('Para vender a crédito debes seleccionar un cliente en el paso anterior.', 'warning');
+          return;
+        }
+
         var totalsCk = cartTotals();
         var remOpCk = cobroResidualUsdOperativo(); // ahora es Bs BCV
         if (remOpCk > EPS_BS_PAGOS) {
@@ -2688,6 +3728,7 @@
 
         void (async function () {
           var ventaId = null;
+          var numeroVentaMarquee = null;
           try {
             await refreshSesionCaja();
             var created = await postVenta(api);
@@ -2698,6 +3739,10 @@
               cobroBtnConfirmar.textContent = prevTxt;
               return;
             }
+            numeroVentaMarquee =
+              created && created.numero_venta
+                ? String(created.numero_venta)
+                : '#' + String(ventaId);
           } catch (e) {
             var em = e && e.message ? String(e.message) : '';
             var ec = e && e.code ? String(e.code) : '';
@@ -2712,6 +3757,8 @@
               state.cart = [];
               state.payments = [];
               state.pendingIdempotencyKey = null;
+              resetClienteVentaPos();
+              setMarqueeTicketDraft();
               try { localStorage.removeItem('nexus_pos_emergency_cart'); } catch (_e) {}
               renderCart();
               renderTotals();
@@ -2738,6 +3785,20 @@
             return;
           }
 
+          state.cart = [];
+          state.payments = [];
+          state.pendingIdempotencyKey = null;
+          resetClienteVentaPos();
+          // Limpiar cualquier carrito de emergencia tras venta exitosa.
+          try { localStorage.removeItem('nexus_pos_emergency_cart'); } catch (_e) {}
+          COBRO_TABLA_ORDEN.forEach(function (m) {
+            cobroState.rowAmounts[m] = 0;
+          });
+          renderCart();
+          renderTotals();
+          showMarqueeTicketCompleted(numeroVentaMarquee);
+          loadSuspendedList();
+
           try {
             var pdfOpt = document.getElementById('pos-cobro-opt-pdf');
             if (pdfOpt && pdfOpt.checked) {
@@ -2747,24 +3808,34 @@
             showToast(pdfErr.message || 'Error al generar el PDF', 'danger');
           }
 
-          state.cart = [];
-          state.payments = [];
-          state.pendingIdempotencyKey = null;
-          // Limpiar cualquier carrito de emergencia tras venta exitosa.
-          try { localStorage.removeItem('nexus_pos_emergency_cart'); } catch (_e) {}
-          COBRO_TABLA_ORDEN.forEach(function (m) {
-            cobroState.rowAmounts[m] = 0;
-          });
-          renderCart();
-          renderTotals();
-          loadSuspendedList();
           showToast(
-            'Venta #' + ventaId + ' — ' + formatMontoTripleUsd(totals.totalUsd),
+            'Venta ' +
+              (numeroVentaMarquee || '#' + ventaId) +
+              ' — ' +
+              formatMontoTripleUsd(totals.totalUsd),
             'success'
           );
           cobroBtnConfirmar.disabled = false;
           cobroBtnConfirmar.textContent = prevTxt;
         })();
+      });
+    }
+
+    initClienteVentaModalOnce();
+
+    var panelCli = host.querySelector('[data-pos-cliente-panel]');
+    if (panelCli) {
+      add(panelCli, 'click', function () {
+        if (!state.cart.length) {
+          showToast('Agrega artículos al carrito primero', 'warning');
+          return;
+        }
+        openClienteVentaModal(null);
+      });
+      add(panelCli, 'keydown', function (ev) {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        ev.preventDefault();
+        panelCli.click();
       });
     }
 
@@ -2774,13 +3845,18 @@
 
     loadSuspendedList();
     void syncPreciosServidorHydrateThenRefresh()
-      .then(function () {
+      .then(function (r) {
+        // Sesión expirada durante la hidratación: la cadena se aborta aquí.
+        // handle401() ya limpió la sesión y está redirigiendo al login.
+        if (r && r.unauthorized) return;
         return refreshSesionCaja();
       })
-      .then(function () {
+      .then(function (r) {
+        if (r === undefined) return; // abort propagado
         return loadImpuestoIvaVentas();
       })
-      .then(function () {
+      .then(function (r) {
+        if (r === undefined) return; // abort propagado
         applyCajaUiGate();
         refreshAll();
         // Restaurar carrito de emergencia si existe (guardado antes de un 401).
@@ -2788,6 +3864,7 @@
       });
 
     host._posDestroy = function () {
+      tasasHidratadasOk = false;
       if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
       cleanup.forEach(function (fn) {
         try {

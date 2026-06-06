@@ -1,0 +1,34 @@
+---
+alwaysApply: true
+---
+
+PROHIBICIONES ABSOLUTAS — CÓDIGO GENÉRICO:
+- PROHIBIDO generar código de tutorial, boilerplate de ejemplo o "hello world".
+  Cada línea de código debe ser específica al dominio Nexus Core.
+- PROHIBIDO usar console.log() en código de producción del backend.
+  Todo logging pasa por backend/config/logger.js (winston).
+  En el frontend, los errores van al sistema de toast (frontend/components/toast.js).
+- PROHIBIDO usar var. Solo const y let con alcance mínimo necesario.
+- PROHIBIDO callbacks anidados (callback hell). Toda asincronía usa async/await.
+- PROHIBIDO lanzar errores sin contexto. Todo throw new Error() debe incluir
+  el módulo, la operación y el dato que falló.
+- PROHIBIDO omitir el middleware asyncHandler de backend/utils/asyncHandler.js
+  en route handlers. Toda función async en rutas Express va envuelta en asyncHandler().
+
+ESTÁNDARES DE TIPADO Y CONTRATOS:
+- Los contratos de datos de la API están definidos en lib/definitions.ts.
+  Antes de crear un nuevo endpoint, VERIFICAR si el tipo ya existe.
+  Si no existe, CREARLO en definitions.ts antes de implementar el controlador.
+- Las respuestas de error del backend siguen el formato estándar de errorHandler.middleware.js.
+  PROHIBIDO retornar res.json({ error: 'texto libre' }) directamente desde controladores.
+
+SEGURIDAD ANTI-INGENIERÍA INVERSA:
+- Los valores sensibles (JWT_SECRET, clave pública Ed25519, credenciales PG)
+  JAMÁS se hardcodean en código. Siempre desde process.env con validación al arranque.
+- PROHIBIDO loggear tokens, HWIDs completos, claves de licencia o passwords
+  (ni siquiera hasheados) en logs de producción.
+- Las respuestas de error en producción NO revelan stack traces, nombres de tablas,
+  nombres de columnas ni estructura interna de la BD.
+  El errorHandler.middleware.js ya maneja esto; no sobreescribir su comportamiento.
+- PROHIBIDO devolver conteos exactos o IDs secuenciales predecibles en endpoints
+  públicos (como /api/licencia/estado). Usar respuestas booleanas o mensajes opacos.

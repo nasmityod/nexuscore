@@ -33,6 +33,119 @@
     });
   }
 
+  /** Ref. $ BCV cadena (2 decimales, miles con punto) — alineado a dashboard/POS. */
+  function formatRefUsdBcv(n) {
+    return Number(n || 0).toLocaleString('es-VE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function round4(n) {
+    return Math.round(Number(n) * 10000) / 10000;
+  }
+
+  /** Cantidad de línea (DECIMAL 12,3): entero si aplica; si no, hasta 3 decimales sin ceros de relleno. */
+  function cantidadLineaDev(n) {
+    var q = Number(n);
+    if (!Number.isFinite(q) || q <= 0) return 1;
+    var r = Math.round(q * 1000) / 1000;
+    return Math.abs(r - Math.round(r)) < 1e-6 ? Math.round(r) : r;
+  }
+
+  /**
+   * P. unit. y subtotal en ref. $ BCV para líneas de detalle (misma cadena que el ticket).
+   * Prioriza reparto proporcional del total_ref_usd_bcv de cabecera (incluye desc. global).
+   */
+  function lineaMontosBcvRef(d, venta, sumSubtotalesUsd) {
+    var cant = Number(d && d.cantidad) || 0;
+    var subUsd = Number(d && d.subtotal_usd) || 0;
+    var unitUsd = Number(d && d.precio_unitario_usd) || 0;
+    var refCab = Number(venta && venta.total_ref_usd_bcv);
+    if (Number.isFinite(refCab) && refCab > 0 && sumSubtotalesUsd > 0) {
+      var subBcv = round4((subUsd / sumSubtotalesUsd) * refCab);
+      var unitBcv = cant > 0 ? round4(subBcv / cant) : 0;
+      return { unitBcv: unitBcv, subBcv: subBcv };
+    }
+    var tbcv = Number(venta && venta.tasa_bcv_aplicada);
+    var tusd = Number(venta && venta.tasa_cambio_aplicada);
+    if (
+      tbcv > 0 &&
+      tusd > 0 &&
+      window.PreciosServiceClient &&
+      typeof window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo === 'function'
+    ) {
+      try {
+        var cad = window.PreciosServiceClient.aplicarCadenaPorPrecioEfectivo(
+          unitUsd,
+          tbcv,
+          tusd,
+          { precisionPe: 4 }
+        );
+        var unitBcv2 = Number(cad.precio_usd_bcv);
+        var desc = Number(d && d.descuento_porcentaje) || 0;
+        var subBcv2 = round4(cant * unitBcv2 * (1 - desc / 100));
+        return { unitBcv: unitBcv2, subBcv: subBcv2 };
+      } catch (_e) {
+        /* fallback abajo */
+      }
+    }
+    return { unitBcv: unitUsd, subBcv: subUsd };
+  }
+
+  function metodoPagoNorm(v) {
+    return String((v && v.metodo_pago) || '')
+      .toLowerCase()
+      .trim();
+  }
+
+  function refBcvNumLista(v) {
+    var refRaw = v && v.total_ref_usd_bcv;
+    var refN = refRaw != null && refRaw !== '' ? Number(refRaw) : NaN;
+    if (Number.isFinite(refN) && refN > 0) return refN;
+    return NaN;
+  }
+
+  /**
+   * Columna de monto: USD solo en efectivo USD y Zelle; ref. $ BCV en Bs, Punto, Cashea, crédito;
+   * mixto: ref. BCV + USD cuando ambos aplican.
+   */
+  function textoMontoListaVenta(v) {
+    var k = metodoPagoNorm(v);
+    var usd = Number(v && v.total_usd);
+    if (!Number.isFinite(usd)) usd = 0;
+    var refN = refBcvNumLista(v);
+
+    if (k === 'efectivo_usd' || k === 'zelle') {
+      return '$ ' + formatUsd(usd) + ' USD';
+    }
+    if (k === 'mixto') {
+      if (Number.isFinite(refN) && refN > 0) {
+        return (
+          '$ ' + formatRefUsdBcv(refN) + ' BCV · $ ' + formatUsd(usd) + ' USD'
+        );
+      }
+      return '$ ' + formatUsd(usd) + ' USD';
+    }
+    if (Number.isFinite(refN) && refN > 0) {
+      return '$ ' + formatRefUsdBcv(refN) + ' BCV';
+    }
+    if (
+      k === 'efectivo_bs' ||
+      k === 'transferencia_bs' ||
+      k === 'pago_movil' ||
+      k === 'punto' ||
+      k === 'cashea' ||
+      k === 'credito'
+    ) {
+      return '—';
+    }
+    if (usd > 0) {
+      return '$ ' + formatUsd(usd) + ' USD';
+    }
+    return '—';
+  }
+
   function formatBs(n) {
     return Number(n || 0).toLocaleString('es-VE', {
       minimumFractionDigits: 2,
@@ -71,15 +184,17 @@
     });
   }
 
+  /* Alineado a etiquetas POS (moneda explícita). */
   var PAGO_METODO_LABELS = {
-    efectivo_usd: 'Efectivo USD',
-    efectivo_bs: 'Efectivo Bs',
-    transferencia_bs: 'Transferencia',
-    pago_movil: 'Pago móvil',
-    zelle: 'Zelle',
-    punto: 'Punto / TDD',
-    credito: 'Crédito',
-    mixto: 'Mixto'
+    efectivo_usd: 'Efectivo USD · USD',
+    efectivo_bs: 'Efectivo Bs · Bs',
+    transferencia_bs: 'Transferencia Bs · Bs',
+    pago_movil: 'Pago móvil · Bs',
+    zelle: 'Zelle · USD',
+    punto: 'Punto de venta · Bs',
+    credito: 'Crédito · $ BCV',
+    mixto: 'Mixto',
+    cashea: 'Cashea · $ BCV'
   };
 
   function labelMetodoPago(key) {
@@ -87,6 +202,14 @@
     var k = String(key).trim();
     if (PAGO_METODO_LABELS[k]) return PAGO_METODO_LABELS[k];
     return k.replace(/_/g, ' ');
+  }
+
+  function labelMetodoPagoHtml(key) {
+    var plain = labelMetodoPago(key);
+    if (window.NexusCasheaBrand && window.NexusCasheaBrand.metodoCellHtml) {
+      return window.NexusCasheaBrand.metodoCellHtml(key, plain, escapeHtml);
+    }
+    return escapeHtml(plain);
   }
 
   function inferMonedaPago(metodoKey) {
@@ -130,9 +253,22 @@
     mount: function (host) {
       if (host._ventasDestroy) host._ventasDestroy();
 
+      if (typeof window.NexusComponents?.hydrateTasasDesdeServidorSilent === 'function') {
+        window.NexusComponents.hydrateTasasDesdeServidorSilent().catch(function () {});
+      }
+
       var tbody = host.querySelector('[data-ventas-tbody]');
       var statusEl = host.querySelector('[data-ventas-status]');
       var filtro = host.querySelector('[data-ventas-filtro-estado]');
+      var resumenCountEl = host.querySelector('[data-ventas-resumen-count]');
+      var resumenBsEl = host.querySelector('[data-ventas-resumen-bs]');
+      var resumenUsdEl = host.querySelector('[data-ventas-resumen-usd]');
+
+      function setResumen(count, totalBs, totalRefBcv) {
+        if (resumenCountEl) resumenCountEl.textContent = String(count);
+        if (resumenBsEl) resumenBsEl.textContent = 'Bs ' + formatBs(totalBs);
+        if (resumenUsdEl) resumenUsdEl.textContent = '$ ' + formatRefUsdBcv(totalRefBcv);
+      }
 
       var modalOverlay = host.querySelector('#ventas-anular-modal');
       var modalNumEl = host.querySelector('#ventas-anular-num-label');
@@ -161,7 +297,7 @@
         pendingAnularId = v.id;
         if (modalNumEl) {
           modalNumEl.textContent =
-            'Ticket: ' + (v.numero_venta || '#' + v.id) + ' · Total USD ' + formatUsd(v.total_usd);
+            'Ticket: ' + (v.numero_venta || '#' + v.id) + ' · ' + textoMontoListaVenta(v);
         }
         if (modalMotivo) modalMotivo.value = '';
         if (modalConfirmCheck) modalConfirmCheck.checked = false;
@@ -238,7 +374,7 @@
         var est = String(full.estado || '');
         var introAnula =
           est === 'anulada'
-            ? '<div style="margin-top:0.45rem;color:#fca5a5;font-size:0.84rem;line-height:1.4">' +
+            ? '<div class="text-danger" style="margin-top:0.45rem;font-size:0.84rem;line-height:1.4">' +
               '<strong>Venta anulada</strong>' +
               (full.fecha_anulacion
                 ? ' · ' + escapeHtml(formatFechaDetalleCompleta(full.fecha_anulacion))
@@ -254,7 +390,7 @@
           '</strong> · ' +
           escapeHtml(formatFechaDetalleCompleta(full.fecha_venta)) +
           '<br /><span>' +
-          escapeHtml(labelMetodoPago(full.metodo_pago)) +
+          labelMetodoPagoHtml(full.metodo_pago) +
           ' · Estado: <strong>' +
           escapeHtml(est || '—') +
           '</strong></span>' +
@@ -264,6 +400,13 @@
         var vendedor = full.usuario_nombre ? escapeHtml(full.usuario_nombre) : '—';
         var sub = Number(full.subtotal_usd || 0);
         var descPct = Number(full.descuento_porcentaje || 0);
+        function fmtTasaDet(v) {
+          var x = Number(v);
+          if (!Number.isFinite(x) || x <= 0) return '—';
+          return escapeHtml(
+            x.toLocaleString('es-VE', { minimumFractionDigits: 0, maximumFractionDigits: 4 })
+          );
+        }
         detailBloqueTotales.innerHTML =
           '<h4>Cliente y montos</h4>' +
           '<dl class="ventas-detalle-totales">' +
@@ -273,8 +416,11 @@
           '<dt>Cajero / usuario</dt><dd style="font-weight:500;text-align:right">' +
           vendedor +
           '</dd>' +
-          '<dt>Tasa aplicada</dt><dd>' +
-          escapeHtml(String(Number(full.tasa_cambio_aplicada || 0).toLocaleString('es-VE'))) +
+          '<dt>Tasa BCV (oficial)</dt><dd>' +
+          fmtTasaDet(full.tasa_bcv_aplicada) +
+          '</dd>' +
+          '<dt>Tasa USD (Bs/USD)</dt><dd>' +
+          fmtTasaDet(full.tasa_cambio_aplicada) +
           '</dd>' +
           '<dt>Subtotal USD</dt><dd>$ ' +
           escapeHtml(formatUsd(sub)) +
@@ -282,7 +428,19 @@
           '<dt>Descuento cabecera</dt><dd>' +
           escapeHtml(descPct.toFixed(2)) +
           '%</dd>' +
-          '<dt>Total USD</dt><dd>$ ' +
+          (function () {
+            var refRaw = full.total_ref_usd_bcv;
+            var refN = refRaw != null && refRaw !== '' ? Number(refRaw) : NaN;
+            if (Number.isFinite(refN) && refN > 0) {
+              return (
+                '<dt>Total $ BCV (ref.)</dt><dd>$ ' +
+                escapeHtml(formatRefUsdBcv(refN)) +
+                '</dd>'
+              );
+            }
+            return '';
+          })() +
+          '<dt>Total USD (efectivo)</dt><dd>$ ' +
           escapeHtml(formatUsd(full.total_usd)) +
           '</dd>' +
           '<dt>Total Bs cobrados</dt><dd>' +
@@ -299,7 +457,7 @@
             '<h4>Formas de pago</h4>' +
             '<p style="margin:0;color:var(--text-muted)">No hay desglose guardado para esta venta. ' +
             'Resumen: <strong>' +
-            escapeHtml(labelMetodoPago(full.metodo_pago)) +
+            labelMetodoPagoHtml(full.metodo_pago) +
             '</strong> · total ' +
             escapeHtml(formatBs(full.total_bs)) +
             ' Bs / $ ' +
@@ -316,7 +474,7 @@
             var monRaw = (p && p.moneda) || inferMonedaPago(p && p.metodo);
             rowsP +=
               '<tr><td>' +
-              escapeHtml(labelMetodoPago(p && p.metodo)) +
+              labelMetodoPagoHtml(p && p.metodo) +
               '</td><td class="num">' +
               escapeHtml(formatMontoPago(monRaw, Number(p.monto))) +
               '</td></tr>';
@@ -338,9 +496,16 @@
             '<h4>Ítems</h4><p style="margin:0;color:var(--text-muted)">Sin líneas de detalle.</p>';
           return;
         }
+        var sumSubUsd = 0;
+        detalles.forEach(function (d) {
+          var s = Number(d && d.subtotal_usd);
+          if (Number.isFinite(s)) sumSubUsd += s;
+        });
+        sumSubUsd = round4(sumSubUsd);
         var rowsL = '';
         detalles.forEach(function (d) {
           var nombre = escapeHtml(d.producto_nombre || 'Producto');
+          var bcv = lineaMontosBcvRef(d, full, sumSubUsd);
           rowsL +=
             '<tr>' +
             '<td>' +
@@ -353,11 +518,11 @@
             escapeHtml(String(Number(d.cantidad))) +
             '</td>' +
             '<td class="num">$ ' +
-            escapeHtml(formatUsd(d.precio_unitario_usd)) +
-            '</td>' +
+            escapeHtml(formatRefUsdBcv(bcv.unitBcv)) +
+            ' BCV</td>' +
             '<td class="num">$ ' +
-            escapeHtml(formatUsd(d.subtotal_usd)) +
-            '</td>' +
+            escapeHtml(formatRefUsdBcv(bcv.subBcv)) +
+            ' BCV</td>' +
             '</tr>';
         });
         detailBloqueLineas.innerHTML =
@@ -365,7 +530,7 @@
           '<div class="ventas-detalle-mini">' +
           '<table><thead>' +
           '<tr><th>Producto</th><th class="num">Cant.</th>' +
-          '<th class="num">P. unit USD</th><th class="num">Subtotal USD</th></tr>' +
+          '<th class="num">P. unit $ BCV</th><th class="num">Subtotal $ BCV</th></tr>' +
           '</thead><tbody>' +
           rowsL +
           '</tbody></table></div>';
@@ -418,8 +583,9 @@
       if (detailBtnCerrar) detailBtnCerrar.addEventListener('click', closeDetalleModal);
       if (detailBtnDevolver) detailBtnDevolver.addEventListener('click', function () {
         if (!_currentDetalle) return;
+        var ventaParaDev = _currentDetalle;
         closeDetalleModal();
-        abrirDevModal(_currentDetalle);
+        abrirDevModal(ventaParaDev);
       });
       if (detailBtnFactura) detailBtnFactura.addEventListener('click', function () {
         if (!_currentDetalle) return;
@@ -471,7 +637,19 @@
           .then(function (body) {
             var rows = body.data || [];
             tbody.innerHTML = '';
+            var totalBsPeriodo = 0;
+            var totalRefBcvPeriodo = 0;
             rows.forEach(function (v) {
+              if (String(v.estado || '') !== 'anulada') {
+                var bs = Number(v.total_bs);
+                if (Number.isFinite(bs)) totalBsPeriodo += bs;
+                var ref = refBcvNumLista(v);
+                if (!Number.isFinite(ref) || ref <= 0) {
+                  var u = Number(v.total_usd);
+                  ref = Number.isFinite(u) ? u : 0;
+                }
+                totalRefBcvPeriodo += ref;
+              }
               var tr = document.createElement('tr');
               var est = String(v.estado || '');
               var badgeClass =
@@ -480,6 +658,44 @@
                 window.NexusAuth &&
                 typeof window.NexusAuth.can === 'function' &&
                 window.NexusAuth.can('ventas_anular');
+
+              var td0 = document.createElement('td');
+              td0.textContent = v.numero_venta || '';
+              tr.appendChild(td0);
+
+              var td1 = document.createElement('td');
+              td1.textContent = formatFechaLista(v.fecha_venta);
+              tr.appendChild(td1);
+
+              var td2 = document.createElement('td');
+              var spEst = document.createElement('span');
+              spEst.className = 'badge-estado ' + badgeClass;
+              spEst.textContent = est || '—';
+              td2.appendChild(spEst);
+              tr.appendChild(td2);
+
+              var tdBcv = document.createElement('td');
+              tdBcv.className = 'num';
+              tdBcv.textContent = textoMontoListaVenta(v);
+              tr.appendChild(tdBcv);
+
+              var tdBs = document.createElement('td');
+              tdBs.className = 'num';
+              tdBs.textContent = formatBs(v.total_bs);
+              tr.appendChild(tdBs);
+
+              var tdMet = document.createElement('td');
+              if (window.NexusCasheaBrand && window.NexusCasheaBrand.appendMetodoToCell) {
+                window.NexusCasheaBrand.appendMetodoToCell(
+                  tdMet,
+                  v.metodo_pago,
+                  labelMetodoPago(v.metodo_pago || '')
+                );
+              } else {
+                tdMet.textContent = labelMetodoPago(v.metodo_pago || '');
+              }
+              tr.appendChild(tdMet);
+
               var tdDet = document.createElement('td');
               var btnVer = document.createElement('button');
               btnVer.type = 'button';
@@ -492,6 +708,7 @@
                 });
               })(v.id);
               tdDet.appendChild(btnVer);
+              tr.appendChild(tdDet);
 
               var btnTd = document.createElement('td');
               if (est === 'completada' && puedeAnular) {
@@ -506,30 +723,16 @@
               } else {
                 btnTd.textContent = '—';
               }
-              tr.innerHTML =
-                '<td>' +
-                escapeHtml(v.numero_venta || '') +
-                '</td><td>' +
-                escapeHtml(formatFechaLista(v.fecha_venta)) +
-                '</td><td><span class="badge-estado ' +
-                badgeClass +
-                '">' +
-                escapeHtml(est || '—') +
-                '</span></td><td class="num">' +
-                escapeHtml(formatUsd(v.total_usd)) +
-                '</td><td class="num">' +
-                escapeHtml(formatBs(v.total_bs)) +
-                '</td><td>' +
-                escapeHtml(labelMetodoPago(v.metodo_pago || '')) +
-                '</td>';
-              tr.appendChild(tdDet);
               tr.appendChild(btnTd);
+
               tbody.appendChild(tr);
             });
             setStatus(rows.length + ' registros');
+            setResumen(rows.length, totalBsPeriodo, totalRefBcvPeriodo);
           })
           .catch(function () {
             setStatus('');
+            setResumen(0, 0, 0);
             toast('No se pudo cargar ventas', 'danger');
           });
       }
@@ -545,7 +748,7 @@
       var currentDevVenta = null;
 
       function abrirDevModal(ventaDetalle) {
-        if (!devModal) return;
+        if (!devModal || !ventaDetalle) return;
         currentDevVenta = ventaDetalle;
         var label = host.querySelector('#ventas-dev-venta-label');
         if (label) label.textContent = 'Factura: ' + (ventaDetalle.numero_venta || '—');
@@ -555,14 +758,16 @@
         if (tbody) {
           var lineas = ventaDetalle.detalles || ventaDetalle._lineas || [];
           if (!lineas.length) {
-            tbody.innerHTML = '<tr><td colspan="3" style="padding:.5rem;color:var(--text-secondary)">Sin líneas de detalle disponibles</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="3" class="tabla-dev-empty">Sin líneas de detalle disponibles</td></tr>';
           } else {
             tbody.innerHTML = lineas.map(function (l, i) {
               var precioUsd = Number(l.precio_unitario_usd || l.precio_usd || 0);
-              return '<tr><td style="padding:.35rem .5rem">' + escapeHtml(l.producto_nombre || l.nombre || '—') + '</td>' +
-                '<td style="padding:.35rem .5rem;text-align:right">$' + precioUsd.toFixed(2) + '</td>' +
-                '<td style="padding:.35rem .5rem;text-align:center">' +
-                '<input type="number" class="dev-cant-input" data-idx="' + i + '" data-pid="' + (l.producto_id || '') + '" data-precio="' + precioUsd + '" min="0" max="' + l.cantidad + '" step="1" value="' + l.cantidad + '" style="width:60px;padding:.2rem .3rem;border-radius:var(--radius-sm);border:1px solid var(--border-primary);background:var(--bg-tertiary);color:var(--text-primary);text-align:center">' +
+              var cantDev = cantidadLineaDev(l.cantidad);
+              var stepCant = cantDev % 1 === 0 ? '1' : '0.001';
+              return '<tr><td>' + escapeHtml(l.producto_nombre || l.nombre || '—') + '</td>' +
+                '<td class="num">$' + precioUsd.toFixed(2) + '</td>' +
+                '<td class="dev-modal-col-cant">' +
+                '<input type="number" class="dev-cant-input" data-idx="' + i + '" data-pid="' + (l.producto_id || '') + '" data-precio="' + precioUsd + '" min="0" max="' + cantDev + '" step="' + stepCant + '" value="' + cantDev + '">' +
                 '</td></tr>';
             }).join('');
           }
@@ -620,26 +825,26 @@
         if (!devListModal) return;
         devListModal.classList.add('is-open');
         var tbody = host.querySelector('#ventas-devlist-tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;text-align:center">Cargando...</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="tabla-dev-empty">Cargando...</td></tr>';
         apiFetch('/api/devoluciones?limit=80')
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (d) {
             if (!d || !tbody) return;
             var rows = d.devoluciones || [];
             if (!rows.length) {
-              tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;text-align:center;color:var(--text-secondary)">Sin devoluciones</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="6" class="tabla-dev-empty">Sin devoluciones</td></tr>';
               return;
             }
             tbody.innerHTML = rows.map(function (r) {
-              return '<tr><td style="padding:.35rem .5rem">' + escapeHtml(r.numero_devolucion) + '</td>' +
-                '<td style="padding:.35rem .5rem">' + escapeHtml(r.numero_venta || '—') + '</td>' +
-                '<td style="padding:.35rem .5rem">' + escapeHtml(r.tipo) + '</td>' +
-                '<td style="padding:.35rem .5rem;text-align:right">$' + Number(r.total_usd).toFixed(2) + '</td>' +
-                '<td style="padding:.35rem .5rem">' + escapeHtml(r.cajero_nombre || '—') + '</td>' +
-                '<td style="padding:.35rem .5rem">' + formatFechaLista(r.creado_en) + '</td></tr>';
+              return '<tr><td>' + escapeHtml(r.numero_devolucion) + '</td>' +
+                '<td>' + escapeHtml(r.numero_venta || '—') + '</td>' +
+                '<td>' + escapeHtml(r.tipo) + '</td>' +
+                '<td class="num">$' + Number(r.total_usd).toFixed(2) + '</td>' +
+                '<td>' + escapeHtml(r.cajero_nombre || '—') + '</td>' +
+                '<td>' + formatFechaLista(r.creado_en) + '</td></tr>';
             }).join('');
           })
-          .catch(function () { if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;text-align:center;color:var(--text-secondary)">Error al cargar</td></tr>'; });
+          .catch(function () { if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="tabla-dev-empty">Error al cargar</td></tr>'; });
       }
 
       var btnVerDevs = host.querySelector('#btn-ver-devoluciones');

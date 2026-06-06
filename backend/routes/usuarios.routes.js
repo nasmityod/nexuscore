@@ -14,8 +14,11 @@ router.post('/:id/cambiar-password', asyncHandler(async (req, res) => {
   const userId = parseInt(req.params.id, 10);
   const { password_actual, password_nuevo } = req.body;
 
-  if (!password_nuevo || password_nuevo.length < 4) {
-    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 4 caracteres' });
+  // Política unificada: 8 caracteres mínimo, coherente con setup wizard y
+  // creación inicial. Antes era 4 (residuo del MVP) y permitía contraseñas
+  // débiles tipo "1234" para roles operativos.
+  if (!password_nuevo || password_nuevo.length < 8) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres' });
   }
 
   const user = await db.oneOrNone(`SELECT * FROM usuarios WHERE id = $1`, [userId]);
@@ -148,8 +151,8 @@ router.post('/', asyncHandler(async (req, res) => {
   if (!username || !String(username).trim()) {
     return res.status(400).json({ error: 'El nombre de usuario es obligatorio' });
   }
-  if (!password || password.length < 4) {
-    return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
   }
   if (!nombreCompleto) {
     return res.status(400).json({ error: 'El nombre completo es obligatorio' });

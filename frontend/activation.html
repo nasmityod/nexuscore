@@ -3,15 +3,40 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self' https:; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https: http://127.0.0.1:3000;">
-  <title>Nexus-Core · Activación</title>
+        content="default-src 'self' https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self' https: http://127.0.0.1:3000;">
+  <title>Nexus Core · Activación</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800&family=DM+Mono:wght@400;500&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg-primary:         #05080f;
+      --bg-secondary:       #090d18;
+      --bg-tertiary:        #0d1424;
+      --bg-elevated:        #162035;
+      --accent-primary:     #f0a500;
+      --accent-primary-bg:  rgba(240, 165, 0, 0.07);
+      --accent-primary-glow:rgba(240, 165, 0, 0.12);
+      --border-accent:      rgba(240, 165, 0, 0.25);
+      --accent-success:     #22c55e;
+      --accent-danger:      #ef4444;
+      --text-primary:       #edf2f7;
+      --text-secondary:     #7a8fa8;
+      --text-muted:         #3d5068;
+      --text-on-accent:     #05080f;
+      --border-primary:     #1a2540;
+      --font-ui:            'Sora', system-ui, sans-serif;
+      --font-display:       'Barlow Condensed', sans-serif;
+      --font-mono:          'DM Mono', 'JetBrains Mono', monospace;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0d1117;
-      color: #e6edf3;
+      font-family: var(--font-ui);
+      background: var(--bg-primary);
+      background-image:
+        radial-gradient(ellipse 80% 50% at 15% -10%, rgba(240, 165, 0, 0.04) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 85% 110%, rgba(59, 130, 246, 0.03) 0%, transparent 70%);
+      color: var(--text-primary);
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -21,111 +46,104 @@
     }
 
     .card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 14px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-top: 2px solid var(--accent-primary);
+      border-radius: 10px;
       padding: 2.25rem 2rem;
       max-width: 480px;
       width: 100%;
       -webkit-app-region: no-drag;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
     }
 
     /* Logo */
-    .logo { text-align: center; margin-bottom: 2rem; }
-    .logo-icon { font-size: 2.8rem; display: block; margin-bottom: .4rem; }
-    .logo h1 { font-size: 1.45rem; font-weight: 700; color: #58a6ff; }
-    .logo p { font-size: .82rem; color: #8b949e; margin-top: .2rem; }
+    .logo { display: flex; align-items: center; gap: 14px; margin-bottom: 2rem; text-align: left; }
+    .logo-icon { width: 40px; height: 40px; color: var(--accent-primary); flex-shrink: 0; filter: drop-shadow(0 0 8px rgba(240, 165, 0, 0.35)); }
+    .logo h1 { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #fff; margin: 0; }
+    .logo p { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.2em; color: var(--accent-primary); opacity: 0.85; text-transform: uppercase; margin-top: 3px; }
 
     /* Pasos */
-    .steps {
-      display: flex;
-      gap: .5rem;
-      margin-bottom: 1.75rem;
-    }
-    .step-dot {
-      flex: 1;
-      height: 4px;
-      border-radius: 4px;
-      background: #21262d;
-      transition: background .3s;
-    }
-    .step-dot.active   { background: #58a6ff; }
-    .step-dot.done     { background: #3fb950; }
+    .steps { display: flex; gap: .5rem; margin-bottom: 1.75rem; }
+    .step-dot { flex: 1; height: 3px; border-radius: 2px; background: var(--bg-tertiary); transition: background .3s; }
+    .step-dot.active { background: var(--accent-primary); box-shadow: 0 0 8px rgba(240, 165, 0, 0.4); }
+    .step-dot.done   { background: var(--accent-success); }
 
     /* Secciones */
     .section { margin-bottom: 1.25rem; }
     .section-label {
-      font-size: .75rem;
-      font-weight: 700;
-      color: #8b949e;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: .06em;
+      letter-spacing: 0.14em;
       margin-bottom: .55rem;
     }
 
     /* HWID box */
     .hwid-box {
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-primary);
+      border-radius: 6px;
       padding: .7rem 1rem;
       display: flex;
       align-items: center;
       gap: .75rem;
     }
     .hwid-code {
-      font-family: 'Courier New', monospace;
+      font-family: var(--font-mono);
       font-size: .9rem;
-      font-weight: 700;
-      color: #3fb950;
+      font-weight: 500;
+      color: var(--accent-success);
       flex: 1;
       word-break: break-all;
       letter-spacing: .06em;
+      font-variant-numeric: tabular-nums;
     }
     .btn-copy {
-      background: #21262d;
-      border: 1px solid #30363d;
-      border-radius: 6px;
-      color: #8b949e;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      color: var(--text-secondary);
       cursor: pointer;
       padding: .35rem .65rem;
+      font-family: var(--font-ui);
       font-size: .75rem;
       white-space: nowrap;
       transition: all .15s;
       flex-shrink: 0;
     }
-    .btn-copy:hover          { background: #30363d; color: #e6edf3; }
-    .btn-copy.copied         { color: #3fb950; border-color: rgba(63,185,80,.4); }
+    .btn-copy:hover  { background: var(--bg-elevated); color: var(--text-primary); }
+    .btn-copy.copied { color: var(--accent-success); border-color: rgba(34, 197, 94, 0.4); }
 
     /* Input de código */
     .code-input {
       width: 100%;
       height: 52px;
-      background: #0d1117;
-      border: 2px solid #30363d;
-      border-radius: 8px;
-      color: #e6edf3;
-      font-family: 'Courier New', monospace;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-primary);
+      border-radius: 3px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
       font-size: 1.1rem;
-      font-weight: 700;
+      font-weight: 500;
       letter-spacing: .12em;
       text-align: center;
       text-transform: uppercase;
       padding: 0 1rem;
-      transition: border-color .2s;
+      transition: border-color .2s, box-shadow .2s;
     }
     .code-input:focus {
       outline: none;
-      border-color: #58a6ff;
-      box-shadow: 0 0 0 3px rgba(88,166,255,.15);
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px var(--accent-primary-bg);
     }
-    .code-input::placeholder {
-      color: #30363d;
-      letter-spacing: .06em;
-    }
+    .code-input::placeholder { color: var(--text-muted); letter-spacing: .06em; }
     .code-hint {
-      font-size: .78rem;
-      color: #6e7681;
+      font-family: var(--font-mono);
+      font-size: .75rem;
+      color: var(--text-muted);
       margin-top: .45rem;
       text-align: center;
     }
@@ -133,29 +151,20 @@
     /* Progreso */
     .progress-wrap { display: none; margin-bottom: 1rem; }
     .progress-wrap.show { display: block; }
-    .progress-bar-outer {
-      background: #21262d;
-      border-radius: 4px;
-      height: 6px;
-      overflow: hidden;
-    }
+    .progress-bar-outer { background: var(--bg-tertiary); border-radius: 2px; height: 4px; overflow: hidden; }
     .progress-bar-inner {
       height: 100%;
-      border-radius: 4px;
-      background: #58a6ff;
+      border-radius: 2px;
+      background: var(--accent-primary);
+      box-shadow: 0 0 8px rgba(240, 165, 0, 0.45);
       width: 0%;
       transition: width .4s ease;
     }
-    .progress-text {
-      font-size: .78rem;
-      color: #8b949e;
-      margin-top: .4rem;
-      text-align: center;
-    }
+    .progress-text { font-family: var(--font-mono); font-size: .75rem; color: var(--text-secondary); margin-top: .4rem; text-align: center; }
 
     /* Alertas */
     .alert {
-      border-radius: 8px;
+      border-radius: 6px;
       padding: .75rem 1rem;
       font-size: .84rem;
       margin-top: .75rem;
@@ -165,44 +174,54 @@
       line-height: 1.5;
     }
     .alert.show { display: flex; }
-    .alert-error   { background: rgba(218,54,51,.12); border:1px solid rgba(218,54,51,.3); color: #f85149; }
-    .alert-success { background: rgba(63,185,80,.1);  border:1px solid rgba(63,185,80,.3);  color: #3fb950; }
+    .alert-error   { background: rgba(239, 68, 68, 0.1);  border: 1px solid rgba(239, 68, 68, 0.3);  color: var(--accent-danger); }
+    .alert-success { background: rgba(34, 197, 94, 0.1);  border: 1px solid rgba(34, 197, 94, 0.3);  color: var(--accent-success); }
 
     /* Botón */
     .btn-activate {
       width: 100%;
       height: 50px;
-      background: #1f6feb;
-      border: 1px solid rgba(240,246,252,.1);
-      border-radius: 8px;
-      color: #fff;
-      font-size: 1rem;
+      background: var(--accent-primary);
+      border: none;
+      border-radius: 3px;
+      color: var(--text-on-accent);
+      font-family: var(--font-ui);
+      font-size: .95rem;
       font-weight: 700;
+      letter-spacing: .03em;
       cursor: pointer;
-      transition: background .15s;
+      transition: background .15s, box-shadow .15s, transform .1s;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: .5rem;
       margin-top: 1.25rem;
+      box-shadow: 0 0 20px rgba(240, 165, 0, 0.2), 0 2px 8px rgba(240, 165, 0, 0.15);
     }
-    .btn-activate:hover:not(:disabled) { background: #388bfd; }
+    .btn-activate:hover:not(:disabled) {
+      background: #d49200;
+      box-shadow: 0 0 28px rgba(240, 165, 0, 0.28), 0 4px 12px rgba(240, 165, 0, 0.2);
+      transform: translateY(-1px);
+    }
+    .btn-activate:active:not(:disabled) { transform: translateY(0); }
     .btn-activate:disabled {
-      background: #21262d;
-      color: #484f58;
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
       cursor: not-allowed;
-      border-color: #30363d;
+      border: 1px solid var(--border-primary);
+      box-shadow: none;
     }
 
     /* Footer */
     .footer-note {
       text-align: center;
-      font-size: .72rem;
-      color: #484f58;
+      font-family: var(--font-mono);
+      font-size: .7rem;
+      color: var(--text-muted);
       margin-top: 1.5rem;
-      border-top: 1px solid #21262d;
+      border-top: 1px solid var(--border-primary);
       padding-top: .9rem;
-      line-height: 1.5;
+      line-height: 1.6;
     }
   </style>
 </head>
@@ -210,9 +229,18 @@
 <div class="card">
 
   <div class="logo">
-    <span class="logo-icon">🔐</span>
-    <h1>Nexus-Core</h1>
-    <p>Activa tu licencia para comenzar</p>
+    <svg class="logo-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+      <polygon points="24,6 38,14 38,30 24,38 10,30 10,14" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/>
+      <line x1="38" y1="14" x2="46" y2="8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="24" y1="38" x2="24" y2="46" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="10" y1="14" x2="2" y2="8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="24" cy="22" r="3" fill="currentColor"/>
+      <line x1="24" y1="14" x2="24" y2="19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <h1>Nexus Core</h1>
+      <p>Activación de Licencia</p>
+    </div>
   </div>
 
   <!-- Barra de progreso de pasos -->
@@ -263,7 +291,7 @@
   </div>
 
   <button class="btn-activate" id="btn-activar" disabled>
-    🔓 Activar Nexus-Core
+    🔓 Activar Nexus Core
   </button>
 
   <p class="footer-note">
@@ -324,7 +352,7 @@
       hwid = 'HWID-ERROR';
       hwidCompat = null;
       hwidEl.textContent = hwid;
-      hwidEl.style.color = '#f85149';
+      hwidEl.style.color = 'var(--accent-danger)';
     });
   }
 
@@ -484,7 +512,7 @@
 
       showError(msg);
       btnActivar.disabled    = false;
-      btnActivar.textContent = '🔓 Activar Nexus-Core';
+      btnActivar.textContent = '🔓 Activar Nexus Core';
       setDot(1, 'active');
     });
   });

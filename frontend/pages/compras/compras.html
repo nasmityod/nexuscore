@@ -1,58 +1,38 @@
 <section class="page-content compras-page">
-<style>
-.compras-page .compras-toolbar { display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1rem; }
-.compras-page .btn-primary { height:44px;padding:0 1.2rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.9rem;font-weight:600;display:inline-flex;align-items:center;gap:.4rem; }
-.compras-page .btn-primary:hover { background:#2563eb; }
-.compras-page .btn-secondary { height:44px;padding:0 1rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem; }
-.campo-grupo { margin-bottom:1rem; }
-.campo-grupo label { display:block;font-size:.85rem;font-weight:600;color:var(--text-secondary);margin-bottom:.35rem; }
-.input-g { width:100%;height:44px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.95rem; }
-.input-g:focus { outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.25); }
-.modal-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;padding:1rem; }
-.modal-box { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-lg);max-width:800px;width:100%;max-height:90vh;overflow:auto;padding:1.5rem; }
-.modal-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem; }
-.carrito-item { display:flex;align-items:center;gap:.75rem;padding:.65rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);margin-bottom:.4rem; }
-.compras-table { width:100%;border-collapse:collapse;font-size:.85rem; }
-.compras-table th { text-align:left;padding:.5rem .75rem;background:var(--bg-tertiary);color:var(--text-secondary);font-size:.75rem;text-transform:uppercase;border-bottom:2px solid var(--border-primary); }
-.compras-table td { padding:.5rem .75rem;border-bottom:1px solid var(--border-subtle); }
-.estado-badge { padding:.2rem .5rem;border-radius:var(--radius-sm);font-size:.75rem;font-weight:700; }
-.estado-pendiente { background:rgba(245,158,11,.2);color:#f59e0b; }
-.estado-recibida  { background:rgba(16,185,129,.2);color:#10b981; }
-.estado-cancelada { background:rgba(100,116,139,.2);color:#64748b; }
-</style>
-
 <div class="page-header">
-  <div>
+  <div class="page-header-info">
     <h1 class="page-title">Compras y Recepción</h1>
     <p class="page-subtitle">Registro de compras a proveedores · el stock se actualiza automáticamente al recibir mercancía</p>
   </div>
   <div class="page-header-actions">
-    <button class="btn btn-primary" id="btn-nueva-compra">➕ Registrar compra</button>
+    <button class="btn btn-primary" id="btn-nueva-compra">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Registrar compra
+    </button>
   </div>
 </div>
 
 <!-- Alertas de órdenes pendientes -->
-<div id="compras-alertas" style="display:none;margin-bottom:.75rem;padding:.65rem 1rem;background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.3);border-radius:var(--radius-md);font-size:.85rem"></div>
+<div id="compras-alertas" class="compras-alerta"></div>
 
 <!-- Toolbar filtros -->
 <div class="compras-toolbar">
-  <select id="compras-filtro-estado" class="input-g" style="width:180px;height:40px">
+  <select id="compras-filtro-estado" class="input-g" style="width:180px">
     <option value="">Todos los estados</option>
     <option value="pendiente">Pendientes</option>
     <option value="recibida">Recibidas</option>
     <option value="cancelada">Canceladas</option>
   </select>
-  <input type="search" id="compras-buscar" class="input-g" style="max-width:240px;height:40px" placeholder="🔍 Buscar proveedor o número...">
-  <span id="compras-conteo" style="font-size:.82rem;color:var(--text-secondary)"></span>
+  <input type="search" id="compras-buscar" class="input-g" style="max-width:240px" placeholder="Buscar proveedor o número...">
+  <span id="compras-conteo" class="rpt-muted-text"></span>
 </div>
 
 <!-- Lista de compras -->
 <div class="card">
-  <div id="compras-empty" style="display:none;text-align:center;padding:2.5rem;color:var(--text-secondary)">
-    <div style="font-size:3rem;margin-bottom:.75rem">🛒</div>
-    <h3>Todavía no has registrado ninguna compra</h3>
-    <p>Cuando le compras mercancía a un proveedor, regístralo aquí para que el sistema actualice el stock automáticamente.</p>
-    <button class="btn-primary" onclick="document.getElementById('btn-nueva-compra').click()">➕ Registrar primera compra</button>
+  <div id="compras-empty" class="compras-empty">
+    <p class="compras-empty-title">Sin compras registradas</p>
+    <p class="compras-empty-desc">Cuando le compras mercancía a un proveedor, regístralo aquí para que el sistema actualice el stock automáticamente.</p>
+    <button class="btn-primary" onclick="document.getElementById('btn-nueva-compra').click()">+ Registrar primera compra</button>
   </div>
   <div style="overflow:auto" id="compras-tabla-wrap">
     <table class="compras-table">
@@ -61,7 +41,7 @@
           <th>Nro.</th>
           <th>Fecha</th>
           <th>Proveedor</th>
-          <th style="text-align:right">Total USD</th>
+          <th class="num">Total USD</th>
           <th style="text-align:center">Ítems</th>
           <th>Estado</th>
           <th>Días Abierta</th>
@@ -69,7 +49,7 @@
         </tr>
       </thead>
       <tbody id="compras-tbody">
-        <tr><td colspan="8" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">⏳ Cargando compras...</td></tr>
+        <tr><td colspan="8" class="td-cargando">Cargando compras...</td></tr>
       </tbody>
     </table>
   </div>
@@ -79,45 +59,45 @@
 <div class="modal-overlay" id="modal-compra">
   <div class="modal-box">
     <div class="modal-header">
-      <h2>🛒 Registrar Compra</h2>
-      <button style="background:transparent;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-secondary)" id="btn-cerrar-modal-compra">✕</button>
+      <h2>Registrar Compra</h2>
+      <button class="modal-close" id="btn-cerrar-modal-compra">✕</button>
     </div>
 
     <!-- Paso 1: Proveedor -->
     <div id="compra-paso-1">
       <div class="campo-grupo">
-        <label>¿A quién le compraste?</label>
+        <label>Proveedor</label>
         <select id="compra-proveedor" class="input-g">
           <option value="">Sin proveedor (compra directa)</option>
         </select>
       </div>
       <div class="campo-grupo">
-        <label>Notas de la compra (opcional)</label>
+        <label>Notas (opcional)</label>
         <input type="text" id="compra-notas" class="input-g" placeholder="Ej: Factura #123, pago de contado...">
       </div>
     </div>
 
     <!-- Paso 2: Productos -->
     <div>
-      <h4 style="margin:.75rem 0 .5rem;font-size:.9rem;color:var(--text-secondary)">📦 ¿Qué compraste?</h4>
-      <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
+      <p class="compra-productos-titulo">Productos</p>
+      <div class="compra-buscar-row">
         <input type="text" id="compra-buscar-prod" class="input-g" placeholder="Buscar producto por nombre o código...">
       </div>
-      <div id="compra-sugerencias" style="border:1px solid var(--border-primary);border-radius:var(--radius-sm);max-height:150px;overflow:auto;display:none;margin-bottom:.75rem;background:var(--bg-secondary)"></div>
+      <div id="compra-sugerencias" class="compra-sugerencias"></div>
 
-      <div id="compra-carrito" style="margin-bottom:1rem">
-        <p style="color:var(--text-secondary);font-size:.85rem;text-align:center">Busca un producto arriba para agregarlo a la compra</p>
+      <div id="compra-carrito" class="compra-carrito">
+        <p class="compra-carrito-vacio">Busca un producto arriba para agregarlo a la compra.</p>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem;background:var(--bg-tertiary);border-radius:var(--radius-sm)">
-        <span style="font-size:.9rem;font-weight:600">Total de la compra:</span>
-        <span id="compra-total" style="font-size:1.2rem;font-weight:700;color:#10b981">$0.00 USD</span>
+      <div class="compra-total-bar">
+        <span class="compra-total-label">Total de la compra</span>
+        <span id="compra-total" class="compra-total-valor">$0.00 USD</span>
       </div>
     </div>
 
-    <div style="display:flex;gap:.75rem;margin-top:1.25rem;justify-content:flex-end">
+    <div class="modal-footer-row">
       <button class="btn-secondary" id="btn-cancelar-modal-compra">Cancelar</button>
-      <button class="btn-primary" id="btn-confirmar-compra" disabled>✓ Registrar Compra</button>
+      <button class="btn-primary" id="btn-confirmar-compra" disabled>Confirmar Compra</button>
     </div>
   </div>
 </div>

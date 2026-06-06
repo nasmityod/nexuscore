@@ -4,6 +4,7 @@ const express = require('express');
 
 const { db } = require('../config/database');
 const PdfService = require('../services/pdfService');
+const { resolveTotalesBcvTicket } = require('../utils/ventaTotalesBcv');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { requirePermission } = require('../middleware/permissions.middleware');
 
@@ -105,8 +106,16 @@ router.get(
     const ivaBase     = subtotalUsd - descuento;
     const ivaPct      = Number(venta.iva_porcentaje || 0);
     const ivaMonto    = Number(venta.iva_monto_usd || 0);
+    const bcvTot = resolveTotalesBcvTicket(venta);
+    const totalUsdBcv =
+      bcvTot.totalRefUsdBcv != null && bcvTot.totalRefUsdBcv > 0
+        ? bcvTot.totalRefUsdBcv
+        : Number(venta.total_ref_usd_bcv) || Number(venta.total_usd || 0);
+    const totalBsBcv =
+      bcvTot.totalBsBcv != null && bcvTot.totalBsBcv > 0
+        ? bcvTot.totalBsBcv
+        : Number(venta.total_bs || 0);
     const totalUsd    = Number(venta.total_usd || 0);
-    const totalBs     = Number(venta.total_bs || 0);
 
     const lineasHtml = detalles.map((l) => `
       <tr>
@@ -189,8 +198,9 @@ router.get(
       ${descuento > 0 ? `<tr><td>Descuento (${fmtN(venta.descuento_porcentaje,1)}%):</td><td style="text-align:right">-$${fmtN(descuento)}</td></tr>` : ''}
       <tr><td>Base Imponible:</td><td style="text-align:right">$${fmtN(ivaBase)}</td></tr>
       <tr><td>IVA ${fmtN(ivaPct,0)}%:</td><td style="text-align:right">$${fmtN(ivaMonto)}</td></tr>
-      <tr class="total-row"><td><b>TOTAL USD:</b></td><td style="text-align:right"><b>$${fmtN(totalUsd)}</b></td></tr>
-      <tr><td style="color:#666">Equiv. Bs:</td><td style="text-align:right;color:#666">Bs ${fmtN(totalBs, 2)}</td></tr>
+      <tr class="total-row"><td><b>TOTAL $ BCV:</b></td><td style="text-align:right"><b>$${fmtN(totalUsdBcv, 1)}</b></td></tr>
+      <tr><td style="color:#666">TOTAL Bs BCV:</td><td style="text-align:right;color:#666">Bs ${fmtN(totalBsBcv, 2)}</td></tr>
+      <tr><td style="color:#888;font-size:9px">USD efectivo (auditoría):</td><td style="text-align:right;color:#888;font-size:9px">$${fmtN(totalUsd)}</td></tr>
     </table>
   </div>
 </div>
@@ -201,7 +211,7 @@ router.get(
 </div>
 
 <div class="leyenda">
-  ${esc(cfg.factura_leyenda || 'Este documento no tiene valor fiscal hasta ser timbrado. Documento emitido por Nexus-Core.')}
+  ${esc(cfg.factura_leyenda || 'Este documento no tiene valor fiscal hasta ser timbrado. Documento emitido por Nexus Core.')}
 </div>
 
 <script>window.onload=function(){window.print();}</script>

@@ -5,6 +5,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var navbarHost = document.getElementById('navbar-host');
   var view = document.getElementById('view');
 
+  // Bandera para no destruir y recrear el chrome en cada cambio de ruta
+  var chromeYaMontado = false;
+
   function hasSession() {
     return !!(
       window.NexusAuth &&
@@ -13,10 +16,22 @@ document.addEventListener('DOMContentLoaded', function () {
     );
   }
 
+  function updateChromePerRoute() {
+    // Actualizar sidebar activo sin recrear el chrome completo
+    if (window.NexusRouter && typeof window.NexusRouter.syncSidebarActive === 'function') {
+      window.NexusRouter.syncSidebarActive(window.NexusRouter.getRouteFromHash());
+    }
+    // Sincronizar navbar con localStorage (tasa puede haber cambiado desde otro módulo)
+    if (typeof window.NexusComponents?.syncNavbarRatesInputsFromLocalStorage === 'function') {
+      window.NexusComponents.syncNavbarRatesInputsFromLocalStorage();
+    }
+  }
+
   function mountChrome() {
     if (!hasSession()) {
       if (sidebarHost) sidebarHost.innerHTML = '';
       if (navbarHost) navbarHost.innerHTML = '';
+      chromeYaMontado = false;
       return;
     }
     var route =
@@ -26,8 +41,16 @@ document.addEventListener('DOMContentLoaded', function () {
     if (route && route.hash === 'login') {
       if (sidebarHost) sidebarHost.innerHTML = '';
       if (navbarHost) navbarHost.innerHTML = '';
+      chromeYaMontado = false;
       return;
     }
+
+    if (chromeYaMontado) {
+      // Chrome ya existe: solo sincronizar estado por ruta, sin destruir/recrear
+      updateChromePerRoute();
+      return;
+    }
+
     if (sidebarHost && window.NexusComponents && window.NexusComponents.renderSidebar) {
       sidebarHost.innerHTML = '';
       window.NexusComponents.renderSidebar(sidebarHost);
@@ -38,6 +61,23 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (window.NexusRouter && typeof window.NexusRouter.syncSidebarActive === 'function') {
       window.NexusRouter.syncSidebarActive(window.NexusRouter.getRouteFromHash());
+    }
+
+    chromeYaMontado = true;
+
+    // Hidratar tasas desde servidor una sola vez al montar el chrome inicial
+    if (typeof window.NexusComponents?.hydrateTasasDesdeServidorSilent === 'function') {
+      window.NexusComponents.hydrateTasasDesdeServidorSilent().then(function (r) {
+        if (!r) {
+          // Hydrate falló o devolvió tasas inválidas — advertencia no bloqueante
+          if (window.NexusComponents && window.NexusComponents.showToast) {
+            window.NexusComponents.showToast(
+              'No se pudieron actualizar las tasas de cambio. Verifica la conexión con el servidor.',
+              'warning'
+            );
+          }
+        }
+      }).catch(function () {});
     }
   }
 
@@ -77,6 +117,8 @@ document.addEventListener('DOMContentLoaded', function () {
   // ── FIN NUEVO ──────────────────────────────────────────────
 
   window.addEventListener('nexus:session', function () {
+    // Al cambiar sesión resetear la bandera para que el nuevo chrome se monte limpio
+    chromeYaMontado = false;
     mountChrome();
   });
 

@@ -1,0 +1,27 @@
+# Dependencias (El "agujero negro" que ralentiza la IA)
+node_modules/
+
+# Archivos de Next.js (Basura técnica de compilación)
+.next/
+out/
+build/
+
+# Base de datos y Prisma
+/lib/generated/prisma
+prisma/migrations/
+*.db
+*.db-journal
+
+# Variables de Entorno (¡SEGURIDAD CRÍTICA!)
+.env
+.env.local
+.env.production
+.env.development
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# Scripts de automatización o utilidades internas
+scripts/

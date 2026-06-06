@@ -57,6 +57,7 @@ async function previewAjuste(req, res) {
     `SELECT p.id, p.nombre,
             p.costo_usd::numeric AS costo_usd,
             p.margen_ganancia_pct::numeric AS margen_ganancia_pct,
+            p.precio_manual_usd::numeric AS precio_manual_usd,
             COALESCE(cat.nombre, 'Sin categoría') AS categoria
      FROM productos p
      LEFT JOIN categorias cat ON cat.id = p.categoria_id
@@ -66,10 +67,29 @@ async function previewAjuste(req, res) {
   );
 
   const tasas = await PreciosService.obtenerTasasActuales(db);
+  const tasaUsdVal = parseFloat(tasas.tasa_usd) || 0;
+  const tasaBcvVal = parseFloat(tasas.tasa_bcv) || 0;
+  const tasasOk = tasaUsdVal > 0 && tasaBcvVal > 0;
 
-  const preview = productos.map(p => {
+  const preview = [];
+  const omitidos = [];
+
+  for (const p of productos) {
     const costo = parseFloat(p.costo_usd) || 0;
-    if (costo <= 0) return null;
+
+    // M4: verificar manual ANTES de filtrar por costo, para que productos con
+    // precio_manual_usd activo (aunque costo=0) aparezcan en omitidos del preview.
+    if (PreciosService.tienePrecioManualActivo(p.precio_manual_usd)) {
+      omitidos.push({
+        id: p.id,
+        nombre: p.nombre,
+        categoria: p.categoria,
+        razon: 'precio_fijo_bcv'
+      });
+      continue;
+    }
+
+    if (costo <= 0) continue;
 
     const margenActual = parseFloat(p.margen_ganancia_pct) || 0;
     let margenNuevo;
@@ -79,27 +99,46 @@ async function previewAjuste(req, res) {
     else if (tipo === 'decremento') margenNuevo = Math.max(0, margenActual - valorNum);
     else                            margenNuevo = valorNum;
 
-    const precioAntes = costo * (1 + margenActual / 100);
-    const precioNuevo = costo * (1 + margenNuevo / 100);
-    const tasaUsd     = parseFloat(tasas.tasa_usd) || 0;
-    const tasaBcv     = parseFloat(tasas.tasa_bcv) || 1;
+    let cadenaAntes = null;
+    let cadenaNueva = null;
+    if (tasasOk) {
+      try {
+        const ventaAntes = PreciosService.precioVentaUnitarioCatalogo(
+          costo, margenActual, null, tasaBcvVal, tasaUsdVal
+        );
+        cadenaAntes = ventaAntes;
+        cadenaNueva = PreciosService.calcularPrecios(costo, margenNuevo, tasaBcvVal, tasaUsdVal);
+      } catch (_e) {
+        cadenaAntes = null;
+        cadenaNueva = null;
+      }
+    }
 
-    return {
+    const precioUsdAntesFallback = parseFloat((costo * (1 + margenActual / 100)).toFixed(4));
+    const precioUsdNuevoFallback = parseFloat((costo * (1 + margenNuevo  / 100)).toFixed(4));
+
+    preview.push({
       id: p.id,
       nombre: p.nombre,
       categoria: p.categoria,
       margen_actual:    margenActual,
       margen_nuevo:     parseFloat(margenNuevo.toFixed(2)),
-      precio_usd_antes: parseFloat(precioAntes.toFixed(4)),
-      precio_usd_nuevo: parseFloat(precioNuevo.toFixed(4)),
-      precio_bs_antes:  parseFloat((precioAntes * tasaUsd).toFixed(2)),
-      precio_bs_nuevo:  parseFloat((precioNuevo * tasaUsd).toFixed(2)),
-      precio_bcv_antes: parseFloat((precioAntes * (tasaUsd / tasaBcv)).toFixed(4)),
-      precio_bcv_nuevo: parseFloat((precioNuevo * (tasaUsd / tasaBcv)).toFixed(4))
-    };
-  }).filter(Boolean);
+      precio_usd_antes: cadenaAntes ? cadenaAntes.precio_usd_efectivo : precioUsdAntesFallback,
+      precio_usd_nuevo: cadenaNueva ? cadenaNueva.precio_usd_efectivo : precioUsdNuevoFallback,
+      precio_bs_antes:  cadenaAntes ? cadenaAntes.precio_bs      : null,
+      precio_bs_nuevo:  cadenaNueva ? cadenaNueva.precio_bs      : null,
+      precio_bcv_antes: cadenaAntes ? cadenaAntes.precio_usd_bcv : null,
+      precio_bcv_nuevo: cadenaNueva ? cadenaNueva.precio_usd_bcv : null
+    });
+  }
 
-  res.json({ preview, total: preview.length, tasas });
+  res.json({
+    preview,
+    omitidos,
+    total: preview.length,
+    omitidos_total: omitidos.length,
+    tasas
+  });
 }
 
 async function ajusteMasivo(req, res) {
@@ -116,7 +155,12 @@ async function ajusteMasivo(req, res) {
   }
 
   const params = [valorNum];
-  let whereClause = 'activo = TRUE';
+  // `costo_usd > 0` debe coincidir EXACTAMENTE con el filtro de preview (línea 72)
+  // para que el conteo del preview y el rowCount del UPDATE sean iguales.
+  // Productos sin costo o con costo<=0 no se ajustan: el motor de precios no los
+  // puede calcular y mostrarían el cambio de margen sin reflejo en ventas.
+  let whereClause = 'activo = TRUE AND COALESCE(costo_usd, 0) > 0'
+    + ' AND (precio_manual_usd IS NULL OR precio_manual_usd <= 0)';
 
   if (scope === 'categoria' && categoria_id) {
     const catId = parseInt(categoria_id, 10);
@@ -158,7 +202,7 @@ async function ajusteMasivo(req, res) {
 // ─── Ajuste de Stock ──────────────────────────────────────────────────────────
 
 async function ajusteStock(req, res) {
-  const { producto_id, cantidad, tipo, notas } = req.body;
+  const { producto_id, cantidad, tipo, notas, moneda_costo } = req.body;
 
   if (!producto_id) throw httpError(400, 'El ID del producto es obligatorio');
   if (cantidad === undefined || cantidad === null || cantidad === '') {
@@ -192,11 +236,12 @@ async function ajusteStock(req, res) {
        WHERE id = $2`,
       [cantidadEntera, producto_id]
     );
+    const monedaCostoVal = ['usd_fisico', 'bcv'].includes(moneda_costo) ? moneda_costo : 'usd_fisico';
     await t.none(
       `INSERT INTO ajustes_inventario
-         (producto_id, tipo, cantidad, referencia_tipo, usuario_id, notas)
-       VALUES ($1, $2, $3, 'ajuste_manual', $4, $5)`,
-      [producto_id, tipo || 'ajuste_manual', cantidadEntera, req.user.id, notas || null]
+         (producto_id, tipo, cantidad, referencia_tipo, usuario_id, motivo, moneda_costo)
+       VALUES ($1, $2, $3, 'ajuste_manual', $4, $5, $6)`,
+      [producto_id, tipo || 'ajuste_manual', cantidadEntera, req.user.id, notas || null, monedaCostoVal]
     );
   });
 
@@ -225,13 +270,13 @@ async function movimientos(req, res) {
             ai.cantidad::numeric,
             ai.costo_unitario_usd::numeric,
             ai.referencia_tipo,
-            ai.notas,
-            ai.creado_en,
+            ai.motivo,
+            ai.fecha,
             u.nombre_completo AS usuario
      FROM ajustes_inventario ai
      LEFT JOIN usuarios u ON u.id = ai.usuario_id
      WHERE ai.producto_id = $1
-     ORDER BY ai.creado_en DESC
+     ORDER BY ai.fecha DESC
      LIMIT $2`,
     [productoId, limit]
   );
@@ -243,7 +288,8 @@ async function movimientos(req, res) {
 async function inventarioValorizado(req, res) {
   const tasas = await PreciosService.obtenerTasasActuales(db);
   const tasaUsd = parseFloat(tasas.tasa_usd) || 0;
-  const tasaBcv = parseFloat(tasas.tasa_bcv) || 1;
+  const tasaBcv = parseFloat(tasas.tasa_bcv) || 0;
+  const tasasBcvValidas = tasaUsd > 0 && tasaBcv > 0;
 
   const rows = await db.any(`
     SELECT p.nombre,
@@ -252,6 +298,7 @@ async function inventarioValorizado(req, res) {
            p.stock_actual::numeric,
            p.costo_usd::numeric,
            p.margen_ganancia_pct::numeric,
+           p.precio_manual_usd::numeric,
            COALESCE(cat.nombre, 'Sin categoría') AS categoria
     FROM productos p
     LEFT JOIN categorias cat ON cat.id = p.categoria_id
@@ -261,17 +308,57 @@ async function inventarioValorizado(req, res) {
 
   let total_costo_usd       = 0;
   let total_valor_venta_usd = 0;
+  let total_costo_bcv       = 0;
+  let total_valor_venta_bcv = 0;
+  let total_costo_bs        = 0;
+  let total_valor_venta_bs  = 0;
 
   const productos = rows.map(p => {
-    const stock        = parseFloat(p.stock_actual) || 0;
-    const costo        = parseFloat(p.costo_usd) || 0;
-    const margen       = parseFloat(p.margen_ganancia_pct) || 0;
-    const precioVenta  = costo * (1 + margen / 100);
-    const costoTotal   = stock * costo;
-    const ventaTotal   = stock * precioVenta;
+    const stock  = parseFloat(p.stock_actual) || 0;
+    const costo  = parseFloat(p.costo_usd) || 0;
+    const margen = parseFloat(p.margen_ganancia_pct) || 0;
+    const tieneManual = PreciosService.tienePrecioManualActivo(p.precio_manual_usd);
+    // M4: productos con precio_manual_usd activo se incluyen aunque costo=0
+    if (costo <= 0 && !tieneManual) return null;
+
+    let ventaUnit = null;
+    if (tasasBcvValidas) {
+      try {
+        ventaUnit = PreciosService.precioVentaUnitarioCatalogo(
+          costo, margen, p.precio_manual_usd, tasaBcv, tasaUsd
+        );
+      } catch (_e) {
+        ventaUnit = null;
+      }
+    }
+
+    const precioVenta = ventaUnit
+      ? ventaUnit.precio_usd_efectivo
+      : costo * (1 + margen / 100);
+    const costoTotal  = stock * costo;
+    const ventaTotal  = stock * precioVenta;
+    const costoBcvUnit = tasasBcvValidas
+      ? PreciosService.costoUnitarioRefBcv(costo, tasaBcv, tasaUsd)
+      : 0;
+    const ventaBcvUnit = ventaUnit ? ventaUnit.precio_usd_bcv : 0;
+    const costoBsUnit = tasasBcvValidas
+      ? PreciosService.costoUnitarioBsOperativo(costo, tasaBcv, tasaUsd)
+      : 0;
+    const ventaBsUnit = ventaUnit ? ventaUnit.precio_bs : (tasaUsd > 0 ? precioVenta * tasaUsd : 0);
+
+    const costoBcv    = tasasBcvValidas ? stock * costoBcvUnit : null;
+    const ventaBcv    = tasasBcvValidas ? stock * ventaBcvUnit : null;
+    const costoBs     = tasasBcvValidas ? stock * costoBsUnit : (tasaUsd > 0 ? costoTotal * tasaUsd : null);
+    const ventaBs     = tasasBcvValidas ? stock * ventaBsUnit : (tasaUsd > 0 ? ventaTotal * tasaUsd : null);
 
     total_costo_usd       += costoTotal;
     total_valor_venta_usd += ventaTotal;
+    if (tasasBcvValidas) {
+      total_costo_bcv       += costoBcv;
+      total_valor_venta_bcv += ventaBcv;
+      total_costo_bs        += costoBs;
+      total_valor_venta_bs  += ventaBs;
+    }
 
     return {
       nombre:               p.nombre,
@@ -281,13 +368,17 @@ async function inventarioValorizado(req, res) {
       stock_actual:         stock,
       costo_usd:            parseFloat(costo.toFixed(4)),
       margen_ganancia_pct:  margen,
+      precio_fijo_bcv:      ventaUnit ? ventaUnit.via_manual : false,
       precio_venta_usd:     parseFloat(precioVenta.toFixed(4)),
-      precio_venta_bs:      parseFloat((precioVenta * tasaUsd).toFixed(2)),
-      precio_venta_bcv:     parseFloat((precioVenta * (tasaUsd / tasaBcv)).toFixed(4)),
+      precio_venta_bs:      ventaBsUnit > 0 ? parseFloat(ventaBsUnit.toFixed(2)) : null,
+      precio_venta_bcv:     tasasBcvValidas && ventaBcvUnit > 0
+        ? parseFloat(ventaBcvUnit.toFixed(4)) : null,
       costo_total_usd:      parseFloat(costoTotal.toFixed(4)),
-      valor_venta_total_usd: parseFloat(ventaTotal.toFixed(4))
+      valor_venta_total_usd: parseFloat(ventaTotal.toFixed(4)),
+      costo_total_bcv:      costoBcv !== null ? parseFloat(costoBcv.toFixed(4)) : null,
+      valor_venta_total_bcv: ventaBcv !== null ? parseFloat(ventaBcv.toFixed(4)) : null
     };
-  });
+  }).filter(Boolean);
 
   res.json({
     productos,
@@ -295,8 +386,16 @@ async function inventarioValorizado(req, res) {
       total_costo_usd:         parseFloat(total_costo_usd.toFixed(4)),
       total_valor_venta_usd:   parseFloat(total_valor_venta_usd.toFixed(4)),
       ganancia_potencial_usd:  parseFloat((total_valor_venta_usd - total_costo_usd).toFixed(4)),
-      total_costo_bs:          parseFloat((total_costo_usd * tasaUsd).toFixed(2)),
-      total_valor_venta_bs:    parseFloat((total_valor_venta_usd * tasaUsd).toFixed(2)),
+      total_costo_bs:          tasasBcvValidas
+        ? parseFloat(total_costo_bs.toFixed(2))
+        : (tasaUsd > 0 ? parseFloat((total_costo_usd * tasaUsd).toFixed(2)) : null),
+      total_valor_venta_bs:    tasasBcvValidas
+        ? parseFloat(total_valor_venta_bs.toFixed(2))
+        : (tasaUsd > 0 ? parseFloat((total_valor_venta_usd * tasaUsd).toFixed(2)) : null),
+      total_costo_bcv:         tasasBcvValidas ? parseFloat(total_costo_bcv.toFixed(4)) : null,
+      total_valor_venta_bcv:   tasasBcvValidas ? parseFloat(total_valor_venta_bcv.toFixed(4)) : null,
+      ganancia_potencial_bcv:  tasasBcvValidas
+        ? parseFloat((total_valor_venta_bcv - total_costo_bcv).toFixed(4)) : null,
       tasas
     }
   });

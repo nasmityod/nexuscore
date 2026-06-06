@@ -1,0 +1,30 @@
+---
+alwaysApply: true
+---
+
+VARIABLES CRÍTICAS — VALIDACIÓN OBLIGATORIA AL ARRANQUE:
+Las siguientes variables DEBEN validarse en backend/server.js antes de app.listen():
+- JWT_SECRET: si NODE_ENV=production y JWT_SECRET es el valor de desarrollo por defecto,
+  el servidor DEBE abortar con un error explícito. NUNCA arrancar producción con secret débil.
+- NEXUS_LICENSE_PUBLIC_KEY: si no está presente, usar la clave embebida por defecto,
+  pero loggear una advertencia nivel WARN con winston.
+- PG_PASSWORD: si está vacío en producción, loggear advertencia de seguridad.
+
+REGLAS DE .env:
+- El archivo .env NUNCA se commitea al repositorio. .gitignore ya lo excluye.
+- Toda nueva variable de entorno que el agente requiera DEBE:
+    1. Agregarse a .env.example con descripción y valor de ejemplo (no el real).
+    2. Documentarse en este mismo archivo de configuración bajo la sección correspondiente.
+- PROHIBIDO leer process.env en archivos del frontend. Las configuraciones que el
+  renderer necesite se pasan exclusivamente vía IPC desde main.js (canales ya definidos).
+
+ELECTRON DOTENV:
+- dotenv se carga desde electron/main.js con path relativo ../​.env.
+  PROHIBIDO cargar dotenv desde archivos del backend directamente si ya lo hace main.js;
+  verificar el orden de carga para evitar variables undefined en arranque del backend embebido.
+
+RESPALDOS PERIÓDICOS (optional):
+- **NEXUS_BACKUP_INTERVAL_MINUTES** (entero, opcional): intervalo fijo en minutos entre respaldos automáticos (`pg_dump`).
+  **0** desactiva únicamente el programa periódico; no afecta respaldo al cerrar caja o al salir de la app.
+  Sin esta variable, el intervalo se toma de `configuracion.backup_automatico` y `backup_intervalo_horas` (UI Configuración → Respaldo).
+  Documentada también en `.env.example` junto a NEXUS_BACKUP_DIR / NEXUS_PG_*.

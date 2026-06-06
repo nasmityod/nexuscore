@@ -3,222 +3,144 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Iniciando Nexus-Core</title>
+  <title>Iniciando Nexus Core</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      color: white;
-      overflow: hidden;
-    }
-
-    .splash-container {
-      text-align: center;
-      max-width: 500px;
-      padding: 2rem;
-    }
-
-    .logo {
-      font-size: 3.5rem;
-      font-weight: 700;
-      margin-bottom: 1rem;
-      text-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    .tagline {
-      font-size: 1.1rem;
-      opacity: 0.9;
-      margin-bottom: 2.5rem;
-      font-weight: 300;
-    }
-
-    .loader {
-      width: 60px;
-      height: 60px;
-      margin: 0 auto 1.5rem;
-      border: 5px solid rgba(255, 255, 255, 0.2);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    .status-text {
-      font-size: 1rem;
-      opacity: 0.8;
-      min-height: 1.5rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .progress-bar {
-      width: 100%;
-      height: 4px;
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 2px;
-      overflow: hidden;
-      margin-top: 1rem;
-    }
-
-    .progress-fill {
-      height: 100%;
-      background: white;
-      width: 0%;
-      transition: width 0.3s ease;
-      border-radius: 2px;
-    }
-
-    .error-container {
-      display: none;
-      padding: 1.5rem;
-      background: rgba(239, 68, 68, 0.2);
-      border: 2px solid rgba(239, 68, 68, 0.5);
-      border-radius: 8px;
-      margin-top: 2rem;
-      text-align: left;
-    }
-
-    .error-container.show {
-      display: block;
-    }
-
-    .error-title {
-      font-size: 1.2rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-      text-align: center;
-    }
-
-    .error-message {
-      font-size: 0.9rem;
-      opacity: 0.9;
-      line-height: 1.5;
-      word-break: break-word;
-    }
-
-    .tech-log-toggle {
-      display: inline-block;
-      margin-top: 0.75rem;
-      font-size: 0.8rem;
-      opacity: 0.7;
-      cursor: pointer;
-      text-decoration: underline;
-      user-select: none;
-    }
-
-    .tech-log {
-      display: none;
-      margin-top: 0.5rem;
-      padding: 0.75rem;
-      background: rgba(0, 0, 0, 0.35);
-      border-radius: 4px;
-      font-family: 'Consolas', 'Courier New', monospace;
-      font-size: 0.72rem;
-      line-height: 1.4;
-      white-space: pre-wrap;
-      word-break: break-all;
-      max-height: 160px;
-      overflow-y: auto;
-      opacity: 0.85;
-    }
-
-    .tech-log.show {
-      display: block;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.05); }
-    }
-
-    .version {
-      position: absolute;
-      bottom: 1rem;
-      right: 1rem;
-      font-size: 0.8rem;
-      opacity: 0.5;
-    }
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;700&family=Barlow+Condensed:wght@700;800&family=DM+Mono:wght@400;500&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-primary:         #05080f;
+    --bg-secondary:       #090d18;
+    --bg-tertiary:        #0d1424;
+    --accent-primary:     #f0a500;
+    --accent-primary-glow: rgba(240, 165, 0, 0.12);
+    --text-primary:       #edf2f7;
+    --text-secondary:     #7a8fa8;
+    --text-muted:         #3d5068;
+    --border-primary:     #1a2540;
+    --accent-danger:      #ef4444;
+    --font-display:       'Barlow Condensed', sans-serif;
+    --font-ui:            'Sora', system-ui, sans-serif;
+    --font-mono:          'DM Mono', 'JetBrains Mono', monospace;
+  }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg-primary);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 15% -10%, rgba(240, 165, 0, 0.04) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 85% 110%, rgba(59, 130, 246, 0.03) 0%, transparent 70%);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    overflow: hidden;
+    -webkit-app-region: drag;
+    -webkit-font-smoothing: antialiased;
+  }
+  .splash-container {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; gap: 20px; position: relative;
+  }
+  .splash-container::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent-primary);
+    box-shadow: 0 0 20px rgba(240, 165, 0, 0.35);
+  }
+  .splash-logo {
+    width: 72px; height: 72px; color: var(--accent-primary);
+    filter: drop-shadow(0 0 12px rgba(240, 165, 0, 0.35));
+    animation: logo-glow 2.5s ease-in-out infinite;
+  }
+  @keyframes logo-glow {
+    0%, 100% { filter: drop-shadow(0 0 10px rgba(240, 165, 0, 0.3)); }
+    50%       { filter: drop-shadow(0 0 22px rgba(240, 165, 0, 0.6)); }
+  }
+  .splash-title {
+    font-family: var(--font-display); font-size: 30px; font-weight: 800;
+    letter-spacing: 0.12em; text-transform: uppercase; color: #ffffff; line-height: 1;
+  }
+  .splash-sub {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--accent-primary); opacity: 0.85;
+  }
+  .splash-version {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
+    position: absolute; bottom: 16px;
+  }
+  .splash-status {
+    font-family: var(--font-ui); font-size: 12.5px;
+    color: var(--text-secondary); min-height: 1.25rem; -webkit-app-region: no-drag;
+  }
+  .splash-progress-bar {
+    width: 180px; height: 2px; background: var(--border-primary); border-radius: 2px;
+    overflow: hidden; margin-top: 8px; -webkit-app-region: no-drag;
+  }
+  .splash-progress-fill {
+    height: 100%; width: 0%; background: var(--accent-primary);
+    box-shadow: 0 0 8px rgba(240, 165, 0, 0.5);
+    border-radius: 2px; transition: width 0.3s ease;
+  }
+  .error-container {
+    display: none; padding: 1rem 1.25rem; background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; margin-top: 1rem;
+    max-width: 420px; text-align: left; -webkit-app-region: no-drag;
+  }
+  .error-container.show { display: block; }
+  .error-title { font-family: var(--font-display); font-size: 1rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 0.5rem; text-align: center; color: var(--accent-danger); }
+  .error-message { font-size: 0.85rem; line-height: 1.5; word-break: break-word; color: var(--text-secondary); }
+  .tech-log-toggle { display: inline-block; margin-top: 0.75rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary); cursor: pointer; text-decoration: underline; }
+  .tech-log {
+    display: none; margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-tertiary);
+    border-radius: 3px; font-family: var(--font-mono); font-size: 0.72rem;
+    line-height: 1.4; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow-y: auto;
+  }
+  .tech-log.show { display: block; }
   </style>
 </head>
 <body>
   <div class="splash-container">
-    <div class="logo">⚡ Nexus-Core</div>
-    <div class="tagline">Sistema POS · Yaritagua, Venezuela</div>
-    
-    <div class="loader"></div>
-    
-    <div class="status-text" id="status">Iniciando sistema...</div>
-    
-    <div class="progress-bar">
-      <div class="progress-fill" id="progress"></div>
-    </div>
-
+    <svg class="splash-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+      <polygon points="24,6 38,14 38,30 24,38 10,30 10,14" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none"/>
+      <line x1="38" y1="14" x2="46" y2="8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="24" y1="38" x2="24" y2="46" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="10" y1="14" x2="2" y2="8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="24" cy="22" r="3" fill="currentColor"/>
+      <line x1="24" y1="14" x2="24" y2="19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <div class="splash-title">Nexus Core</div>
+    <div class="splash-sub">ERP · POS System</div>
+    <div class="splash-status" id="status">Iniciando sistema...</div>
+    <div class="splash-progress-bar"><div class="splash-progress-fill" id="progress"></div></div>
     <div class="error-container" id="error">
-      <div class="error-title">⚠ Error de Inicio</div>
+      <div class="error-title">Error de inicio</div>
       <div class="error-message" id="error-message"></div>
-      <span class="tech-log-toggle" id="tech-log-toggle" style="display:none;">
-        ▶ Ver log técnico
-      </span>
+      <span class="tech-log-toggle" id="tech-log-toggle" style="display:none;">Ver log técnico</span>
       <div class="tech-log" id="tech-log"></div>
     </div>
+    <span class="splash-version" id="splash-version">v0.0.0</span>
   </div>
-
-  <div class="version">v1.0.0</div>
-
   <script>
-    // Usa window.splashBridge expuesto por preload-splash.js mediante contextBridge.
-    // No se accede a require('electron') directamente (nodeIntegration: false).
     const bridge = window.splashBridge;
-
     bridge.onStatus(function (data) {
       var statusEl = document.getElementById('status');
       var progressEl = document.getElementById('progress');
-
-      if (data.status) {
-        statusEl.textContent = data.status;
-      }
-      if (data.progress !== undefined) {
-        progressEl.style.width = data.progress + '%';
-      }
+      if (data.status) statusEl.textContent = data.status;
+      if (data.progress !== undefined) progressEl.style.width = data.progress + '%';
     });
-
     bridge.onError(function (error) {
       var errorContainer = document.getElementById('error');
       var errorMessage = document.getElementById('error-message');
-      var loader = document.querySelector('.loader');
       var techLogEl = document.getElementById('tech-log');
       var techLogToggle = document.getElementById('tech-log-toggle');
-
-      loader.style.display = 'none';
       errorContainer.classList.add('show');
       errorMessage.textContent = error.message || 'Error desconocido';
-
       if (error.technicalLog && error.technicalLog.trim()) {
         techLogEl.textContent = error.technicalLog;
         techLogToggle.style.display = 'inline-block';
         techLogToggle.addEventListener('click', function () {
           var isOpen = techLogEl.classList.toggle('show');
-          techLogToggle.textContent = isOpen ? '▼ Ocultar log técnico' : '▶ Ver log técnico';
+          techLogToggle.textContent = isOpen ? 'Ocultar log técnico' : 'Ver log técnico';
         });
       }
     });
-
-    setTimeout(function () {
-      bridge.ready();
-    }, 100);
+    setTimeout(function () { bridge.ready(); }, 100);
   </script>
 </body>
 </html>

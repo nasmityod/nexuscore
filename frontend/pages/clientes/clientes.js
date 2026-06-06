@@ -4,8 +4,12 @@
   var state = {
     clientes: [],
     filtro: 'todos',
-    clienteActual: null
+    clienteActual: null,
+    pagoCuentaRef: null
   };
+
+  var METODOS_BS = ['efectivo_bs', 'transferencia_bs', 'pago_movil', 'punto'];
+  var METODOS_USD = ['efectivo_usd', 'zelle'];
 
   function apiBase() { return String(window.NEXUS_API_BASE || 'http://127.0.0.1:3000').replace(/\/$/, ''); }
   function apiFetch(path, init) {
@@ -17,7 +21,91 @@
     if (window.NexusComponents && window.NexusComponents.showToast) window.NexusComponents.showToast(msg, tipo || 'info');
   }
   function n(v) { return Number(v) || 0; }
+  function parseMontoPago(raw) {
+    if (window.NexusNumberStepper && window.NexusNumberStepper.parseMontoVe) {
+      return window.NexusNumberStepper.parseMontoVe(raw);
+    }
+    var t = String(raw == null ? '' : raw).trim().replace(/\s/g, '');
+    if (!t) return NaN;
+    if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+    else {
+      t = t.replace(',', '.');
+      if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    }
+    return parseFloat(t);
+  }
   function fUsd(v) { return n(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function fBcv(v) { return '$ ' + fUsd(v) + ' BCV'; }
+  function fBs(v) { return 'Bs. ' + n(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function roundRefBcv2(v) { return Math.round(n(v) * 100) / 100; }
+  function round4(v) { return Math.round(n(v) * 10000) / 10000; }
+  function metodoEsBs(metodo) { return METODOS_BS.indexOf(metodo) !== -1; }
+  function metodoEsUsd(metodo) { return METODOS_USD.indexOf(metodo) !== -1; }
+  function getTasas() {
+    var load = window.NexusComponents && window.NexusComponents.loadTasasLocal;
+    if (load) {
+      var t = load();
+      return { bcv: n(t.bcv), usd: n(t.usd), ok: t.bcv > 0 };
+    }
+    return { bcv: 0, usd: 0, ok: false };
+  }
+  function cuentaRefDesdeRow(cc) {
+    var origBcv = n(cc.monto_usd_bcv);
+    var origUsd = n(cc.monto_original_usd);
+    var saldoUsd = n(cc.saldo_pendiente_usd);
+    var saldoBcv = origBcv > 0 && origUsd > 0 ? (saldoUsd * origBcv / origUsd) : saldoUsd;
+    return { origBcv: origBcv, origUsd: origUsd, saldoUsd: saldoUsd, saldoBcv: saldoBcv };
+  }
+  function usdEfectivoDesdeBcv(montoBcv, cuenta) {
+    var bcv = n(montoBcv);
+    if (!bcv) return 0;
+    if (n(cuenta.origBcv) > 0 && n(cuenta.origUsd) > 0) {
+      return round4((bcv * cuenta.origUsd) / cuenta.origBcv);
+    }
+    if (n(cuenta.saldoBcv) > 0 && n(cuenta.saldoUsd) > 0) {
+      return round4((bcv * cuenta.saldoUsd) / cuenta.saldoBcv);
+    }
+    var tas = getTasas();
+    if (tas.bcv > 0 && tas.usd > 0) return round4((bcv * tas.bcv) / tas.usd);
+    return round4(bcv);
+  }
+  function bcvDesdeUsdEfectivo(montoUsd, cuenta) {
+    var usd = n(montoUsd);
+    if (!usd) return 0;
+    if (n(cuenta.saldoBcv) > 0 && n(cuenta.saldoUsd) > 0) {
+      return roundRefBcv2((usd * cuenta.saldoBcv) / cuenta.saldoUsd);
+    }
+    if (n(cuenta.origBcv) > 0 && n(cuenta.origUsd) > 0) {
+      return roundRefBcv2((usd * cuenta.origBcv) / cuenta.origUsd);
+    }
+    return roundRefBcv2(usd);
+  }
+  function calcularEquivAbono(montoIngresado, metodo, cuenta) {
+    var tas = getTasas();
+    var out = { bcv: 0, usd: 0, bs: null, valido: false };
+    var m = parseMontoPago(montoIngresado);
+    if (!Number.isFinite(m) || m <= 0 || !cuenta) return out;
+    if (metodoEsBs(metodo)) {
+      if (!tas.bcv) return out;
+      out.bs = m;
+      out.bcv = roundRefBcv2(m / tas.bcv);
+      out.usd = usdEfectivoDesdeBcv(out.bcv, cuenta);
+      out.valido = out.bcv > 0 && out.usd > 0;
+      return out;
+    }
+    if (metodoEsUsd(metodo)) {
+      out.usd = round4(m);
+      out.bcv = bcvDesdeUsdEfectivo(out.usd, cuenta);
+      if (tas.bcv > 0) out.bs = Math.round(out.bcv * tas.bcv * 100) / 100;
+      out.valido = out.bcv > 0 && out.usd > 0;
+      return out;
+    }
+    out.bcv = roundRefBcv2(m);
+    out.usd = usdEfectivoDesdeBcv(out.bcv, cuenta);
+    if (tas.bcv > 0) out.bs = Math.round(out.bcv * tas.bcv * 100) / 100;
+    out.valido = out.bcv > 0 && out.usd > 0;
+    return out;
+  }
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   function formatFecha(f) {
     if (!f) return '—';
@@ -38,17 +126,29 @@
       });
   }
 
-  /* ─── ALERTAS DE DEUDA ALTA ─── */
+  /* ─── ALERTAS DE DEUDA ALTA (columna lateral) ─── */
+  var SVG_ALERTA = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  var SVG_EDIT = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   function renderAlertasDeuda() {
     var cont = document.getElementById('alertas-deuda');
     if (!cont) return;
     var criticos = state.clientes.filter(function (c) { return n(c.porcentaje_uso) >= 80 && n(c.deuda_total_usd) > 0; });
-    if (!criticos.length) { cont.style.display = 'none'; return; }
+    if (!criticos.length) { cont.style.display = 'none'; cont.innerHTML = ''; return; }
     cont.style.display = 'block';
-    cont.innerHTML = '<div style="padding:.65rem 1rem;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:var(--radius-sm)">' +
-      '⚠️ <strong>' + criticos.length + '</strong> cliente(s) han superado el 80% de su límite de crédito: ' +
-      criticos.map(function (c) { return '<strong>' + esc(c.nombre) + '</strong>'; }).join(', ') +
-      '</div>';
+    cont.innerHTML =
+      '<div class="clientes-alertas-head">' + SVG_ALERTA +
+      '<span class="clientes-alertas-titulo">En mora</span>' +
+      '<span class="clientes-alertas-count">' + criticos.length + '</span>' +
+      '</div>' +
+      '<p class="clientes-alertas-sub">Superan el 80% de su límite de crédito</p>' +
+      '<ul class="clientes-alertas-list">' +
+      criticos.map(function (c) {
+        return '<li class="clientes-alertas-item" onclick="ClientesPage.verPerfil(' + c.id + ')" title="Ver perfil">' +
+          '<span class="clientes-alertas-nombre">' + esc(c.nombre) + '</span>' +
+          '<span class="clientes-alertas-pct">' + n(c.porcentaje_uso).toFixed(0) + '%</span>' +
+          '</li>';
+      }).join('') +
+      '</ul>';
   }
 
   /* ─── TABLA ─── */
@@ -84,26 +184,26 @@
       var deuda = n(c.deuda_total_usd);
       var pct   = n(c.porcentaje_uso);
       var badgeClass = pct >= 80 ? 'deuda-alta' : (pct >= 50 ? 'deuda-media' : (deuda > 0 ? 'deuda-baja' : 'deuda-limpia'));
-      var badgeLabel = deuda > 0 ? ('$' + fUsd(deuda)) : '✅ Sin deuda';
+      var badgeLabel = deuda > 0 ? ('$' + fUsd(deuda)) : 'Sin deuda';
       return '<tr onclick="ClientesPage.verPerfil(' + c.id + ')" title="Clic para ver perfil">' +
         '<td><strong>' + esc(c.nombre) + '</strong></td>' +
         '<td>' + esc(c.cedula_rif || '—') + '</td>' +
         '<td>' + esc(c.telefono || '—') + '</td>' +
-        '<td style="text-align:right"><span class="deuda-badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
-        '<td style="text-align:right">' + (n(c.limite_credito_usd) > 0 ? '$' + fUsd(c.limite_credito_usd) : '—') + '</td>' +
-        '<td>' + (c.activo !== false ? '<span style="color:#10b981;font-size:.8rem">● Activo</span>' : '<span style="color:#64748b;font-size:.8rem">● Inactivo</span>') + '</td>' +
-        '<td><button class="btn-secondary" style="height:44px;font-size:.8rem;min-width:44px" onclick="event.stopPropagation();ClientesPage.editarCliente(' + c.id + ')">✏️ Editar</button></td>' +
+        '<td class="num"><span class="deuda-badge ' + badgeClass + '">' + badgeLabel + '</span></td>' +
+        '<td class="num">' + (n(c.limite_credito_usd) > 0 ? '$' + fUsd(c.limite_credito_usd) : '—') + '</td>' +
+        '<td>' + (c.activo !== false ? '<span class="cli-estado cli-estado--activo">Activo</span>' : '<span class="cli-estado cli-estado--inactivo">Inactivo</span>') + '</td>' +
+        '<td><button class="btn-secondary cli-btn-editar" onclick="event.stopPropagation();ClientesPage.editarCliente(' + c.id + ')">' + SVG_EDIT + ' Editar</button></td>' +
         '</tr>';
     }).join('');
     if (!lista.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">No se encontraron clientes con ese criterio</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="cli-loading-cell">No se encontraron clientes con ese criterio</td></tr>';
     }
   }
 
   /* ─── MODAL NUEVO / EDITAR ─── */
   function abrirModalNuevo() {
     document.getElementById('cliente-id').value = '';
-    document.getElementById('modal-cliente-titulo').textContent = '👤 Nuevo Cliente';
+    document.getElementById('modal-cliente-titulo').textContent = 'Nuevo Cliente';
     ['nombre','cedula','telefono','email','direccion','notas'].forEach(function (f) {
       var el = document.getElementById('cliente-' + f);
       if (el) el.value = '';
@@ -118,7 +218,7 @@
     var c = state.clientes.find(function (x) { return x.id === id; });
     if (!c) return;
     document.getElementById('cliente-id').value = c.id;
-    document.getElementById('modal-cliente-titulo').textContent = '✏️ Editar Cliente';
+    document.getElementById('modal-cliente-titulo').textContent = 'Editar Cliente';
     document.getElementById('cliente-nombre').value    = c.nombre || '';
     document.getElementById('cliente-cedula').value    = c.cedula_rif || '';
     document.getElementById('cliente-telefono').value  = c.telefono || '';
@@ -142,10 +242,19 @@
     var nombre = (document.getElementById('cliente-nombre').value || '').trim();
     if (!nombre) { toast('El nombre del cliente es obligatorio', 'warning'); return; }
 
+    var Ve = window.NexusTelefonoVe;
+    if (!Ve) {
+      toast('No se cargó la validación de celular. Recargue la página.', 'warning');
+      return;
+    }
+    var telEl = document.getElementById('cliente-telefono');
+    var vt = Ve.validarOpcional(telEl ? telEl.value : '');
+    if (!vt.ok) { toast(vt.mensaje, 'warning'); return; }
+
     var payload = {
       nombre:             nombre,
       cedula_rif:         document.getElementById('cliente-cedula').value,
-      telefono:           document.getElementById('cliente-telefono').value,
+      telefono:           vt.normalizado,
       email:              document.getElementById('cliente-email').value,
       direccion:          document.getElementById('cliente-direccion').value,
       limite_credito_usd: n(document.getElementById('cliente-limite').value),
@@ -156,7 +265,7 @@
     var method = id ? 'PATCH' : 'POST';
 
     var btnGuardar = document.getElementById('btn-guardar-cliente');
-    if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = '⏳ Guardando...'; }
+    if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = 'Guardando...'; }
 
     apiFetch(url, {
       method: method,
@@ -165,13 +274,13 @@
     }).then(function (r) {
       return r.ok ? r.json() : r.json().then(function (d) { throw new Error(d.error || 'Error'); });
     }).then(function () {
-      toast(id ? 'Cliente actualizado' : 'Cliente creado ✅', 'success');
+      toast(id ? 'Cliente actualizado' : 'Cliente creado', 'success');
       cerrarModalCliente();
       cargarClientes();
     }).catch(function (e) {
       toast(e.message || 'No se pudo guardar', 'error');
     }).finally(function () {
-      if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = '💾 Guardar'; }
+      if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar'; }
     });
   }
 
@@ -209,8 +318,8 @@
     var alertaEl = document.getElementById('perfil-alerta-deuda');
     var btnPago  = document.getElementById('btn-registrar-pago');
 
-    if (kpisEl)  kpisEl.innerHTML  = '<div style="color:var(--text-secondary);font-size:.85rem">⏳ Cargando...</div>';
-    if (histEl)  histEl.innerHTML  = '<div style="color:var(--text-secondary);font-size:.85rem;padding:1rem">⏳ Cargando...</div>';
+    if (kpisEl)  kpisEl.innerHTML  = '<div class="perfil-modal-loading">Cargando...</div>';
+    if (histEl)  histEl.innerHTML  = '<div class="perfil-modal-loading">Cargando...</div>';
     if (deudaEl) deudaEl.innerHTML = '';
     if (pagosEl) pagosEl.innerHTML = '';
 
@@ -226,14 +335,14 @@
 
         if (kpisEl) {
           kpisEl.innerHTML = [
-            { label:'Total comprado', val:'$' + fUsd(c.total_comprado_usd), color:'#3b82f6' },
-            { label:'Nro. compras',   val: c.num_compras || 0,              color:'#a78bfa' },
-            { label:'Deuda actual',   val:'$' + fUsd(deuda),                color: deuda > 0 ? '#ef4444' : '#10b981' },
-            { label:'Límite crédito', val: limite > 0 ? '$' + fUsd(limite) : 'Sin límite', color:'#f59e0b' }
+            { label:'Total comprado', val:'$' + fUsd(c.total_comprado_usd), card:' kpi-card--purple', tone:'' },
+            { label:'Nro. compras',   val: c.num_compras || 0,              card:'',                   tone:'' },
+            { label:'Deuda actual',   val:'$' + fUsd(deuda),                card: deuda > 0 ? ' kpi-card--red' : ' kpi-card--green', tone: deuda > 0 ? ' kpi-value--danger' : ' kpi-value--success' },
+            { label:'Límite crédito', val: limite > 0 ? '$' + fUsd(limite) : 'Sin límite', card:' kpi-card--yellow', tone:' kpi-value--warning' }
           ].map(function (k) {
-            return '<div style="background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:.65rem 1rem">' +
-              '<div style="font-size:.7rem;color:var(--text-secondary);text-transform:uppercase">' + k.label + '</div>' +
-              '<div style="font-size:1.15rem;font-weight:700;color:' + k.color + '">' + k.val + '</div>' +
+            return '<div class="kpi-card' + k.card + '">' +
+              '<div class="kpi-label">' + k.label + '</div>' +
+              '<div class="kpi-value' + k.tone + '">' + k.val + '</div>' +
               '</div>';
           }).join('');
         }
@@ -242,7 +351,7 @@
         if (alertaEl) {
           if (pct >= 80 && deuda > 0) {
             alertaEl.style.display = 'block';
-            alertaEl.innerHTML = '⚠️ <strong>Atención:</strong> Este cliente ha usado el <strong>' + pct.toFixed(0) + '%</strong> de su límite de crédito.';
+            alertaEl.innerHTML = SVG_ALERTA + ' <strong>Atención:</strong> Este cliente ha usado el <strong>' + pct.toFixed(0) + '%</strong> de su límite de crédito.';
           } else {
             alertaEl.style.display = 'none';
           }
@@ -255,34 +364,36 @@
             ? ventas.map(function (v) {
                 return '<div class="historial-venta">' +
                   '<div><strong>' + esc(v.numero_venta || '#' + v.id) + '</strong><br>' +
-                  '<span style="font-size:.75rem;color:var(--text-secondary)">' + formatFecha(v.fecha_venta) + ' · ' + esc(v.cajero || '') + '</span></div>' +
-                  '<div style="text-align:right"><strong style="color:#10b981">$' + fUsd(v.total_usd) + '</strong><br>' +
-                  '<span style="font-size:.75rem;color:var(--text-secondary)">' + esc(v.metodo_pago || '') + '</span></div>' +
+                  '<span class="hv-meta">' + formatFecha(v.fecha_venta) + ' · ' + esc(v.cajero || '') + '</span></div>' +
+                  '<div class="hv-monto"><strong class="hv-total">$' + fUsd(v.total_usd) + '</strong><br>' +
+                  '<span class="hv-meta">' + esc(v.metodo_pago || '') + '</span></div>' +
                   '</div>';
               }).join('')
-            : '<p style="color:var(--text-secondary);text-align:center;padding:1.5rem">Sin compras registradas</p>';
+            : '<p class="perfil-modal-vacio">Sin compras registradas</p>';
         }
 
         // Deuda y pagos
         var cuentas = data.cuentas_cobrar || [];
         if (deudaEl) {
           if (deuda > 0) {
-            deudaEl.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">' +
+            deudaEl.innerHTML = '<div class="perfil-cuentas-grid">' +
               cuentas.filter(function (cc) { return n(cc.saldo_pendiente_usd) > 0; }).map(function (cc) {
-                return '<div style="background:var(--bg-tertiary);padding:.5rem .75rem;border-radius:var(--radius-sm);font-size:.8rem">' +
-                  '<div style="color:var(--text-secondary)">Venta: ' + esc(cc.numero_venta || '#' + cc.venta_id) + '</div>' +
-                  '<div style="font-weight:700;color:#ef4444">Debe: $' + fUsd(cc.saldo_pendiente_usd) + '</div>' +
-                  '<div style="color:var(--text-secondary)">Vence: ' + formatFecha(cc.fecha_vencimiento) + '</div>' +
+                return '<div class="perfil-cuenta-card">' +
+                  '<div class="perfil-cuenta-ref">Venta: ' + esc(cc.numero_venta || '#' + cc.venta_id) + '</div>' +
+                  '<div class="perfil-cuenta-debe">Debe: $' + fUsd(cc.saldo_pendiente_usd) + '</div>' +
+                  '<div class="perfil-cuenta-vence">Vence: ' + formatFecha(cc.fecha_vencimiento) + '</div>' +
                   '</div>';
               }).join('') + '</div>';
           } else {
-            deudaEl.innerHTML = '<p style="color:#10b981;text-align:center;padding:1rem">✅ Este cliente no tiene deudas pendientes</p>';
+            deudaEl.innerHTML = '<p class="perfil-modal-vacio perfil-sin-deuda">Este cliente no tiene deudas pendientes</p>';
           }
         }
 
         // Botón pagar
         if (btnPago) {
           btnPago.style.display = deuda > 0 ? '' : 'none';
+          var primeraCuenta = cuentas.filter(function (cc) { return n(cc.saldo_pendiente_usd) > 0; })[0] || null;
+          state.pagoCuentaRef = primeraCuenta ? cuentaRefDesdeRow(primeraCuenta) : null;
           btnPago.onclick = function () { abrirModalPago(id, deuda); };
         }
 
@@ -290,11 +401,11 @@
         var pagos = data.pagos || [];
         if (pagosEl) {
           pagosEl.innerHTML = pagos.length
-            ? '<h4 style="font-size:.85rem;color:var(--text-secondary);margin:.5rem 0">Pagos registrados</h4>' +
+            ? '<h4 class="perfil-pagos-titulo">Pagos registrados</h4>' +
               pagos.map(function (p) {
                 return '<div class="pago-row">' +
                   '<div>' + formatFecha(p.fecha_pago) + ' · ' + esc(p.metodo || '') + '</div>' +
-                  '<div style="color:#10b981;font-weight:600">+$' + fUsd(p.monto_usd) + '</div>' +
+                  '<div class="pago-monto">+$' + fUsd(p.monto_usd) + '</div>' +
                   '</div>';
               }).join('')
             : '';
@@ -305,11 +416,47 @@
         if (piEl) piEl.value = id;
       })
       .catch(function () {
-        if (histEl) histEl.innerHTML = '<p style="color:#ef4444;padding:1rem">❌ No se pudo cargar el perfil del cliente</p>';
+        if (histEl) histEl.innerHTML = '<p class="perfil-modal-error">No se pudo cargar el perfil del cliente</p>';
       });
   }
 
   /* ─── MODAL PAGO ─── */
+  function actualizarUiMontoPago() {
+    var metodo = (document.getElementById('pago-metodo') || {}).value || 'efectivo_usd';
+    var label = document.getElementById('pago-monto-label');
+    var input = document.getElementById('pago-monto');
+    var infoEl = document.getElementById('pago-deuda-actual');
+    var equivEl = document.getElementById('pago-equiv-info');
+    var tas = getTasas();
+
+    if (label) {
+      if (metodoEsBs(metodo)) label.textContent = 'Monto recibido (Bs.) *';
+      else if (metodoEsUsd(metodo)) label.textContent = 'Monto recibido ($ USD efectivo) *';
+      else label.textContent = 'Monto recibido ($ USD BCV) *';
+    }
+    if (input) {
+      if (metodoEsBs(metodo)) input.placeholder = 'Ej: 21.069,51';
+      else input.placeholder = 'Ej: 25,00';
+    }
+    if (infoEl && state.pagoCuentaRef) {
+      infoEl.innerHTML = 'Deuda actual: <strong>' + fBcv(state.pagoCuentaRef.saldoBcv) + '</strong>' +
+        ' <span class="text-muted">(' + fUsd(state.pagoCuentaRef.saldoUsd) + ' USD)</span>';
+    }
+    if (equivEl) {
+      var equiv = calcularEquivAbono(input ? input.value : 0, metodo, state.pagoCuentaRef);
+      if (equiv.valido) {
+        equivEl.textContent = 'Equivale a ' + fBcv(equiv.bcv) + ' · ' + fUsd(equiv.usd) + ' USD efectivo';
+        equivEl.style.display = 'block';
+      } else if (metodoEsBs(metodo) && !tas.ok) {
+        equivEl.textContent = 'Configure la tasa BCV en Configuración para pagos en bolívares.';
+        equivEl.style.display = 'block';
+      } else {
+        equivEl.textContent = '';
+        equivEl.style.display = 'none';
+      }
+    }
+  }
+
   function abrirModalPago(clienteId, deudaActual) {
     var modal = document.getElementById('modal-pago');
     if (!modal) return;
@@ -317,8 +464,9 @@
     document.getElementById('pago-cliente-id').value = clienteId;
     document.getElementById('pago-monto').value = '';
     document.getElementById('pago-notas').value = '';
-    var infoEl = document.getElementById('pago-deuda-actual');
-    if (infoEl) infoEl.textContent = 'Deuda actual: $' + fUsd(deudaActual) + ' USD';
+    var metodoEl = document.getElementById('pago-metodo');
+    if (metodoEl) metodoEl.value = 'efectivo_bs';
+    actualizarUiMontoPago();
     setTimeout(function () { var el = document.getElementById('pago-monto'); if (el) el.focus(); }, 100);
   }
 
@@ -329,39 +477,64 @@
 
   function guardarPago() {
     var clienteId = document.getElementById('pago-cliente-id').value;
-    var monto     = n(document.getElementById('pago-monto').value);
+    var montoRaw  = document.getElementById('pago-monto').value;
+    var monto     = parseMontoPago(montoRaw);
     var metodo    = document.getElementById('pago-metodo').value;
     var notas     = document.getElementById('pago-notas').value;
 
-    if (!monto || monto <= 0) { toast('Ingresa un monto válido', 'warning'); return; }
+    if (!Number.isFinite(monto) || monto <= 0) { toast('Ingresa un monto válido', 'warning'); return; }
+    if (!state.pagoCuentaRef) { toast('No hay cuentas pendientes para abonar', 'warning'); return; }
+
+    var equiv = calcularEquivAbono(montoRaw, metodo, state.pagoCuentaRef);
+    if (!equiv.valido) {
+      if (metodoEsBs(metodo) && !getTasas().ok) {
+        toast('Configure la tasa BCV antes de registrar pagos en bolívares', 'warning');
+      } else {
+        toast('No se pudo calcular el equivalente del pago', 'warning');
+      }
+      return;
+    }
 
     var btnGuardar = document.getElementById('btn-guardar-pago');
-    if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = '⏳ Registrando...'; }
+    if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = 'Registrando...'; }
+
+    var body = { metodo: metodo, notas: notas || undefined };
+    if (metodoEsBs(metodo)) body.monto_bs = monto;
+    else if (metodoEsUsd(metodo)) body.monto_usd = monto;
+    else body.monto_usd_bcv = monto;
 
     apiFetch('/api/clientes/' + clienteId + '/pagos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ monto_usd: monto, metodo: metodo, notas: notas })
+      body: JSON.stringify(body)
     }).then(function (r) {
       return r.ok ? r.json() : r.json().then(function (d) { throw new Error(d.error || 'Error'); });
-    }).then(function () {
-      toast('✅ Pago registrado correctamente', 'success');
+    }).then(function (d) {
+      var msg = 'Pago registrado: ' + fBcv(d.monto_aplicado_bcv || equiv.bcv);
+      if (d.monto_bs_registrado != null) msg += ' · ' + fBs(d.monto_bs_registrado);
+      toast(msg, 'success');
       cerrarModalPago();
       cargarClientes();
       if (state.clienteActual) cargarPerfilData(state.clienteActual);
     }).catch(function (e) {
       toast(e.message || 'No se pudo registrar el pago', 'error');
     }).finally(function () {
-      if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = '💾 Registrar pago'; }
+      if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = 'Registrar pago'; }
     });
   }
 
   /* ─── MOUNT ─── */
   window.ClientesPage = {
     mount: function (host) {
+      if (typeof window.NexusComponents?.hydrateTasasDesdeServidorSilent === 'function') {
+        window.NexusComponents.hydrateTasasDesdeServidorSilent().catch(function () {});
+      }
+
       // Botones principales
       var btnNuevo = host.querySelector('#btn-nuevo-cliente');
       if (btnNuevo) btnNuevo.addEventListener('click', abrirModalNuevo);
+      var btnEmptyNuevo = host.querySelector('#btn-empty-nuevo-cliente');
+      if (btnEmptyNuevo) btnEmptyNuevo.addEventListener('click', abrirModalNuevo);
 
       // Filtros
       host.querySelector('#filtro-con-deuda').addEventListener('click', function () {
@@ -381,6 +554,9 @@
       host.querySelector('#btn-cerrar-modal-cliente').addEventListener('click', cerrarModalCliente);
       host.querySelector('#btn-cancelar-modal-cliente').addEventListener('click', cerrarModalCliente);
       host.querySelector('#btn-guardar-cliente').addEventListener('click', guardarCliente);
+
+      var telIn = host.querySelector('#cliente-telefono');
+      if (telIn && window.NexusTelefonoVe) window.NexusTelefonoVe.enlazarInput(telIn);
 
       // Modal perfil
       host.querySelector('#btn-cerrar-perfil').addEventListener('click', function () {
@@ -410,6 +586,15 @@
       host.querySelector('#btn-cerrar-pago').addEventListener('click', cerrarModalPago);
       host.querySelector('#btn-cancelar-pago').addEventListener('click', cerrarModalPago);
       host.querySelector('#btn-guardar-pago').addEventListener('click', guardarPago);
+      var metodoPagoEl = host.querySelector('#pago-metodo');
+      var montoPagoEl = host.querySelector('#pago-monto');
+      if (metodoPagoEl) metodoPagoEl.addEventListener('change', actualizarUiMontoPago);
+      if (montoPagoEl) {
+        montoPagoEl.addEventListener('input', actualizarUiMontoPago);
+        if (window.NexusNumberStepper && window.NexusNumberStepper.normalizarInputMontoVe) {
+          window.NexusNumberStepper.normalizarInputMontoVe(montoPagoEl, { onInput: actualizarUiMontoPago });
+        }
+      }
 
       cargarClientes();
     },

@@ -216,7 +216,7 @@ window.NexusRouter = (function () {
       });
     }
 
-    document.title = 'Nexus-Core — ' + route.title;
+    document.title = 'Nexus Core — ' + route.title;
     window.dispatchEvent(new CustomEvent('nexus:route', { detail: { route } }));
     updateGuestShell(route);
 

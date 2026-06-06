@@ -2,6 +2,7 @@
 
 const { db } = require('../config/database');
 const PdfService = require('../services/pdfService');
+const { getComisionCasheaDesdeDB } = require('../services/casheaService');
 
 function parseDias(q) {
   const n = Number(q);
@@ -35,7 +36,7 @@ const CIERRE_CAJA_DAY_SQL = `
       )
       FROM ventas v
       WHERE v.estado = 'completada'
-        AND DATE(v.fecha_venta) = CURRENT_DATE
+        AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'
     ), 0)::numeric AS esperado_efectivo_usd,
     COALESCE((
       SELECT SUM(
@@ -53,13 +54,13 @@ const CIERRE_CAJA_DAY_SQL = `
       )
       FROM ventas v
       WHERE v.estado = 'completada'
-        AND DATE(v.fecha_venta) = CURRENT_DATE
+        AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'
     ), 0)::numeric AS esperado_efectivo_bs,
     (
       SELECT COUNT(*)::int
       FROM ventas v
       WHERE v.estado = 'completada'
-        AND DATE(v.fecha_venta) = CURRENT_DATE
+        AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'
     ) AS num_ventas_dia
 `;
 
@@ -70,7 +71,7 @@ WITH scope AS (
   FROM ventas v
   WHERE v.estado = 'completada'
     AND (
-      ($1::int IS NULL AND DATE(v.fecha_venta) = CURRENT_DATE)
+      ($1::int IS NULL AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day')
       OR ($1::int IS NOT NULL AND v.sesion_caja_id = $1)
     )
 )
@@ -194,7 +195,7 @@ async function analyticsDashboard(req, res) {
         COALESCE(SUM(v.total_bs), 0) AS total_bs
      FROM ventas v
      WHERE v.estado = 'completada'
-       AND DATE(v.fecha_venta) = CURRENT_DATE`
+       AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'`
   );
 
   const hoyMargen = await db.oneOrNone(
@@ -202,7 +203,7 @@ async function analyticsDashboard(req, res) {
      FROM detalles_ventas d
      JOIN ventas v ON v.id = d.venta_id
      WHERE v.estado = 'completada'
-       AND DATE(v.fecha_venta) = CURRENT_DATE`
+       AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'`
   );
 
   const hoyGananciaReal = await db.oneOrNone(
@@ -212,8 +213,33 @@ async function analyticsDashboard(req, res) {
      FROM detalles_ventas d
      JOIN ventas v ON v.id = d.venta_id
      WHERE v.estado = 'completada'
-       AND DATE(v.fecha_venta) = CURRENT_DATE`
+       AND v.fecha_venta >= CURRENT_DATE AND v.fecha_venta < CURRENT_DATE + INTERVAL '1 day'`
   );
+
+  // Comisión Cashea: leer directamente desde ventas_cashea para incluir Express y evitar estimaciones.
+  // El campo total_comisiones_usd ya incluye comision_base_usd + comision_express_usd.
+  let casheaConfigData = { comisionPct: 0.04, comisionExpressPct: 0, modelo: 'base', linea: 'principal' };
+  try {
+    casheaConfigData = await getComisionCasheaDesdeDB(db);
+  } catch (_) { /* sin Cashea configurado, se ignora */ }
+
+  const ventasCasheaHoy = await db.oneOrNone(
+    `SELECT
+       COALESCE(SUM(vc.total_comisiones_usd), 0)   AS comision_total_hoy,
+       COALESCE(SUM(vc.comision_base_usd), 0)       AS comision_base_hoy,
+       COALESCE(SUM(vc.comision_express_usd), 0)    AS comision_express_hoy,
+       COALESCE(SUM(vc.total_venta_usd), 0)         AS total_cashea_usd,
+       COUNT(*)::int                                AS num_cashea
+     FROM ventas_cashea vc
+     INNER JOIN ventas v ON v.id = vc.venta_id
+     WHERE DATE(v.fecha_venta) = CURRENT_DATE
+       AND v.estado != 'anulada'
+       AND vc.estado_liquidacion != 'ANULADA'`
+  );
+  const totalCasheaHoyUsd  = num(ventasCasheaHoy && ventasCasheaHoy.total_cashea_usd);
+  const numCasheaHoy       = num(ventasCasheaHoy && ventasCasheaHoy.num_cashea);
+  const comisionCasheaHoy  = num(ventasCasheaHoy && ventasCasheaHoy.comision_total_hoy);
+  const comisionExpressHoy = num(ventasCasheaHoy && ventasCasheaHoy.comision_express_hoy);
 
   const cierreRow = await db.one(CIERRE_CAJA_DAY_SQL);
 
@@ -240,12 +266,48 @@ async function analyticsDashboard(req, res) {
     [dias]
   );
 
+  const casheaLiqHoy = await db.oneOrNone(
+    `SELECT COUNT(*)::int AS num_liquidaciones,
+            COALESCE(SUM(cantidad_ventas), 0)::int AS num_ventas,
+            COALESCE(SUM(total_neto_usd), 0)::numeric AS total_neto_usd,
+            COALESCE(SUM(total_comisiones_usd), 0)::numeric AS total_comisiones_usd
+     FROM cashea_liquidaciones
+     WHERE fecha_liquidacion IS NOT NULL
+       AND fecha_liquidacion >= CURRENT_DATE
+       AND fecha_liquidacion < CURRENT_DATE + INTERVAL '1 day'`
+  );
+
+  const casheaLiqPeriodo = await db.oneOrNone(
+    `SELECT COUNT(*)::int AS num_liquidaciones,
+            COALESCE(SUM(cantidad_ventas), 0)::int AS num_ventas,
+            COALESCE(SUM(total_neto_usd), 0)::numeric AS total_neto_usd,
+            COALESCE(SUM(total_comisiones_usd), 0)::numeric AS total_comisiones_usd
+     FROM cashea_liquidaciones
+     WHERE fecha_liquidacion IS NOT NULL
+       AND fecha_liquidacion >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')`,
+    [dias]
+  );
+
+  const casheaLiqDiarias = await db.any(
+    `SELECT DATE(fecha_liquidacion) AS fecha,
+            COUNT(*)::int AS num_liquidaciones,
+            COALESCE(SUM(cantidad_ventas), 0)::int AS num_ventas,
+            COALESCE(SUM(total_neto_usd), 0)::numeric AS total_neto_usd
+     FROM cashea_liquidaciones
+     WHERE fecha_liquidacion IS NOT NULL
+       AND fecha_liquidacion >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')
+     GROUP BY DATE(fecha_liquidacion)
+     ORDER BY fecha ASC`,
+    [dias]
+  );
+
   const nvHoy = num(hoyRow && hoyRow.num_ventas);
   const totalUsdHoy = num(hoyRow && hoyRow.total_usd);
   const margenHoy = num(hoyMargen && hoyMargen.margen_bruto_usd);
   const ingHoy = num(hoyGananciaReal && hoyGananciaReal.ingresos_lineas_usd);
   const costoHoy = num(hoyGananciaReal && hoyGananciaReal.costo_vendido_usd);
-  const gananciaRealHoy = ingHoy - costoHoy;
+  const gananciaRealHoyBruta = ingHoy - costoHoy;
+  const gananciaRealHoy = Math.round((gananciaRealHoyBruta - comisionCasheaHoy) * 10000) / 10000;
 
   const nvPer = num(periodoVentas.num_ventas);
   const totalUsdPer = num(periodoVentas.total_usd);
@@ -269,7 +331,10 @@ async function analyticsDashboard(req, res) {
         margenBrutoUsd: margenHoy,
         ingresosLineasUsd: ingHoy,
         costoVendidoUsd: costoHoy,
-        gananciaRealUsd: gananciaRealHoy
+        gananciaRealUsd: gananciaRealHoy,
+        comisionCasheaUsd: comisionCasheaHoy,
+        comisionExpressCasheaUsd: comisionExpressHoy,
+        hayVentasCashea: numCasheaHoy > 0
       },
       periodo: {
         numVentas: nvPer,
@@ -312,7 +377,30 @@ async function analyticsDashboard(req, res) {
       colorHex: r.color_hex || '#6366f1',
       ingresosUsd: num(r.ingresos_usd),
       unidadesVendidas: num(r.unidades_vendidas)
-    }))
+    })),
+    casheaLiquidacionesDeposito: {
+      hoy: {
+        numLiquidaciones: num(casheaLiqHoy && casheaLiqHoy.num_liquidaciones),
+        numVentas: num(casheaLiqHoy && casheaLiqHoy.num_ventas),
+        totalNetoUsd: num(casheaLiqHoy && casheaLiqHoy.total_neto_usd),
+        totalComisionesUsd: num(casheaLiqHoy && casheaLiqHoy.total_comisiones_usd)
+      },
+      periodo: {
+        numLiquidaciones: num(casheaLiqPeriodo && casheaLiqPeriodo.num_liquidaciones),
+        numVentas: num(casheaLiqPeriodo && casheaLiqPeriodo.num_ventas),
+        totalNetoUsd: num(casheaLiqPeriodo && casheaLiqPeriodo.total_neto_usd),
+        totalComisionesUsd: num(casheaLiqPeriodo && casheaLiqPeriodo.total_comisiones_usd)
+      },
+      diarias: casheaLiqDiarias.map((r) => ({
+        fecha:
+          r.fecha instanceof Date
+            ? r.fecha.toISOString().slice(0, 10)
+            : String(r.fecha).slice(0, 10),
+        numLiquidaciones: r.num_liquidaciones,
+        numVentas: r.num_ventas,
+        totalNetoUsd: num(r.total_neto_usd)
+      }))
+    }
   });
 }
 

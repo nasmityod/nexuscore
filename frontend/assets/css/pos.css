@@ -15,7 +15,7 @@
   align-items: stretch;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1000px) {
   .pos-grid {
     grid-template-columns: 1fr;
     gap: 1rem;
@@ -44,11 +44,12 @@
 
 .pos-panel-title {
   margin: 0;
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.16em;
   color: var(--text-muted);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 /* ─── Buscador (panel derecho) ─────────────────────────────────────── */
@@ -72,7 +73,7 @@
 .pos-search-input:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 4px rgba(240, 165, 0, 0.12);
 }
 
 .pos-search-input::placeholder {
@@ -215,7 +216,7 @@
 .pos-disc-input:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 3px rgba(240, 165, 0, 0.15);
 }
 
 .pos-cart-wrap {
@@ -240,12 +241,13 @@
   z-index: 1;
   background: var(--bg-tertiary);
   padding: 0.55rem 0.75rem;
-  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
+  letter-spacing: 0.14em;
+  font-weight: 500;
   color: var(--text-muted);
-  border-bottom: 2px solid var(--border-primary);
+  border-bottom: 1px solid var(--border-primary);
   text-align: left;
   white-space: nowrap;
 }
@@ -302,7 +304,7 @@
 .pos-line-disc-input:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 2px rgba(240, 165, 0, 0.15);
 }
 
 .pos-cart-empty {
@@ -317,29 +319,32 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  padding: 0.85rem 1rem;
+  background: linear-gradient(180deg, var(--accent-primary-bg) 0%, var(--bg-secondary) 100%);
   border: 1px solid var(--border-primary);
+  border-top: 2px solid var(--accent-primary);
   border-radius: var(--radius-md);
   gap: 0.15rem;
 }
 
 .pos-total-primary {
-  font-size: 2.5rem;
-  font-weight: 800;
-  font-family: var(--font-display);
-  color: var(--text-primary);
+  font-size: 2.6rem;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-bright);
   line-height: 1;
   letter-spacing: -0.02em;
   text-align: right;
 }
 
 .pos-total-currency {
-  font-size: 1rem;
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: var(--accent-primary);
   margin-right: 0.35rem;
   vertical-align: super;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.04em;
 }
 
@@ -348,6 +353,7 @@
   color: var(--text-secondary);
   text-align: right;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ─── Acciones del carrito ─────────────────────────────────────────── */
@@ -355,6 +361,13 @@
   display: flex;
   gap: 0.6rem;
   align-items: center;
+}
+
+.pos-cobrar-row .btn-xl,
+.btn-cobrar,
+.btn-pago-confirm,
+.pos-action-btn {
+  height: var(--height-btn-pos);
 }
 
 .pos-cobrar-row .btn-xl {
@@ -373,6 +386,58 @@
   height: 34px;
   font-size: 0.8rem;
   padding: 0 0.85rem;
+}
+
+.pos-fbody--cliente {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pos-fbody--cliente:hover {
+  border-color: rgba(240, 165, 0, 0.45);
+  background: var(--bg-tertiary);
+}
+.pos-cliente-venta-intro {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0 0 1rem;
+}
+.pos-cliente-venta-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.pos-cliente-venta-btns .btn-block {
+  width: 100%;
+  justify-content: center;
+}
+.pos-cliente-buscar-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+}
+.pos-cliente-buscar-list li {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.pos-cliente-buscar-list li:last-child {
+  border-bottom: none;
+}
+.pos-cliente-buscar-list li:hover {
+  background: rgba(240, 165, 0, 0.12);
+}
+.pos-cliente-buscar-list .muted {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.pos-cliente-venta-modal-inner {
+  max-width: 520px;
 }
 
 /* ─── Modal de cobro ───────────────────────────────────────────────── */
@@ -422,10 +487,12 @@
 
 .pos-cobro-modal-title {
   margin: 0;
+  font-family: var(--font-display);
   font-size: 1.2rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-bright);
 }
 
 .pos-cobro-close {
@@ -503,7 +570,7 @@
 }
 
 .cobro-banner--green {
-  background: linear-gradient(145deg, #059669 0%, #10b981 50%, #34d399 100%);
+  background: linear-gradient(145deg, #059669 0%, var(--accent-success) 50%, #34d399 100%);
   color: #fff;
 }
 
@@ -534,7 +601,7 @@
 }
 
 .cobro-banner--yellow {
-  background: linear-gradient(145deg, #d97706 0%, #f59e0b 55%, #fbbf24 100%);
+  background: linear-gradient(145deg, #d97706 0%, var(--accent-warning) 55%, #fbbf24 100%);
   color: #0f172a;
 }
 
@@ -543,8 +610,26 @@
 }
 
 .cobro-banner--red {
-  background: linear-gradient(145deg, #dc2626 0%, #ef4444 55%, #f87171 100%);
+  background: linear-gradient(145deg, #dc2626 0%, var(--accent-danger) 55%, #f87171 100%);
   color: #fff;
+}
+
+.cobro-banner--red .cobro-banner-line--ref-bcv {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.25rem;
+  opacity: 0.95;
+  line-height: 1.2;
+}
+
+.cobro-banner-label--green {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.92;
+  margin-bottom: 0.2rem;
 }
 
 .cobro-split {
@@ -559,6 +644,37 @@
   .cobro-split {
     grid-template-columns: 1fr;
   }
+}
+
+.cobro-conv {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.cobro-conv--directo {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.cobro-conv-tag {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.cobro-conv--bcv .cobro-conv-tag {
+  color: var(--accent-success);
+}
+
+.cobro-conv--usd .cobro-conv-tag {
+  color: var(--accent-warning, #d97706);
 }
 
 .cobro-tabla-wrap {
@@ -579,11 +695,13 @@
   text-align: left;
   padding: 0.5rem 0.6rem;
   background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-bottom: 2px solid var(--border-primary);
+  letter-spacing: 0.14em;
+  border-bottom: 1px solid var(--border-primary);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -616,12 +734,12 @@
 }
 
 .cobro-tabla-row:hover {
-  background: rgba(59, 130, 246, 0.06);
+  background: rgba(240, 165, 0, 0.06);
 }
 
-.cobro-tabla-row.is-active {
-  background: rgba(59, 130, 246, 0.14);
-  outline: 2px solid rgba(59, 130, 246, 0.45);
+.cobro-tabla-pagos tr.cobro-tabla-row.is-active {
+  background: rgba(240, 165, 0, 0.18);
+  outline: 2px solid var(--accent-primary);
   outline-offset: -2px;
 }
 
@@ -645,7 +763,7 @@
 .cobro-su-pago-input:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.22);
+  box-shadow: 0 0 0 2px rgba(240, 165, 0, 0.22);
 }
 
 .cobro-cell-moneda {
@@ -661,6 +779,20 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.cobro-numpad-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cobro-numpad-stack[hidden] {
+  display: none !important;
+}
+
+.cobro-split-right--cashea .cobro-cashea-card {
+  flex: 1;
 }
 
 .cobro-numpad-label {
@@ -801,6 +933,40 @@
   color: var(--accent-success);
 }
 
+#cobro-status-label.cobro-status-label--ingresando {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.pos-cart-table tbody tr.cart-row--added {
+  animation: rowFlash 0.4s ease-out forwards;
+}
+
+@keyframes rowFlash {
+  0% {
+    background: rgba(16, 185, 129, 0.2);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.marquee-bump {
+  animation: marqueeBump 0.25s ease-out;
+}
+
+@keyframes marqueeBump {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 .cobro-status-amount {
   font-family: var(--font-mono);
   font-size: 0.95rem;
@@ -871,10 +1037,15 @@
 }
 
 .pos-marquee-ticket {
-  font-weight: 800;
+  font-family: var(--font-mono);
+  font-weight: 500;
   font-size: 1rem;
   color: var(--accent-danger);
   letter-spacing: 0.02em;
+}
+
+.pos-marquee-ticket--completed {
+  color: var(--accent-success);
 }
 
 .pos-marquee-box {
@@ -905,8 +1076,9 @@
 }
 
 .pos-marquee-box-main {
+  font-family: var(--font-mono);
   font-size: 1.45rem;
-  font-weight: 800;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
@@ -949,14 +1121,14 @@
   align-items: start;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 860px) {
   .pos-classic-layout {
     grid-template-columns: 1fr;
   }
 }
 
 .pos-aside-classic {
-  background: linear-gradient(180deg, #1e3a5f 0%, #0f2744 100%);
+  background: linear-gradient(180deg, var(--border-primary) 0%, #0f2744 100%);
   color: #e2e8f0;
   border-radius: var(--radius-lg);
   padding: 1rem;
@@ -978,7 +1150,7 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .pos-fbody {
@@ -997,12 +1169,12 @@
 
 .pos-cliente-placeholder {
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .pos-cliente-sub {
   font-size: 0.72rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .pos-fblock--scan {
@@ -1032,10 +1204,10 @@
 
 .pos-scan-input:focus {
   outline: none;
-  border-color: rgba(129, 140, 248, 0.75);
+  border-color: var(--accent-primary);
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.2),
-    0 0 0 2px rgba(99, 102, 241, 0.2);
+    0 0 0 2px var(--accent-primary-bg);
 }
 
 /* Botón nativo "borrar" en type=search — visible sobre fondo oscuro */
@@ -1057,7 +1229,7 @@
 
 .pos-scan-hint {
   font-size: 0.7rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.3;
 }
@@ -1092,7 +1264,7 @@
 }
 
 .pos-aside-classic .pos-results-list--aside .pos-result-meta {
-  color: #94a3b8;
+  color: var(--text-secondary);
   white-space: normal;
   overflow: visible;
   text-overflow: unset;
@@ -1128,7 +1300,7 @@
 }
 
 .pos-aside-classic .pos-results-list--aside .pos-result-empty {
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .pos-preview-card {
@@ -1141,12 +1313,11 @@
 
 .pos-preview-image-wrap {
   width: 100%;
-  aspect-ratio: 4 / 3;
-  max-height: 160px;
+  max-height: 90px;
   margin: 0 auto 0.5rem;
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.2);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   overflow: hidden;
@@ -1154,12 +1325,12 @@
 
 .pos-preview-img {
   max-width: 100%;
-  max-height: 160px;
+  max-height: 90px;
   object-fit: contain;
 }
 
 .pos-preview-ph {
-  font-size: 3rem;
+  font-size: 2rem;
   opacity: 0.45;
 }
 
@@ -1190,7 +1361,7 @@
 
 .pos-mini-label {
   font-size: 0.72rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .pos-aside-toolbar .pos-disc-input {
@@ -1241,9 +1412,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
+  font-family: var(--font-mono);
+  font-weight: 500;
   background: var(--accent-primary);
-  color: #fff;
+  color: var(--text-on-accent);
   border-radius: var(--radius-sm);
   font-size: 0.95rem;
 }
@@ -1269,7 +1441,7 @@
 .pos-cart-table--classic tbody tr.is-selected {
   outline: 2px solid var(--accent-primary);
   outline-offset: -2px;
-  background: rgba(59, 130, 246, 0.08);
+  background: rgba(240, 165, 0, 0.08);
 }
 
 .pos-cell-precio-main {
@@ -1278,88 +1450,383 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Carrito: montos legibles (Bs cadena + $ ref. BCV); bs_usd colapsado */
+.pos-cart-line-precio-simple {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  line-height: 1.28;
+  text-align: right;
+}
+.pos-cart-line-precio-simple--total .pos-cart-line-bs {
+  font-size: 1.06rem;
+}
+.pos-cart-line-bs {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-success, var(--accent-success));
+}
+.pos-cart-line-ref {
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.pos-cart-line-ref-val {
+  color: var(--text-secondary);
+}
+.pos-cart-line-detalles {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted, var(--text-secondary));
+  text-align: right;
+}
+.pos-cart-line-detalles summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: var(--text-secondary);
+  list-style: none;
+}
+.pos-cart-line-detalles summary::-webkit-details-marker {
+  display: none;
+}
+.pos-cart-line-detalles[open] summary {
+  margin-bottom: 0.2rem;
+}
+
 .pos-sheet-footer {
   padding: 0.5rem 1rem 0.75rem;
   font-size: 0.78rem;
   border-top: 1px solid var(--border-subtle);
 }
 
-/* Cobro — panel Cashea */
-.cashea-desglose-panel {
-  margin-top: 0.75rem;
-  padding: 0.85rem 1rem;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(139, 92, 246, 0.45);
+/* Cobro — tarjeta Cashea (columna derecha; identidad Nexus ámbar + navy) */
+.cobro-cashea-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-accent);
   background: linear-gradient(
-    135deg,
-    rgba(88, 28, 135, 0.22) 0%,
-    rgba(15, 23, 42, 0.6) 100%
+    165deg,
+    var(--accent-primary-bg) 0%,
+    var(--bg-secondary) 55%,
+    var(--bg-primary) 100%
   );
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
+  min-height: min(320px, 42vh);
+  box-sizing: border-box;
 }
-.cashea-desglose-title {
-  font-weight: 800;
-  font-size: 0.95rem;
-  margin-bottom: 0.65rem;
-  letter-spacing: 0.02em;
-  color: #e9d5ff;
+
+.cobro-cashea-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
 }
-.cashea-desglose-field {
-  margin-bottom: 0.5rem;
+
+.cobro-cashea-card-logo {
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
 }
-.cashea-desglose-label {
+
+.cobro-cashea-card-brand {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.cobro-cashea-card-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: flex-end;
+}
+
+.cobro-cashea-card-field {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.cobro-cashea-card-label {
   display: block;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 0.25rem;
-  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
-.cashea-desglose-select {
+
+.cobro-cashea-card-select,
+.cobro-cashea-card-input {
   width: 100%;
-  max-width: 320px;
-  height: 40px;
+  height: var(--height-input);
   padding: 0 0.5rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-primary);
   background: var(--bg-tertiary);
   color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
 }
-.cashea-express-wrap {
-  display: flex;
+
+.cobro-cashea-card-input {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cobro-cashea-card-field--credito {
+  flex: 1 1 100%;
+}
+
+.cobro-cashea-card-field-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.cobro-cashea-limite-aviso {
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(245, 166, 35, 0.45);
+  background: rgba(245, 166, 35, 0.1);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.cobro-cashea-limite-titulo {
+  margin: 0 0 0.4rem;
+  font-weight: 700;
+  font-size: var(--text-sm);
+  color: var(--accent-warning);
+}
+
+.cobro-cashea-limite-lista {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.cobro-cashea-limite-lista li {
+  margin-bottom: 0.35rem;
+}
+
+.cobro-cashea-limite-lista li:last-child {
+  margin-bottom: 0;
+}
+
+.cobro-cashea-limite-aviso[hidden] {
+  display: none !important;
+}
+
+.cobro-cashea-limite-aviso strong {
+  color: var(--accent-warning);
+  font-weight: 700;
+}
+
+.cobro-cashea-card-express {
+  display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.8rem;
-  margin-bottom: 0.6rem;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
   cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.cobro-cashea-card-hero {
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: linear-gradient(
+    145deg,
+    rgba(34, 197, 94, 0.12) 0%,
+    rgba(240, 165, 0, 0.06) 100%
+  );
+  text-align: center;
+}
+
+.cobro-cashea-card-hero[hidden],
+.cobro-cashea-card-pending[hidden] {
+  display: none !important;
+}
+
+.cobro-cashea-card-hero-label {
+  margin: 0 0 0.35rem;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-success);
+}
+
+.cobro-cashea-card-hero-amount {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.65rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.15;
+}
+
+.cobro-cashea-card-hero-ref {
+  margin: 0.4rem 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cobro-cashea-card-pending {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--accent-primary);
+  font-weight: 600;
+  padding: 1rem 0.5rem;
+}
+
+.cobro-cashea-card-later {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+}
+
+.cobro-cashea-card-later-ref {
+  flex-basis: 100%;
+  margin: 0;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cobro-cashea-card-later-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.cobro-cashea-card-later-amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  font-weight: 600;
   color: var(--text-secondary);
 }
-.cashea-desglose-grid {
+
+.cobro-cashea-breakdown {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.55rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+.cobro-cashea-breakdown .cobro-cashea-detail-value {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+}
+
+.cobro-cashea-card-details {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.35rem;
+}
+
+.cobro-cashea-card-details-summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent-primary);
+  list-style: none;
+  user-select: none;
+}
+
+.cobro-cashea-card-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.cobro-cashea-card-details-summary::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+
+.cobro-cashea-card-details[open] .cobro-cashea-card-details-summary::before {
+  transform: rotate(90deg);
+}
+
+.cobro-cashea-card-details-body {
   display: grid;
   gap: 0.35rem;
-  margin-top: 0.35rem;
+  margin-top: 0.45rem;
+  padding-top: 0.35rem;
 }
-.cashea-desglose-row {
+
+.cobro-cashea-detail-row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 0.75rem;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
+  gap: 0.65rem;
+  font-size: var(--text-xs);
 }
-.cashea-desglose-row strong {
+
+.cobro-cashea-detail-label {
+  color: var(--text-muted);
+  flex: 1 1 auto;
+}
+
+.cobro-cashea-detail-value {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  color: #f5f3ff;
-  font-weight: 700;
-}
-.cashea-desglose-row--neto {
-  margin-top: 0.25rem;
-  padding-top: 0.45rem;
-  border-top: 1px solid rgba(167, 139, 250, 0.35);
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  text-align: right;
 }
-.cashea-desglose-row--neto strong {
-  color: #a7f3d0;
-  font-size: 0.92rem;
+
+.cobro-cashea-detail-value--multiline {
+  white-space: pre-line;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  max-width: 58%;
+}
+
+.cobro-cashea-detail-row--fecha .cobro-cashea-detail-value {
+  color: var(--accent-primary);
+}
+
+.cobro-cashea-card-foot {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.cobro-su-pago-cashea {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--accent-primary);
+  min-height: 1.25em;
 }
 
 /* Banner: caja cerrada (POS bloqueado para cobrar) */
@@ -1388,4 +1855,66 @@
 .pos-aside-actions .btn[disabled][data-pos-cobrar] {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE POS — ventana no maximizada
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Marquee compacto en ventanas medianas */
+@media (max-width: 1280px) {
+  .pos-marquee {
+    gap: 1rem;
+    padding: 0.5rem 0.875rem;
+  }
+}
+
+/* POS aside más estrecho en ventanas medianas */
+@media (max-width: 1280px) {
+  .pos-classic-layout {
+    grid-template-columns: minmax(240px, 20rem) 1fr;
+  }
+}
+
+/* Modal de cobro responsivo */
+@media (max-width: 1100px) {
+  .pos-cobro-modal-box {
+    max-width: 98vw;
+    padding: 1rem;
+  }
+
+  .cobro-banner-row {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 860px) {
+  /* POS clásico en 1 columna con aside arriba */
+  .pos-aside-classic {
+    order: -1;
+  }
+
+  /* Tabla carrito más compacta */
+  .pos-cart-table th,
+  .pos-cart-table td {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.82rem;
+  }
+
+  /* Botón cobrar full width */
+  .pos-aside-actions .btn {
+    min-height: 48px;
+    font-size: 0.95rem;
+  }
+
+  /* Modal cobro full screen casi */
+  .pos-cobro-modal-box {
+    max-height: 96vh;
+    overflow-y: auto;
+  }
+
+  .cobro-banner-row {
+    grid-template-columns: 1fr;
+  }
 }

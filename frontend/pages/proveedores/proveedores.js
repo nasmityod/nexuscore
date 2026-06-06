@@ -24,6 +24,10 @@
     mount: function (host) {
       if (host._provDestroy) host._provDestroy();
 
+      if (typeof window.NexusComponents?.hydrateTasasDesdeServidorSilent === 'function') {
+        window.NexusComponents.hydrateTasasDesdeServidorSilent().catch(function () {});
+      }
+
       var qEl = host.querySelector('[data-prov-q]');
       var tbody = host.querySelector('[data-prov-tbody]');
       var status = host.querySelector('[data-prov-status]');
@@ -33,6 +37,7 @@
       var elRif = host.querySelector('[data-prov-rif]');
       var elContacto = host.querySelector('[data-prov-contacto]');
       var elTel = host.querySelector('[data-prov-tel]');
+      if (elTel && window.NexusTelefonoVe) window.NexusTelefonoVe.enlazarInput(elTel);
       var elEmail = host.querySelector('[data-prov-email]');
       var editingId = null;
       var debounce = null;
@@ -145,12 +150,26 @@
           toast('El nombre es obligatorio', 'warning');
           return;
         }
+        var Ve = window.NexusTelefonoVe;
+        if (!Ve) {
+          toast('No se cargó la validación de celular. Recargue la página.', 'warning');
+          return;
+        }
+        var telNorm = null;
+        if (elTel && elTel.value.trim()) {
+          var vt = Ve.validarOpcional(elTel.value);
+          if (!vt.ok) {
+            toast(vt.mensaje, 'warning');
+            return;
+          }
+          telNorm = vt.normalizado;
+        }
         var payload = {
           nombre: nombre,
           rif: elRif && elRif.value.trim() ? elRif.value.trim() : null,
           contacto_nombre:
             elContacto && elContacto.value.trim() ? elContacto.value.trim() : null,
-          telefono: elTel && elTel.value.trim() ? elTel.value.trim() : null,
+          telefono: telNorm,
           email: elEmail && elEmail.value.trim() ? elEmail.value.trim() : null
         };
         var url =

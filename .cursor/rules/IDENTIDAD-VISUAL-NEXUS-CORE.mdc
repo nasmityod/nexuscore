@@ -1,0 +1,143 @@
+---
+alwaysApply: true
+---
+
+# IDENTIDAD VISUAL NEXUS CORE — REGLAS ABSOLUTAS
+
+Esta rule se aplica en CADA sesión sin excepción. Su propósito es impedir que
+cualquier cambio, corrección o adición de código revierta la identidad visual
+de Nexus Core a estética genérica de IA/template.
+
+═══════════════════════════════════════════════════════════════
+PROHIBICIONES DE COLOR — VIOLACIÓN CRÍTICA
+═══════════════════════════════════════════════════════════════
+
+PROHIBIDO usar como acento principal cualquiera de estos valores o aproximaciones:
+  - #00d4ff, #00c896, #00e5ff, #0ea5e9, #06b6d4, #22d3ee (familia cyan/teal)
+  - Cualquier valor RGB donde blue > 200, green > 180, red < 50
+  - Gradientes purple→pink, blue→purple, teal→green en cualquier elemento UI
+
+El acento primario de Nexus Core es EXACTAMENTE:
+  --accent-primary: #f0a500   ← ámbar financiero. No negociar. No "mejorar".
+
+Si al revisar variables.css ves #00d4ff o cualquier cyan/teal como accent-primary,
+DEBES reemplazarlo por #f0a500 antes de continuar con cualquier otra tarea.
+
+═══════════════════════════════════════════════════════════════
+PROHIBICIÓN ABSOLUTA — ESTILO NEON
+═══════════════════════════════════════════════════════════════
+
+JAMÁS aplicar efectos neon, cyberpunk o resplandor luminoso en la UI.
+Nexus Core es un instrumento financiero sobrio, no un dashboard futurista.
+
+PROHIBIDO en cualquier componente, página o token CSS:
+  - text-shadow con blur de color (ej: text-shadow: 0 0 12px rgba(...))
+  - box-shadow con spread/blur difuso de color (ej: 0 0 20px rgba(240,165,0,...))
+  - filter: drop-shadow() con color saturado
+  - border o texto con animación pulsante de brillo
+  - outline o ring luminoso alrededor de elementos en reposo (solo focus accesible permitido)
+  - Colores cyan/teal/azul eléctrico como acento (#00d4ff, #00e5ff, #22d3ee, etc.)
+  - Gradientes saturados tipo purple→pink→cyan en botones, badges o cards
+
+PERMITIDO (no es neon):
+  - Fondos planos semitransparentes (--accent-primary-bg, --accent-primary-glow como tinte, sin blur)
+  - Sombras de profundidad neutras (--shadow-sm/md/lg) sin halo de color
+  - box-shadow de focus en inputs: 0 0 0 3px var(--accent-primary-bg) — anillo plano, sin blur difuso
+  - color: var(--accent-primary) sobre fondo oscuro — acento sólido, sin resplandor
+
+Si un cambio introduce cualquier efecto de la lista PROHIBIDO, eliminarlo antes de entregar.
+
+═══════════════════════════════════════════════════════════════
+PROHIBICIONES DE TIPOGRAFÍA — VIOLACIÓN CRÍTICA
+═══════════════════════════════════════════════════════════════
+
+PROHIBIDO usar como fuente UI principal:
+  - Inter (la fuente más genérica de dashboards IA 2022-2025)
+  - Roboto, DM Sans, Nunito, Poppins, Outfit, Plus Jakarta Sans
+  - system-ui, -apple-system como fuente primaria visible
+  - Space Grotesk, Manrope (sobreusadas en productos IA)
+
+Stack tipográfico FIJO de Nexus Core — no modificar sin autorización explícita:
+  --font-ui:       'Sora', system-ui, sans-serif          ← UI general
+  --font-display:  'Barlow Condensed', sans-serif          ← Títulos, marca
+  --font-mono:     'DM Mono', 'JetBrains Mono', monospace  ← TODO lo numérico
+
+REGLA MONOESPACIADA ABSOLUTA:
+Todo valor numérico renderizado en pantalla USA --font-mono SIN EXCEPCIÓN:
+  - Montos en BCV y USD
+  - Tasas de cambio (563.2892, 625.0000)
+  - Números de factura (V-2026-00042)
+  - Stock y cantidades
+  - Porcentajes y KPIs del dashboard
+  - Headers de columnas numéricas en tablas
+
+═══════════════════════════════════════════════════════════════
+PROHIBICIONES DE DISEÑO GENÉRICO
+═══════════════════════════════════════════════════════════════
+
+PROHIBIDO en cualquier componente nuevo o modificado:
+  - border-radius > 8px en cards, panels o contenedores de datos
+    (Nexus Core es un instrumento financiero, no una app móvil)
+  - Gradientes decorativos en botones (solo colores sólidos)
+  - Sombras de colores vivos en elementos que no sean el botón primario
+  - Iconos emoji o ilustraciones SVG decorativas en módulos operativos
+  - Animaciones de "bounce", "pulse" o "wiggle" en elementos de datos
+  - Fondos de cards con patrones o texturas llamativas
+  - Bordes redondeados en badges > 3px (badges son rectangulares, no pills)
+
+PROHIBIDO al escribir CSS nuevo:
+  - Hardcodear colores HEX fuera de variables.css
+    CORRECTO:   color: var(--accent-primary);
+    INCORRECTO: color: #f0a500;  ← aunque sea el color correcto, usa la variable
+  - Hardcodear tamaños de fuente en px fuera de la escala de --text-*
+  - Crear nuevas variables CSS sin el prefijo -- y sin documentar su propósito
+
+═══════════════════════════════════════════════════════════════
+ELEMENTOS DE IDENTIDAD QUE DEBEN PRESERVARSE SIEMPRE
+═══════════════════════════════════════════════════════════════
+
+Estos elementos son la firma visual de Nexus Core. No eliminarlos, no "simplificarlos":
+
+1. DISPLAY DE TASA BCV en el navbar:
+   - font-family: var(--font-mono)
+   - color: var(--accent-primary)  ← el ámbar, siempre
+   - background: var(--accent-primary-bg)
+   - border: 1px solid var(--border-accent)
+   - SIN text-shadow ni box-shadow de color (prohibido estilo neon)
+
+2. SIDEBAR ítem activo:
+   - border-left: 2px solid var(--accent-primary)
+   - background: var(--accent-primary-bg)
+   - color: var(--accent-primary)
+
+3. BOTÓN PRIMARIO:
+   - background: var(--accent-primary) — el ámbar, no otro color
+   - box-shadow: var(--shadow-sm) o sin sombra — NUNCA halo difuso de color
+
+4. FONDO con gradientes radiales (en body o .layout-main):
+   - radial-gradient ámbar sutil en esquina superior izquierda
+   - radial-gradient azul info sutil en esquina inferior derecha
+   - El fondo NUNCA es un color sólido plano
+
+5. HEADERS DE TABLA:
+   - font-family: var(--font-mono)
+   - font-size: 10px
+   - letter-spacing: 0.14em
+   - text-transform: uppercase
+   - color: var(--text-muted)
+
+═══════════════════════════════════════════════════════════════
+TEST DE IDENTIDAD — ANTES DE ENTREGAR CUALQUIER CAMBIO CSS
+═══════════════════════════════════════════════════════════════
+
+Antes de considerar completo cualquier trabajo visual, verificar mentalmente:
+
+  ¿Tiene algún componente nuevo color cyan, teal o azul como acento?  → CORREGIR
+  ¿Hay algún número/monto en fuente sans-serif en lugar de mono?       → CORREGIR
+  ¿Hay border-radius > 8px en algún card o panel?                      → CORREGIR
+  ¿Hay text-shadow, halo de color o efecto neon en cualquier elemento? → CORREGIR
+  ¿El botón primario es ámbar #f0a500?                                 → CONFIRMAR
+  ¿La tasa BCV usa acento sólido sin resplandor?                       → CONFIRMAR
+  ¿Los headers de tabla son mono uppercase letra pequeña?              → CONFIRMAR
+
+Si los 3 últimos dan CONFIRMAR y los 4 primeros no necesitan corrección: entregable válido.

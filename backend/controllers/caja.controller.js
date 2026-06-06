@@ -1,11 +1,95 @@
 'use strict';
 
 const { db } = require('../config/database');
+const { logger } = require('../config/logger');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { registrarAuditoria, clientIp } = require('../middleware/audit.middleware');
 const SyncService = require('../services/syncService');
 const PreciosService = require('../services/preciosService');
 const { hasPermission } = require('../middleware/permissions.middleware');
+
+/**
+ * Suma cuota inicial Cashea de la sesión en Bs BCV (cobro en caja) y ref. $ BCV.
+ * Prioriza inicialBsBcv / refInicialUsdBcv del JSON pagos; si faltan, aproxima con USD×BCV o BCV/Bs.
+ */
+async function sumCasheaInicialCobroCierre(sesionId, tasaBcvApertura) {
+  const tasaParam =
+    tasaBcvApertura != null && Number(tasaBcvApertura) > 0 ? Number(tasaBcvApertura) : null;
+  const row = await db.one(
+    `WITH tf AS (
+       SELECT COALESCE(
+         $2::numeric,
+         (SELECT tasa_bcv FROM historial_tasas ORDER BY fecha DESC NULLS LAST LIMIT 1),
+         0
+       )::numeric AS t
+     ),
+     cp AS (
+       SELECT
+         COALESCE(
+           vc.monto_inicial_usd::numeric,
+           CASE
+             WHEN jsonb_typeof(pago->'cashea_desglose') = 'object'
+               AND (pago->'cashea_desglose' ? 'montoInicial')
+               AND TRIM(COALESCE(pago->'cashea_desglose'->>'montoInicial', '')) <> ''
+             THEN (pago->'cashea_desglose'->>'montoInicial')::numeric
+             WHEN TRIM(COALESCE(pago->>'monto', '')) <> ''
+             THEN (pago->>'monto')::numeric
+             ELSE NULL
+           END
+         ) AS ini_usd,
+         CASE
+           WHEN jsonb_typeof(pago->'cashea_desglose') = 'object'
+             AND (pago->'cashea_desglose' ? 'inicialBsBcv')
+             AND TRIM(COALESCE(pago->'cashea_desglose'->>'inicialBsBcv', '')) <> ''
+           THEN (pago->'cashea_desglose'->>'inicialBsBcv')::numeric
+           ELSE NULL
+         END AS ini_bs,
+         CASE
+           WHEN jsonb_typeof(pago->'cashea_desglose') = 'object'
+             AND (pago->'cashea_desglose' ? 'refInicialUsdBcv')
+             AND TRIM(COALESCE(pago->'cashea_desglose'->>'refInicialUsdBcv', '')) <> ''
+           THEN (pago->'cashea_desglose'->>'refInicialUsdBcv')::numeric
+           ELSE NULL
+         END AS ref_bcv
+       FROM ventas v
+       LEFT JOIN ventas_cashea vc ON vc.venta_id = v.id
+       , LATERAL jsonb_array_elements(
+           CASE jsonb_typeof(v.pagos) WHEN 'array' THEN v.pagos ELSE '[]'::jsonb END
+         ) AS pago
+       WHERE v.sesion_caja_id = $1
+         AND v.estado = 'completada'
+         AND LOWER(TRIM(COALESCE(pago->>'metodo', ''))) = 'cashea'
+         AND (vc.id IS NULL OR vc.estado_liquidacion <> 'ANULADA')
+     )
+     SELECT
+       COALESCE((
+         SELECT SUM(
+           CASE
+             WHEN cp.ini_bs IS NOT NULL AND cp.ini_bs > 0 THEN cp.ini_bs
+             WHEN tf.t > 0 THEN ROUND((cp.ini_usd * tf.t)::numeric, 2)
+             ELSE 0
+           END
+         )
+         FROM cp CROSS JOIN tf
+       ), 0)::numeric AS inicial_bs_bcv,
+       COALESCE((
+         SELECT SUM(
+           CASE
+             WHEN cp.ref_bcv IS NOT NULL AND cp.ref_bcv > 0 THEN cp.ref_bcv
+             WHEN cp.ini_bs IS NOT NULL AND cp.ini_bs > 0 AND tf.t > 0
+               THEN ROUND((cp.ini_bs / tf.t)::numeric, 2)
+             ELSE cp.ini_usd
+           END
+         )
+         FROM cp CROSS JOIN tf
+       ), 0)::numeric AS ref_inicial_usd_bcv`,
+    [sesionId, tasaParam]
+  );
+  return {
+    inicialBsBcv: parseFloat(row.inicial_bs_bcv) || 0,
+    refInicialUsdBcv: parseFloat(row.ref_inicial_usd_bcv) || 0
+  };
+}
 
 // ─── GET /api/caja/sesion-activa ──────────────────────────────────────────────
 async function sesionActiva(req, res) {
@@ -186,9 +270,25 @@ async function resumenCierre(req, res) {
     `SELECT
        COUNT(*)::int AS total_ventas,
        COALESCE(SUM(CASE WHEN estado = 'completada' THEN total_usd ELSE 0 END), 0)::numeric AS total_usd_vendido,
+       COALESCE(SUM(CASE WHEN estado = 'completada' THEN COALESCE(total_ref_usd_bcv, total_usd) ELSE 0 END), 0)::numeric AS total_ref_usd_bcv_vendido,
        COALESCE(SUM(CASE WHEN estado = 'completada' THEN total_bs  ELSE 0 END), 0)::numeric AS total_bs_vendido,
        COUNT(CASE WHEN estado = 'anulada' THEN 1 END)::int AS ventas_anuladas,
-       COALESCE(AVG(CASE WHEN estado = 'completada' THEN total_usd END), 0)::numeric AS ticket_promedio
+       COALESCE(AVG(CASE WHEN estado = 'completada' THEN total_usd END), 0)::numeric AS ticket_promedio,
+       COALESCE(AVG(CASE WHEN estado = 'completada' THEN COALESCE(total_ref_usd_bcv, total_usd) END), 0)::numeric AS ticket_promedio_ref_usd_bcv,
+       (
+         SELECT COUNT(*)::int
+         FROM (
+           SELECT v.id
+           FROM ventas v,
+           LATERAL jsonb_array_elements(
+             CASE jsonb_typeof(v.pagos) WHEN 'array' THEN v.pagos ELSE '[]'::jsonb END
+           ) AS pago
+           WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'
+             AND pago->>'metodo' IS NOT NULL
+           GROUP BY v.id
+           HAVING COUNT(DISTINCT pago->>'metodo') > 1
+         ) mix
+       ) AS ventas_pago_mixto
      FROM ventas
      WHERE sesion_caja_id = $1`,
     [sesion.id]
@@ -233,37 +333,75 @@ async function resumenCierre(req, res) {
     credito_usd_bcv: pm('credito', 'USD_BCV'),
   };
 
-  // Desglose por método leyendo el JSONB pagos (preciso para ventas mixtas).
-  // Para ventas no mixtas el JSONB tiene un solo elemento; para mixtas, varios.
+  // Desglose por método: USD calle en total_usd/total_bs; volumen cadena oficial por método
+  // como reparto proporcional del total_ref_usd_bcv de cada venta (equiv. USD calle por línea).
   const totalesPorMetodo = await db.any(
-    `SELECT
-       pago->>'metodo' AS metodo,
-       COUNT(DISTINCT v.id)::int AS num_ventas,
-       COALESCE(SUM(
-         CASE WHEN (pago->>'moneda') IN ('USD','USD_BCV','cashea')
-              THEN (pago->>'monto')::numeric ELSE 0 END
-       ), 0)::numeric AS total_usd,
-       COALESCE(SUM(
-         CASE WHEN (pago->>'moneda') = 'BS'
-              THEN (pago->>'monto')::numeric ELSE 0 END
-       ), 0)::numeric AS total_bs
-     FROM ventas v,
-     LATERAL jsonb_array_elements(
-       CASE jsonb_typeof(v.pagos)
-         WHEN 'array' THEN v.pagos
-         ELSE '[]'::jsonb
-       END
-     ) AS pago
-     WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'
-       AND pago->>'metodo' IS NOT NULL
-     GROUP BY pago->>'metodo'
-     ORDER BY total_usd DESC`,
+    `WITH expanded AS (
+       SELECT
+         v.id AS venta_id,
+         v.tasa_cambio_aplicada,
+         COALESCE(v.total_ref_usd_bcv, v.total_usd, 0)::numeric AS ref_venta,
+         pago->>'metodo' AS metodo,
+         UPPER(TRIM(COALESCE(pago->>'moneda', ''))) AS moneda_u,
+         COALESCE((pago->>'monto')::numeric, 0) AS monto
+       FROM ventas v,
+       LATERAL jsonb_array_elements(
+         CASE jsonb_typeof(v.pagos)
+           WHEN 'array' THEN v.pagos
+           ELSE '[]'::jsonb
+         END
+       ) AS pago
+       WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'
+         AND pago->>'metodo' IS NOT NULL
+     ),
+     weighted AS (
+       SELECT
+         venta_id,
+         ref_venta,
+         metodo,
+         moneda_u,
+         monto,
+         CASE
+           WHEN moneda_u IN ('USD', 'USD_BCV', 'CASHEA') THEN monto
+           WHEN moneda_u = 'BS' THEN
+             COALESCE(
+               monto / NULLIF(NULLIF(tasa_cambio_aplicada::numeric, 0), 0),
+               monto
+             )
+           ELSE 0
+         END AS w
+       FROM expanded
+     ),
+     sums AS (
+       SELECT
+         *,
+         SUM(w) OVER (PARTITION BY venta_id) AS sum_w
+       FROM weighted
+     ),
+     venta_metodos AS (
+       SELECT venta_id, COUNT(DISTINCT metodo)::int AS num_metodos
+       FROM expanded
+       GROUP BY venta_id
+     )
+     SELECT
+       s.metodo,
+       COUNT(DISTINCT s.venta_id)::int AS num_ventas,
+       COUNT(DISTINCT CASE WHEN vm.num_metodos > 1 THEN s.venta_id END)::int AS num_ventas_mixtas,
+       COALESCE(SUM(CASE WHEN s.moneda_u IN ('USD', 'USD_BCV', 'CASHEA') THEN s.monto ELSE 0 END), 0)::numeric AS total_usd,
+       COALESCE(SUM(CASE WHEN s.moneda_u = 'BS' THEN s.monto ELSE 0 END), 0)::numeric AS total_bs,
+       COALESCE(SUM(CASE WHEN s.sum_w > 0 THEN s.ref_venta * (s.w / s.sum_w) ELSE 0 END), 0)::numeric AS total_ref_usd_bcv
+     FROM sums s
+     INNER JOIN venta_metodos vm ON vm.venta_id = s.venta_id
+     GROUP BY s.metodo
+     ORDER BY total_ref_usd_bcv DESC`,
     [sesion.id]
   );
 
+  // Filtrar ventas_cashea excluyendo las anuladas para todos los totales de cierre.
   const casheaRow = await db.oneOrNone(
     `SELECT
        COALESCE(SUM(vc.monto_inicial_usd), 0)::numeric AS total_inicial_cobrado,
+       COALESCE(SUM(vc.total_venta_usd), 0)::numeric AS total_ticket_usd,
        COALESCE(
          SUM(CASE WHEN vc.estado_liquidacion = 'PENDIENTE' THEN vc.monto_prestado_usd ELSE 0 END),
          0
@@ -273,23 +411,63 @@ async function resumenCierre(req, res) {
        COUNT(*)::int AS cantidad_ventas
      FROM ventas_cashea vc
      INNER JOIN ventas v ON v.id = vc.venta_id
-     WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'`,
+     WHERE v.sesion_caja_id = $1
+       AND v.estado = 'completada'
+       AND vc.estado_liquidacion != 'ANULADA'`,
     [sesion.id]
   ) ?? {
     total_inicial_cobrado: 0,
+    total_ticket_usd: 0,
     total_prestado_pendiente: 0,
     total_comisiones: 0,
     neto_esperado_banco: 0,
     cantidad_ventas: 0
   };
 
+  // Cuota inicial Cashea en Bs BCV (cobro caja) y ref. $ BCV — alineado al POS / JSON desglose.
+  const cobroCashea = await sumCasheaInicialCobroCierre(
+    sesion.id,
+    sesion.tasa_bcv_apertura
+  );
+  montosEsperados.cashea_inicial_bs_bcv = cobroCashea.inicialBsBcv;
+  montosEsperados.cashea_inicial_ref_usd_bcv = cobroCashea.refInicialUsdBcv;
+  // Libro USD (ventas_cashea); ya no se suma al esperado USD del cierre — el cuadre de inicial va en Bs BCV.
+  montosEsperados.cashea_inicial_usd = parseFloat(casheaRow.total_inicial_cobrado) || 0;
+
+  const ventasPorUsuario = await db.any(
+    `SELECT
+       v.usuario_id,
+       u.nombre_completo,
+       u.username,
+       COUNT(*)::int AS cantidad_ventas,
+       COALESCE(SUM(v.total_usd), 0)::numeric AS total_usd,
+       COALESCE(SUM(COALESCE(v.total_ref_usd_bcv, v.total_usd)), 0)::numeric AS total_ref_usd_bcv
+     FROM ventas v
+     JOIN usuarios u ON u.id = v.usuario_id
+     WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'
+     GROUP BY v.usuario_id, u.nombre_completo, u.username
+     ORDER BY cantidad_ventas DESC, u.nombre_completo ASC`,
+    [sesion.id]
+  );
+
   res.json({
     sesion,
     resumenDia,
     montosEsperados,
     totalesPorMetodo,
+    ventasPorUsuario: ventasPorUsuario.map((r) => ({
+      usuario_id: Number(r.usuario_id),
+      nombre_completo: r.nombre_completo || '',
+      username: r.username || '',
+      cantidad_ventas: Number(r.cantidad_ventas) || 0,
+      total_usd: parseFloat(r.total_usd) || 0,
+      total_ref_usd_bcv: parseFloat(r.total_ref_usd_bcv) || 0
+    })),
     cashea: {
       totalInicialCobrado: parseFloat(casheaRow.total_inicial_cobrado),
+      totalInicialBsBcv: cobroCashea.inicialBsBcv,
+      totalInicialRefUsdBcv: cobroCashea.refInicialUsdBcv,
+      totalTicketUsd: parseFloat(casheaRow.total_ticket_usd),
       totalPrestadoPendiente: parseFloat(casheaRow.total_prestado_pendiente),
       totalComisiones: parseFloat(casheaRow.total_comisiones),
       netoEsperadoBanco: parseFloat(casheaRow.neto_esperado_banco),
@@ -306,6 +484,7 @@ async function cerrar(req, res) {
     efectivo_usd_contado,
     efectivo_bs_contado,
     zelle_usd,
+    cashea_inicial_bs_contado,
     transferencias_bs,
     pagos_moviles_bs,
     punto_bs,
@@ -352,15 +531,23 @@ async function cerrar(req, res) {
     punto_bs:         ep('punto', 'BS'),
   };
 
+  // Cuota inicial Cashea: se cuadra en Bs BCV (cobro en caja), no en USD.
+  const cobroCasheaEsp = await sumCasheaInicialCobroCierre(
+    sesion.id,
+    sesion.tasa_bcv_apertura
+  );
+  const casheaInicialBsEsperado = cobroCasheaEsp.inicialBsBcv;
+
   // Conteos físicos ingresados por el cajero
   const usdCash  = parseFloat(efectivo_usd_contado) || 0;
   const zelleUsd = parseFloat(zelle_usd) || 0;
+  const casheaInicialBsContado = Math.max(0, parseFloat(cashea_inicial_bs_contado) || 0);
   const bsCash   = parseFloat(efectivo_bs_contado) || 0;
   const bsTransf = parseFloat(transferencias_bs) || 0;
   const bsPm     = parseFloat(pagos_moviles_bs) || 0;
   const bsPunto  = parseFloat(punto_bs) || 0;
 
-  // Esperado del sistema: ventas + saldo inicial de apertura
+  // Esperado USD: apertura + ventas (sin cuota inicial Cashea — va en Bs BCV).
   const apertura = sesion;
   const esperadoUsdTotal = parseFloat(apertura.monto_inicial_usd || 0) +
     esperado.efectivo_usd +
@@ -369,11 +556,12 @@ async function cerrar(req, res) {
     esperado.efectivo_bs +
     esperado.transferencia_bs +
     esperado.pago_movil_bs +
-    esperado.punto_bs;
+    esperado.punto_bs +
+    casheaInicialBsEsperado;
 
   // Diferencias: positivo = sobra, negativo = falta
   const difUsd = (usdCash + zelleUsd) - esperadoUsdTotal;
-  const difBs  = (bsCash + bsTransf + bsPm + bsPunto) - esperadoBsTotal;
+  const difBs  = (bsCash + bsTransf + bsPm + bsPunto + casheaInicialBsContado) - esperadoBsTotal;
 
   await db.none(
     `UPDATE sesiones_caja SET
@@ -402,17 +590,30 @@ async function cerrar(req, res) {
       diferencia_usd: difUsd,
       diferencia_bs: difBs,
       efectivo_usd_contado: usdCash,
-      efectivo_bs_contado: bsCash
+      efectivo_bs_contado: bsCash,
+      cashea_inicial_bs_contado: casheaInicialBsContado,
+      cashea_inicial_bs_esperado: casheaInicialBsEsperado
     },
     ip_address: clientIp(req)
   });
 
-  // Respaldo automático al cerrar caja
-  SyncService.runFullBackup({ source: 'caja_cierre' }).catch(() => {});
+  let backupOk = true;
+  try {
+    await SyncService.runFullBackup({ source: 'caja_cierre' });
+  } catch (err) {
+    backupOk = false;
+    logger.error('Nexus caja: respaldo automático post-cierre fallido', {
+      sesion_caja_id: sesion.id,
+      err: err && err.message ? err.message : String(err)
+    });
+  }
 
   res.json({
     ok: true,
-    message: 'Caja cerrada correctamente. ¡Buen trabajo hoy!',
+    backup_ok: backupOk,
+    message: backupOk
+      ? 'Caja cerrada correctamente. ¡Buen trabajo hoy!'
+      : 'Caja cerrada. Avisar al administrador: el respaldo automático falló (revisar logs y NEXUS_BACKUP_DIR).',
     diferencias: {
       usd: difUsd,
       bs:  difBs,
@@ -437,7 +638,10 @@ async function historial(req, res) {
        (SELECT COUNT(*)::int
           FROM ventas v
           WHERE v.sesion_caja_id = sc.id AND v.estado = 'completada') AS total_ventas,
-       (SELECT COALESCE(SUM(total_usd), 0)::numeric
+       (SELECT COALESCE(SUM(COALESCE(v.total_ref_usd_bcv, v.total_usd)), 0)::numeric
+          FROM ventas v
+          WHERE v.sesion_caja_id = sc.id AND v.estado = 'completada') AS total_ref_usd_bcv_vendido,
+       (SELECT COALESCE(SUM(v.total_usd), 0)::numeric
           FROM ventas v
           WHERE v.sesion_caja_id = sc.id AND v.estado = 'completada') AS total_usd_vendido
      FROM sesiones_caja sc
@@ -468,14 +672,156 @@ async function detalle(req, res) {
   const ventasResumen = await db.one(
     `SELECT
        COUNT(*)::int AS total_ventas,
+       COUNT(CASE WHEN estado = 'completada' THEN 1 END)::int AS ventas_completadas,
        COUNT(CASE WHEN estado = 'anulada' THEN 1 END)::int AS ventas_anuladas,
        COALESCE(SUM(CASE WHEN estado = 'completada' THEN total_usd ELSE 0 END), 0)::numeric AS total_usd,
-       COALESCE(SUM(CASE WHEN estado = 'completada' THEN total_bs  ELSE 0 END), 0)::numeric AS total_bs
+       COALESCE(SUM(CASE WHEN estado = 'completada' THEN COALESCE(total_ref_usd_bcv, total_usd) ELSE 0 END), 0)::numeric AS total_ref_usd_bcv,
+       COALESCE(SUM(CASE WHEN estado = 'completada' THEN total_bs  ELSE 0 END), 0)::numeric AS total_bs,
+       COALESCE(AVG(CASE WHEN estado = 'completada' THEN COALESCE(total_ref_usd_bcv, total_usd) END), 0)::numeric AS ticket_promedio_ref_usd_bcv,
+       (
+         SELECT COUNT(*)::int
+         FROM (
+           SELECT v2.id
+           FROM ventas v2,
+           LATERAL jsonb_array_elements(
+             CASE jsonb_typeof(v2.pagos) WHEN 'array' THEN v2.pagos ELSE '[]'::jsonb END
+           ) AS pago
+           WHERE v2.sesion_caja_id = $1 AND v2.estado = 'completada'
+             AND pago->>'metodo' IS NOT NULL
+           GROUP BY v2.id
+           HAVING COUNT(DISTINCT pago->>'metodo') > 1
+         ) mix
+       ) AS ventas_pago_mixto
      FROM ventas WHERE sesion_caja_id = $1`,
     [id]
   );
 
-  res.json({ sesion, ventasResumen });
+  // Desglose por método de pago (igual lógica que resumenCierre)
+  const totalesPorMetodo = await db.any(
+    `WITH expanded AS (
+       SELECT
+         v.id AS venta_id,
+         v.tasa_cambio_aplicada,
+         COALESCE(v.total_ref_usd_bcv, v.total_usd, 0)::numeric AS ref_venta,
+         pago->>'metodo' AS metodo,
+         UPPER(TRIM(COALESCE(pago->>'moneda', ''))) AS moneda_u,
+         COALESCE((pago->>'monto')::numeric, 0) AS monto
+       FROM ventas v,
+       LATERAL jsonb_array_elements(
+         CASE jsonb_typeof(v.pagos) WHEN 'array' THEN v.pagos ELSE '[]'::jsonb END
+       ) AS pago
+       WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'
+         AND pago->>'metodo' IS NOT NULL
+     ),
+     weighted AS (
+       SELECT
+         venta_id, ref_venta, metodo, moneda_u, monto,
+         CASE
+           WHEN moneda_u IN ('USD', 'USD_BCV', 'CASHEA') THEN monto
+           WHEN moneda_u = 'BS' THEN
+             COALESCE(monto / NULLIF(NULLIF(tasa_cambio_aplicada::numeric, 0), 0), monto)
+           ELSE 0
+         END AS w
+       FROM expanded
+     ),
+     sums AS (
+       SELECT *, SUM(w) OVER (PARTITION BY venta_id) AS sum_w FROM weighted
+     ),
+     venta_metodos AS (
+       SELECT venta_id, COUNT(DISTINCT metodo)::int AS num_metodos
+       FROM expanded GROUP BY venta_id
+     )
+     SELECT
+       s.metodo,
+       COUNT(DISTINCT s.venta_id)::int AS num_ventas,
+       COUNT(DISTINCT CASE WHEN vm.num_metodos > 1 THEN s.venta_id END)::int AS num_ventas_mixtas,
+       COALESCE(SUM(CASE WHEN s.moneda_u IN ('USD', 'USD_BCV', 'CASHEA') THEN s.monto ELSE 0 END), 0)::numeric AS total_usd,
+       COALESCE(SUM(CASE WHEN s.moneda_u = 'BS' THEN s.monto ELSE 0 END), 0)::numeric AS total_bs,
+       COALESCE(SUM(CASE WHEN s.sum_w > 0 THEN s.ref_venta * (s.w / s.sum_w) ELSE 0 END), 0)::numeric AS total_ref_usd_bcv
+     FROM sums s
+     INNER JOIN venta_metodos vm ON vm.venta_id = s.venta_id
+     GROUP BY s.metodo
+     ORDER BY total_ref_usd_bcv DESC`,
+    [id]
+  );
+
+  // Ventas por usuario en esta sesión
+  const ventasPorUsuario = await db.any(
+    `SELECT
+       v.usuario_id,
+       u.nombre_completo,
+       u.username,
+       COUNT(*)::int AS cantidad_ventas,
+       COALESCE(SUM(COALESCE(v.total_ref_usd_bcv, v.total_usd)), 0)::numeric AS total_ref_usd_bcv,
+       COALESCE(SUM(v.total_bs), 0)::numeric AS total_bs
+     FROM ventas v
+     JOIN usuarios u ON u.id = v.usuario_id
+     WHERE v.sesion_caja_id = $1 AND v.estado = 'completada'
+     GROUP BY v.usuario_id, u.nombre_completo, u.username
+     ORDER BY cantidad_ventas DESC, u.nombre_completo ASC`,
+    [id]
+  );
+
+  // Detalle Cashea para la sesión
+  const casheaRow = await db.oneOrNone(
+    `SELECT
+       COALESCE(SUM(vc.monto_inicial_usd), 0)::numeric AS total_inicial_cobrado,
+       COALESCE(SUM(vc.total_venta_usd), 0)::numeric AS total_ticket_usd,
+       COALESCE(SUM(CASE WHEN vc.estado_liquidacion = 'PENDIENTE' THEN vc.monto_prestado_usd ELSE 0 END), 0)::numeric AS total_prestado_pendiente,
+       COALESCE(SUM(vc.total_comisiones_usd), 0)::numeric AS total_comisiones,
+       COALESCE(SUM(vc.neto_liquidacion_usd), 0)::numeric AS neto_esperado_banco,
+       COUNT(*)::int AS cantidad_ventas
+     FROM ventas_cashea vc
+     INNER JOIN ventas v ON v.id = vc.venta_id
+     WHERE v.sesion_caja_id = $1
+       AND v.estado = 'completada'
+       AND vc.estado_liquidacion != 'ANULADA'`,
+    [id]
+  );
+
+  const cobroCashea = await sumCasheaInicialCobroCierre(id, sesion.tasa_bcv_apertura);
+
+  res.json({
+    sesion,
+    ventasResumen: {
+      total_ventas: Number(ventasResumen.total_ventas) || 0,
+      ventas_completadas: Number(ventasResumen.ventas_completadas) || 0,
+      ventas_anuladas: Number(ventasResumen.ventas_anuladas) || 0,
+      total_usd: parseFloat(ventasResumen.total_usd) || 0,
+      total_ref_usd_bcv: parseFloat(ventasResumen.total_ref_usd_bcv) || 0,
+      total_bs: parseFloat(ventasResumen.total_bs) || 0,
+      ticket_promedio_ref_usd_bcv: parseFloat(ventasResumen.ticket_promedio_ref_usd_bcv) || 0,
+      ventas_pago_mixto: Number(ventasResumen.ventas_pago_mixto) || 0
+    },
+    totalesPorMetodo: totalesPorMetodo.map((m) => ({
+      metodo: m.metodo,
+      num_ventas: Number(m.num_ventas) || 0,
+      num_ventas_mixtas: Number(m.num_ventas_mixtas) || 0,
+      total_usd: parseFloat(m.total_usd) || 0,
+      total_bs: parseFloat(m.total_bs) || 0,
+      total_ref_usd_bcv: parseFloat(m.total_ref_usd_bcv) || 0
+    })),
+    ventasPorUsuario: ventasPorUsuario.map((r) => ({
+      usuario_id: Number(r.usuario_id),
+      nombre_completo: r.nombre_completo || '',
+      username: r.username || '',
+      cantidad_ventas: Number(r.cantidad_ventas) || 0,
+      total_ref_usd_bcv: parseFloat(r.total_ref_usd_bcv) || 0,
+      total_bs: parseFloat(r.total_bs) || 0
+    })),
+    cashea: casheaRow && Number(casheaRow.cantidad_ventas) > 0
+      ? {
+          totalInicialCobrado: parseFloat(casheaRow.total_inicial_cobrado),
+          totalInicialBsBcv: cobroCashea.inicialBsBcv,
+          totalInicialRefUsdBcv: cobroCashea.refInicialUsdBcv,
+          totalTicketUsd: parseFloat(casheaRow.total_ticket_usd),
+          totalPrestadoPendiente: parseFloat(casheaRow.total_prestado_pendiente),
+          totalComisiones: parseFloat(casheaRow.total_comisiones),
+          netoEsperadoBanco: parseFloat(casheaRow.neto_esperado_banco),
+          cantidadVentas: Number(casheaRow.cantidad_ventas)
+        }
+      : null
+  });
 }
 
 module.exports = {

@@ -1,52 +1,14 @@
 <section class="page-content cartera-page">
-<style>
-.cartera-page .toolbar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1rem}
-.cartera-page .btn-primary{height:40px;padding:0 1.1rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.875rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem}
-.cartera-page .btn-primary:hover{background:#2563eb}
-.cartera-page .btn-secondary{height:40px;padding:0 .9rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.85rem}
-.cartera-page .btn-danger{height:40px;padding:0 .9rem;border-radius:var(--radius-md);background:transparent;border:1px solid rgba(239,68,68,.4);color:#ef4444;cursor:pointer;font-size:.8rem}
-.cartera-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.25rem}
-.cartera-kpi{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1rem 1.25rem}
-.cartera-kpi-label{font-size:.75rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem}
-.cartera-kpi-value{font-size:1.5rem;font-weight:700}
-.cartera-kpi.peligro .cartera-kpi-value{color:#ef4444}
-.aging-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:.75rem;margin-bottom:1.25rem}
-.aging-bucket{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:.85rem 1rem;text-align:center}
-.aging-bucket-label{font-size:.7rem;color:var(--text-secondary);margin-bottom:.4rem}
-.aging-bucket-usd{font-size:1.1rem;font-weight:700}
-.aging-bucket-count{font-size:.75rem;color:var(--text-secondary)}
-.bucket-0{border-top:3px solid #10b981}
-.bucket-1{border-top:3px solid #f59e0b}
-.bucket-2{border-top:3px solid #f97316}
-.bucket-3{border-top:3px solid #ef4444}
-.bucket-4{border-top:3px solid #7c3aed}
-.cuentas-table{width:100%;border-collapse:collapse;font-size:.83rem}
-.cuentas-table th{text-align:left;padding:.45rem .7rem;background:var(--bg-tertiary);color:var(--text-secondary);font-size:.72rem;text-transform:uppercase;border-bottom:2px solid var(--border-primary)}
-.cuentas-table td{padding:.45rem .7rem;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
-.cuentas-table tr:hover td{background:rgba(59,130,246,.04)}
-.badge-estado{padding:.12rem .45rem;border-radius:var(--radius-sm);font-size:.72rem;font-weight:700}
-.badge-pendiente{background:rgba(245,158,11,.2);color:#f59e0b}
-.badge-vencida{background:rgba(239,68,68,.2);color:#ef4444}
-.badge-pagada{background:rgba(16,185,129,.1);color:#10b981}
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;padding:1rem}
-.modal-overlay.is-open{display:flex}
-.modal-box{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-lg);max-width:480px;width:100%;padding:1.5rem}
-.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem}
-.modal-close{background:transparent;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-secondary)}
-.campo-grupo{margin-bottom:.9rem}
-.campo-grupo label{display:block;font-size:.83rem;font-weight:600;color:var(--text-secondary);margin-bottom:.3rem}
-.input-g{width:100%;height:42px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.93rem;box-sizing:border-box}
-.input-g:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.2)}
-.alerta-vencidas{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);border-radius:var(--radius-md);padding:.75rem 1rem;margin-bottom:1rem;font-size:.85rem}
-</style>
-
 <div class="page-header">
-  <div>
+  <div class="page-header-info">
     <h1 class="page-title">Cartera — Cuentas por Cobrar</h1>
     <p class="page-subtitle">Gestión de créditos otorgados, antigüedad de saldos y abonos</p>
   </div>
   <div class="page-header-actions">
-    <button class="btn-secondary" id="btn-cartera-refresh" style="height:40px">↺ Actualizar</button>
+    <button class="btn-secondary" id="btn-cartera-refresh">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Actualizar
+    </button>
   </div>
 </div>
 
@@ -62,7 +24,7 @@
 <div id="cartera-alertas-vencidas" class="alerta-vencidas" style="display:none"></div>
 
 <!-- Aging buckets -->
-<h2 style="font-size:1rem;font-weight:600;margin-bottom:.65rem">Antigüedad de Saldos</h2>
+<p class="cartera-aging-titulo">Antigüedad de Saldos</p>
 <div class="aging-grid" id="aging-grid">
   <div class="aging-bucket bucket-0"><div class="aging-bucket-label">Al corriente</div><div class="aging-bucket-usd" id="bucket-corriente">—</div><div class="aging-bucket-count" id="bcount-corriente">0 cuentas</div></div>
   <div class="aging-bucket bucket-1"><div class="aging-bucket-label">1 – 30 días</div><div class="aging-bucket-usd" id="bucket-1-30">—</div><div class="aging-bucket-count" id="bcount-1-30">0 cuentas</div></div>
@@ -73,14 +35,17 @@
 
 <!-- Filtros y tabla -->
 <div class="toolbar">
-  <select id="filtro-estado" class="input-g" style="width:180px;height:40px">
+  <select id="filtro-estado" class="input-g" style="width:180px">
     <option value="">Pendiente + Vencida</option>
     <option value="pendiente">Solo Pendiente</option>
     <option value="vencida">Solo Vencida</option>
     <option value="pagada">Pagada</option>
   </select>
-  <input type="search" id="filtro-buscar" class="input-g" style="max-width:260px;height:40px" placeholder="Buscar cliente...">
-  <button class="btn-secondary" id="btn-exportar-cartera" style="height:40px">📥 Exportar Excel</button>
+  <input type="search" id="filtro-buscar" class="input-g" style="max-width:260px" placeholder="Buscar cliente...">
+  <button class="btn-secondary" id="btn-exportar-cartera">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Exportar Excel
+  </button>
 </div>
 
 <div class="card" style="overflow:auto">
@@ -92,50 +57,52 @@
         <th>Fecha</th>
         <th>Vencimiento</th>
         <th>Días Vencida</th>
-        <th style="text-align:right">Monto Original</th>
-        <th style="text-align:right">Saldo Pendiente</th>
+        <th class="num">Monto Original ($ BCV)</th>
+        <th class="num">Saldo Pendiente ($ BCV)</th>
         <th>Estado</th>
         <th></th>
       </tr>
     </thead>
     <tbody id="cuentas-tbody">
-      <tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-secondary)">Cargando...</td></tr>
+      <tr><td colspan="9" class="td-cargando">Cargando...</td></tr>
     </tbody>
   </table>
-  <div id="cartera-paginacion" style="padding:.65rem 1rem;font-size:.8rem;color:var(--text-secondary);border-top:1px solid var(--border-subtle)"></div>
+  <div id="cartera-paginacion" class="cartera-paginacion"></div>
 </div>
 
 <!-- Modal Abono -->
 <div class="modal-overlay" id="modal-abono">
   <div class="modal-box">
     <div class="modal-header">
-      <h2 style="font-size:1rem;font-weight:700;margin:0">Registrar Abono</h2>
+      <h2>Registrar Abono</h2>
       <button class="modal-close" id="btn-cerrar-abono">✕</button>
     </div>
-    <div id="abono-info" style="background:var(--bg-tertiary);border-radius:var(--radius-sm);padding:.65rem .875rem;font-size:.85rem;margin-bottom:1rem"></div>
+    <div id="abono-info" class="abono-info-box"></div>
     <input type="hidden" id="abono-cuenta-id">
     <div class="campo-grupo">
-      <label>Monto a abonar (USD) *</label>
-      <input type="number" id="abono-monto" class="input-g" min="0.01" step="0.01" placeholder="0.00">
-    </div>
-    <div class="campo-grupo">
-      <label>Método de pago</label>
+      <label>Método de pago *</label>
       <select id="abono-metodo" class="input-g">
-        <option value="efectivo_usd">Efectivo USD</option>
         <option value="efectivo_bs">Efectivo Bs</option>
         <option value="transferencia_bs">Transferencia Bs</option>
         <option value="pago_movil">Pago Móvil</option>
-        <option value="zelle">Zelle</option>
         <option value="punto">Punto TDD</option>
+        <option value="efectivo_usd">Efectivo USD</option>
+        <option value="zelle">Zelle</option>
       </select>
     </div>
+    <div class="campo-grupo">
+      <label id="abono-monto-label">Monto recibido (Bs.) *</label>
+      <input type="text" id="abono-monto" class="input-g" inputmode="decimal" autocomplete="off" data-no-nexus-stepper="true" placeholder="Ej: 21.069,51">
+      <p id="abono-tasa-hint" class="abono-tasa-hint"></p>
+    </div>
+    <div id="abono-equiv" class="abono-equiv-box"></div>
     <div class="campo-grupo">
       <label>Notas (opcional)</label>
       <input type="text" id="abono-notas" class="input-g" placeholder="Ej: pago parcial...">
     </div>
-    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:.5rem">
+    <div class="modal-footer-row">
       <button class="btn-secondary" id="btn-cancelar-abono">Cancelar</button>
-      <button class="btn-primary" id="btn-guardar-abono">💰 Registrar Abono</button>
+      <button class="btn-primary" id="btn-guardar-abono">Registrar Abono</button>
     </div>
   </div>
 </div>

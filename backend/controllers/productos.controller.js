@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { db } = require('../config/database');
 const PreciosService = require('../services/preciosService');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
+const { rejectSpreadsheetFormulaPrefix } = require('../utils/validators');
 const {
   CAMPOS_PRECIO_PRODUCTO,
   registrarAuditoria,
@@ -34,7 +35,8 @@ const INSERTABLE = [
   'ubicacion_almacen',
   'notas',
   'activo',
-  'creado_por'
+  'creado_por',
+  'moneda_costo'
 ];
 
 function normalizeNullable(v) {
@@ -137,18 +139,52 @@ async function getById(req, res) {
   try {
     const costoBase = parseFloat(row.costo_usd);
     const margen = parseFloat(row.margen_ganancia_pct);
+    const hasManual = PreciosService.tienePrecioManualActivo(row.precio_manual_usd);
+    const manualVal = hasManual ? parseFloat(row.precio_manual_usd) : null;
+
+    // Calcular precios por margen si hay costo (puede ser sobreescrito por manual)
     if (costoBase > 0 && !Number.isNaN(costoBase)) {
       precios = await PreciosService.calcularPreciosConTasasActuales(
         db,
         costoBase,
         Number.isNaN(margen) ? 0 : margen
       );
-      const manual = row.precio_manual_usd != null ? parseFloat(row.precio_manual_usd) : null;
-      if (manual != null && !Number.isNaN(manual)) {
+    }
+
+    // M4: calcular vía manual incluso si no hay costo; L1: corregir metadata de margen
+    if (hasManual) {
+      try {
+        const tasas = await PreciosService.obtenerTasasActuales(db);
+        const cadena = PreciosService.aplicarCadenaPorPrecioEfectivo(
+          manualVal,
+          tasas.tasa_bcv,
+          tasas.tasa_usd,
+          { precisionPe: 4 }
+        );
+        // L1: margen real desde precio manual (no el del camino por margen lineal)
+        const margenUsdReal = costoBase > 0
+          ? Math.round((cadena.precio_usd_efectivo - costoBase) * 10000) / 10000
+          : null;
+        const margenPctReal = costoBase > 0 && margenUsdReal !== null
+          ? Math.round((margenUsdReal / costoBase) * 10000) / 100
+          : null;
         precios = {
-          ...precios,
-          precio_usd_efectivo_manual: manual,
-          nota: 'precio_manual_usd definido; el POS puede usar este valor en lugar del calculado'
+          ...(precios || {}),
+          precio_usd_efectivo: cadena.precio_usd_efectivo,
+          precio_usd_bcv: cadena.precio_usd_bcv,
+          precio_bs: cadena.precio_bs,
+          bs_usd_equiv: cadena.bs_usd_equiv,
+          precio_usd_efectivo_manual: manualVal,
+          precio_via_manual: true,
+          nota: 'precio_manual_usd activo; valores según cadena BCV exacta (4 dec USD)'
+        };
+        if (margenUsdReal !== null) precios.margen_usd = margenUsdReal;
+        if (margenPctReal !== null) precios.margen_pct_real = margenPctReal;
+      } catch (manualErr) {
+        precios = {
+          ...(precios || {}),
+          precio_usd_efectivo_manual: manualVal,
+          nota: 'precio_manual_usd definido; error al calcular cadena: ' + manualErr.message
         };
       }
     }
@@ -163,6 +199,32 @@ async function create(req, res) {
   const body = req.body || {};
   if (!body.nombre || String(body.nombre).trim().length === 0) {
     throw httpError(400, 'El nombre es obligatorio');
+  }
+  // Anti CSV/Excel injection en altas manuales (los productos terminan en
+  // exportaciones a Excel que se entregan al SENIAT/contabilidad).
+  const camposTexto = ['nombre', 'codigo_barras', 'codigo_interno', 'descripcion', 'notas', 'ubicacion_almacen', 'unidad_medida'];
+  for (const k of camposTexto) {
+    if (body[k] != null) {
+      const r = rejectSpreadsheetFormulaPrefix(body[k], k);
+      if (!r.ok) throw httpError(400, r.error);
+    }
+  }
+
+  // Si moneda_costo es 'bcv', el frontend ya convirtió costo_usd; validar que llegó > 0
+  if (body.moneda_costo === 'bcv') {
+    const costoUsdVal = Number(body.costo_usd);
+    if (isNaN(costoUsdVal) || costoUsdVal <= 0) {
+      throw httpError(400, 'Si el costo es en $BCV, el valor convertido a USD no puede ser cero. Verifica que las tasas BCV y USD estén configuradas.');
+    }
+  }
+
+  // M3: validar precio_manual_usd cuando se envía (0 = desactivar precio fijo; negativo = inválido)
+  if (Object.prototype.hasOwnProperty.call(body, 'precio_manual_usd') &&
+      body.precio_manual_usd != null && body.precio_manual_usd !== '') {
+    const manualVal = Number(body.precio_manual_usd);
+    if (!Number.isFinite(manualVal) || manualVal < 0) {
+      throw httpError(400, 'precio_manual_usd debe ser un número ≥ 0 (0 desactiva el precio fijo BCV)');
+    }
   }
 
   const ciRaw = body.codigo_interno;
@@ -190,6 +252,9 @@ async function create(req, res) {
     }
     body.stock_actual = Math.round(bultos * upb + sueltas);
   }
+
+  // INV-09: always set creado_por from the authenticated user; ignore any client-sent value
+  body.creado_por = req.user && req.user.id ? Number(req.user.id) : null;
 
   const cols = [];
   const vals = [];
@@ -227,7 +292,30 @@ async function create(req, res) {
                RETURNING *`;
   let inserted;
   try {
-    inserted = await db.one(sql, vals);
+    // INV-03: wrap in transaction so the initial stock movement is atomic with the product INSERT
+    inserted = await db.tx(async t => {
+      const row = await t.one(sql, vals);
+      const stockInicial = Math.round(parseFloat(row.stock_actual) || 0);
+      if (stockInicial > 0) {
+        const costoUsd = row.costo_usd != null ? parseFloat(row.costo_usd) : null;
+        const usuarioId = req.user && req.user.id ? Number(req.user.id) : null;
+        await t.none(
+          `INSERT INTO ajustes_inventario (
+             producto_id, lote_id, tipo, cantidad,
+             cantidad_anterior, cantidad_nueva, costo_unitario_usd,
+             referencia_id, referencia_tipo, usuario_id, motivo
+           ) VALUES ($1, NULL, 'entrada_inicial', $2, 0, $2, $3, $1, 'producto', $4, $5)`,
+          [
+            row.id,
+            stockInicial,
+            Number.isNaN(costoUsd) ? null : costoUsd,
+            usuarioId,
+            'Stock inicial al crear producto'
+          ]
+        );
+      }
+      return row;
+    });
   } catch (e) {
     if (e.code === '23505') throw httpError(409, 'Código de barras o interno duplicado');
     throw e;
@@ -262,6 +350,32 @@ async function update(req, res) {
   if (!prev) throw httpError(404, 'Producto no encontrado');
 
   const body = req.body || {};
+
+  // Anti CSV/Excel injection en updates manuales (defensa en profundidad).
+  const camposTextoUpd = ['nombre', 'codigo_barras', 'codigo_interno', 'descripcion', 'notas', 'ubicacion_almacen', 'unidad_medida'];
+  for (const k of camposTextoUpd) {
+    if (Object.prototype.hasOwnProperty.call(body, k) && body[k] != null) {
+      const r = rejectSpreadsheetFormulaPrefix(body[k], k);
+      if (!r.ok) throw httpError(400, r.error);
+    }
+  }
+
+  if (body.moneda_costo === 'bcv' && Object.prototype.hasOwnProperty.call(body, 'costo_usd')) {
+    const costoUsdVal = Number(body.costo_usd);
+    if (isNaN(costoUsdVal) || costoUsdVal <= 0) {
+      throw httpError(400, 'Si el costo es en $BCV, el valor convertido a USD no puede ser cero. Verifica que las tasas BCV y USD estén configuradas.');
+    }
+  }
+
+  // M3: validar precio_manual_usd cuando se envía (0 = desactivar precio fijo; negativo = inválido)
+  if (Object.prototype.hasOwnProperty.call(body, 'precio_manual_usd') &&
+      body.precio_manual_usd != null && body.precio_manual_usd !== '') {
+    const manualVal = Number(body.precio_manual_usd);
+    if (!Number.isFinite(manualVal) || manualVal < 0) {
+      throw httpError(400, 'precio_manual_usd debe ser un número ≥ 0 (0 desactiva el precio fijo BCV)');
+    }
+  }
+
   const stockManualRequested = Object.prototype.hasOwnProperty.call(body, 'stock_actual');
   const pairs = [];
   const vals = [];

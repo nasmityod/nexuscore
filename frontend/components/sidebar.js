@@ -19,6 +19,48 @@
     return s;
   }
 
+  function brandLogoSvg() {
+    const s = document.createElementNS(NS, 'svg');
+    s.setAttribute('class', 'sidebar-brand-logo');
+    s.setAttribute('viewBox', '0 0 48 48');
+    s.setAttribute('fill', 'none');
+    s.setAttribute('aria-hidden', 'true');
+
+    function line(x1, y1, x2, y2, w) {
+      const el = document.createElementNS(NS, 'line');
+      el.setAttribute('x1', x1);
+      el.setAttribute('y1', y1);
+      el.setAttribute('x2', x2);
+      el.setAttribute('y2', y2);
+      el.setAttribute('stroke', 'currentColor');
+      el.setAttribute('stroke-width', w);
+      el.setAttribute('stroke-linecap', 'round');
+      s.appendChild(el);
+    }
+
+    const poly = document.createElementNS(NS, 'polygon');
+    poly.setAttribute('points', '24,6 38,14 38,30 24,38 10,30 10,14');
+    poly.setAttribute('stroke', 'currentColor');
+    poly.setAttribute('stroke-width', '2.5');
+    poly.setAttribute('stroke-linejoin', 'round');
+    poly.setAttribute('fill', 'none');
+    s.appendChild(poly);
+
+    line('38', '14', '46', '8', '2.5');
+    line('24', '38', '24', '46', '2.5');
+    line('10', '14', '2', '8', '2.5');
+
+    const circle = document.createElementNS(NS, 'circle');
+    circle.setAttribute('cx', '24');
+    circle.setAttribute('cy', '22');
+    circle.setAttribute('r', '3');
+    circle.setAttribute('fill', 'currentColor');
+    s.appendChild(circle);
+
+    line('24', '14', '24', '19', '1.5');
+    return s;
+  }
+
   const ICONS = {
     dashboard: svg('M4 6h6v8H4zM14 6h6v5h-6zM14 15h6v3h-6zM4 18h6v-2H4z'),
     pos: svg('M3 5h18v14H3zM7 9h6M7 13h4'),
@@ -43,11 +85,27 @@
     aside.className = 'sidebar';
     aside.setAttribute('aria-label', 'Navegación principal');
 
-    const brand = document.createElement('div');
-    brand.className = 'sidebar-brand';
-    brand.innerHTML =
-      '<h1 class="sidebar-brand-title">Nexus-Core</h1><p class="sidebar-brand-tag">ERP / POS</p>';
-    aside.appendChild(brand);
+    const brandContainer = document.createElement('div');
+    brandContainer.className = 'sidebar-brand';
+
+    const brandLogo = brandLogoSvg();
+
+    const brandTextBlock = document.createElement('div');
+    brandTextBlock.className = 'sidebar-brand-text';
+
+    const brandTitle = document.createElement('span');
+    brandTitle.className = 'sidebar-brand-title';
+    brandTitle.textContent = 'Nexus Core';
+
+    const brandSub = document.createElement('span');
+    brandSub.className = 'sidebar-brand-sub';
+    brandSub.textContent = 'ERP · POS';
+
+    brandTextBlock.appendChild(brandTitle);
+    brandTextBlock.appendChild(brandSub);
+    brandContainer.appendChild(brandLogo);
+    brandContainer.appendChild(brandTextBlock);
+    aside.appendChild(brandContainer);
 
     const nav = document.createElement('nav');
     const ul = document.createElement('ul');
@@ -97,7 +155,15 @@
       const ic = ICONS[r.id] || ICONS.dashboard;
       a.appendChild(ic.cloneNode(true));
       const span = document.createElement('span');
-      span.textContent = r.title;
+      if (
+        r.id === 'cashea' &&
+        window.NexusCasheaBrand &&
+        typeof window.NexusCasheaBrand.labelHtml === 'function'
+      ) {
+        span.innerHTML = window.NexusCasheaBrand.labelHtml(r.title, 16, 16);
+      } else {
+        span.textContent = r.title;
+      }
       a.appendChild(span);
       li.appendChild(a);
       ul.appendChild(li);
@@ -138,16 +204,16 @@
     const foot = document.createElement('div');
     foot.className = 'sidebar-footer';
     if (window.nexusCore) {
-      foot.textContent = 'NexusCore v' + (window._APP_VERSION || '1.0.0') +
+      foot.textContent = 'Nexus Core v' + (window._APP_VERSION || '1.0.0') +
         ' · Electron ' + window.nexusCore.versions.electron;
       // Cargar versión real de forma asíncrona
       if (window.nexusCore.getVersion) {
         window.nexusCore.getVersion().then(function (v) {
-          if (v) { window._APP_VERSION = v; foot.textContent = 'NexusCore v' + v + ' · Electron ' + window.nexusCore.versions.electron; }
+          if (v) { window._APP_VERSION = v; foot.textContent = 'Nexus Core v' + v + ' · Electron ' + window.nexusCore.versions.electron; }
         }).catch(function () {});
       }
     } else {
-      foot.textContent = 'NexusCore · Modo Navegador';
+      foot.textContent = 'Nexus Core · Modo Navegador';
     }
     aside.appendChild(foot);
 

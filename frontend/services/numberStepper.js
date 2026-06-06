@@ -20,7 +20,61 @@ window.NexusNumberStepper = (function () {
     return parseFloat(t);
   }
 
+  function formatMontoVe(n) {
+    return Number(n || 0).toLocaleString('es-VE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+
+  /**
+   * Pegado/blur en campos de monto es-VE (21.069,51). Evita type=number que corrompe el valor.
+   */
+  function normalizarInputMontoVe(input, opts) {
+    if (!input) return;
+    opts = opts || {};
+    var onInput = typeof opts.onInput === 'function' ? opts.onInput : null;
+
+    function aplicar(raw) {
+      var pv = parseMontoVe(raw);
+      if (!Number.isFinite(pv) || pv < 0) return false;
+      if (opts.allowEmpty !== false && pv === 0) {
+        input.value = '';
+      } else {
+        input.value = formatMontoVe(pv);
+      }
+      if (onInput) onInput();
+      return true;
+    }
+
+    input.addEventListener('paste', function (e) {
+      var txt = e.clipboardData && e.clipboardData.getData('text/plain');
+      if (!txt || !/\S/.test(txt)) return;
+      if (!Number.isFinite(parseMontoVe(String(txt).trim()))) return;
+      e.preventDefault();
+      aplicar(String(txt).trim());
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    input.addEventListener('blur', function () {
+      var raw = String(input.value || '').trim();
+      if (raw === '') return;
+      if (/[.,]$/.test(raw)) return;
+      var antes = input.value;
+      if (aplicar(raw) && String(input.value) !== String(antes)) {
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+
   function formatBsVe(n) {
+    return Number(n || 0).toLocaleString('es-VE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function formatUsdVe(n) {
     return Number(n || 0).toLocaleString('es-VE', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
@@ -42,9 +96,19 @@ window.NexusNumberStepper = (function () {
     return Math.min(8, String(stepStr).length - p - 1);
   }
 
+  function isMontoTextVe(input) {
+    return (
+      input.classList.contains('cobro-su-pago-input') ||
+      input.classList.contains('caja-monto-input')
+    );
+  }
+
   function formatOutput(input, next) {
-    if (input.classList.contains('cobro-su-pago-input')) {
-      return next > 0 ? formatBsVe(next) : '';
+    if (isMontoTextVe(input)) {
+      if (!(next > 0)) return '';
+      if (input.classList.contains('caja-monto-input')) return formatBsVe(next);
+      var mon = input.getAttribute('data-cobro-moneda') || 'BS';
+      return mon === 'BS' ? formatBsVe(next) : formatUsdVe(next);
     }
     /** Campo muestra vacío cuando el valor es 0 — el placeholder indica formato (ej. 0,00). */
     if (input.getAttribute('data-num-empty-if-zero') === 'true') {
@@ -65,7 +129,7 @@ window.NexusNumberStepper = (function () {
   function bumpInteger(input, dir) {
     if (!input || input.disabled || input.readOnly) return;
     var raw = String(input.value || '').trim();
-    var v = input.classList.contains('cobro-su-pago-input')
+    var v = isMontoTextVe(input)
       ? parseMontoVe(raw)
       : parseFloat(raw.replace(',', '.'));
     if (Number.isNaN(v)) v = 0;
@@ -138,9 +202,10 @@ window.NexusNumberStepper = (function () {
 
   function wrapInput(input) {
     if (!input) return;
-    var isCobroText =
-      input.type === 'text' && input.classList.contains('cobro-su-pago-input');
-    if (input.type !== 'number' && !isCobroText) return;
+    var isMontoText =
+      input.type === 'text' &&
+      (input.classList.contains('cobro-su-pago-input') || input.classList.contains('caja-monto-input'));
+    if (input.type !== 'number' && !isMontoText) return;
     if (input.getAttribute('data-no-nexus-stepper') === 'true') return;
     if (input.closest('.nexus-num-wrap')) return;
     if (input.disabled || input.readOnly) return;
@@ -210,10 +275,10 @@ window.NexusNumberStepper = (function () {
     el.querySelectorAll('input[type="number"]').forEach(function (inp) {
       wrapInput(inp);
     });
-    el.querySelectorAll('input[type="text"].cobro-su-pago-input').forEach(function (inp) {
+    el.querySelectorAll('input[type="text"].cobro-su-pago-input, input[type="text"].caja-monto-input').forEach(function (inp) {
       wrapInput(inp);
     });
   }
 
-  return { init: init, parseMontoVe: parseMontoVe };
+  return { init: init, parseMontoVe: parseMontoVe, formatMontoVe: formatMontoVe, normalizarInputMontoVe: normalizarInputMontoVe };
 })();

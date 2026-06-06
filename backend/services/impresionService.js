@@ -15,6 +15,7 @@ try {
 }
 
 const { db } = require('../config/database');
+const { resolveTotalesBcvTicket } = require('../utils/ventaTotalesBcv');
 
 class ImpresionService {
   /* ─── Obtener config de impresora desde BD ─── */
@@ -55,7 +56,7 @@ class ImpresionService {
 
       // Cargar datos de la venta
       const venta = await db.oneOrNone(
-        `SELECT v.*, c.nombre AS cliente_nombre, u.nombre AS cajero_nombre
+        `SELECT v.*, c.nombre AS cliente_nombre, u.nombre_completo AS cajero_nombre
          FROM ventas v
          LEFT JOIN clientes c ON c.id = v.cliente_id
          LEFT JOIN usuarios u ON u.id = v.usuario_id
@@ -72,10 +73,7 @@ class ImpresionService {
         [ventaId]
       );
 
-      // Tasas actuales
-      const tasas = await db.oneOrNone(
-        `SELECT valor::numeric FROM configuracion WHERE clave = 'tasa_usd' LIMIT 1`
-      );
+      const bcvTot = resolveTotalesBcvTicket(venta);
 
       // Formatear números
       const fUsd = (v) => Number(v || 0).toFixed(2);
@@ -113,8 +111,16 @@ class ImpresionService {
 
       // Totales
       printer.alignRight();
-      printer.println('TOTAL:  $' + fUsd(venta.total_usd) + ' USD');
-      printer.println('        Bs. ' + fBs(venta.total_bs));
+      const refBcv =
+        bcvTot.totalRefUsdBcv != null && bcvTot.totalRefUsdBcv > 0
+          ? bcvTot.totalRefUsdBcv
+          : Number(venta.total_ref_usd_bcv) || Number(venta.total_usd);
+      const bsBcv =
+        bcvTot.totalBsBcv != null && bcvTot.totalBsBcv > 0
+          ? bcvTot.totalBsBcv
+          : Number(venta.total_bs);
+      printer.println('TOTAL $ BCV: $' + Number(refBcv).toFixed(2));
+      printer.println('TOTAL Bs BCV: Bs. ' + fBs(bsBcv));
       if (venta.metodo_pago) printer.println('Pago:   ' + venta.metodo_pago.replace('_', ' ').toUpperCase());
 
       // Vuelto si aplica
@@ -128,7 +134,9 @@ class ImpresionService {
       printer.drawLine();
       printer.alignCenter();
       printer.println('¡Gracias por su compra!');
-      if (tasas) printer.println('Tasa paralela: ' + Number(tasas.valor).toFixed(4));
+      if (bcvTot.tasaBcv > 0) {
+        printer.println('Tasa BCV: ' + Number(bcvTot.tasaBcv).toFixed(4));
+      }
       printer.cut();
 
       await printer.execute();
@@ -147,7 +155,7 @@ class ImpresionService {
       const printer = await ImpresionService._crearImpresora(cfg);
 
       const sesion = await db.oneOrNone(
-        `SELECT sc.*, u.nombre AS cajero_nombre
+        `SELECT sc.*, u.nombre_completo AS cajero_nombre
          FROM sesiones_caja sc
          LEFT JOIN usuarios u ON u.id = sc.usuario_id
          WHERE sc.id = $1`,
@@ -200,7 +208,7 @@ class ImpresionService {
       printer.bold(true);
       printer.println('PRUEBA DE IMPRESORA');
       printer.bold(false);
-      printer.println('Nexus-Core POS');
+      printer.println('Nexus Core POS');
       printer.println(new Date().toLocaleString('es-VE'));
       printer.drawLine();
       printer.println('Si ves esto, la impresora');

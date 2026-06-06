@@ -2,6 +2,8 @@
 
 (function () {
   const STORAGE_BCV = 'nexus_tasa_bcv';
+  // Referencia al handler de nexus:session activo para poder removerlo al remontar navbar
+  let _sessionHandler = null;
   const STORAGE_USD = 'nexus_tasa_usd';
   const LEGACY_STORAGE_USD = 'nexus_tasa_paralela';
 
@@ -19,13 +21,13 @@
         localStorage.removeItem(LEGACY_STORAGE_USD);
       }
     }
-    const d = {
-      bcv: parseFloat(localStorage.getItem(STORAGE_BCV) || '489.5547'),
-      usd: parseFloat(rawUsd || '625.0000')
+    const rawBcv = localStorage.getItem(STORAGE_BCV);
+    const bcv = parseFloat(rawBcv || '0');
+    const usd = parseFloat(rawUsd || '0');
+    return {
+      bcv: !Number.isNaN(bcv) && bcv > 0 ? round4(bcv) : 0,
+      usd: !Number.isNaN(usd) && usd > 0 ? round4(usd) : 0
     };
-    if (Number.isNaN(d.bcv)) d.bcv = 489.5547;
-    if (Number.isNaN(d.usd)) d.usd = 625.0;
-    return { bcv: round4(d.bcv), usd: round4(d.usd) };
   }
 
   /** @param {boolean} silent si true solo persiste localStorage (sin disparar nexus:tasas) */
@@ -40,35 +42,6 @@
       );
     }
     return { bcv: b, usd: u };
-  }
-
-  function persistTasasToServer(bcv, usd) {
-    const base = String(window.NEXUS_API_BASE || 'http://127.0.0.1:3000').replace(/\/$/, '');
-    const url = `${base}/api/configuracion/tasas`;
-    const init = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tasa_bcv: bcv, tasa_usd: usd })
-    };
-    const req =
-      window.NexusAuth && window.NexusAuth.authFetch
-        ? window.NexusAuth.authFetch(url, init)
-        : fetch(url, init);
-    return req.then((res) => {
-      if (!res.ok) {
-        return res.text().then((txt) => {
-          let msg = txt || res.statusText || 'Error del servidor';
-          try {
-            const j = JSON.parse(txt);
-            if (j && j.error) msg = j.error;
-          } catch (e) {
-            /* ignore */
-          }
-          throw new Error(msg);
-        });
-      }
-      return res.json();
-    });
   }
 
   function formatClock(d) {
@@ -108,87 +81,28 @@
     tasasInner.style.gap = '1rem';
     tasasInner.style.flexWrap = 'wrap';
 
-    const puedeEditarTasasServidor =
-      window.NexusAuth &&
-      typeof window.NexusAuth.can === 'function' &&
-      window.NexusAuth.can('tasas_edit');
+    // BCV: solo visualización. La tasa se actualiza automáticamente desde Configuración → Tasas.
+    const bcvGroup = document.createElement('div');
+    bcvGroup.className = 'tasa-group';
+    const bcvBadge = document.createElement('span');
+    bcvBadge.className = 'tasa-badge';
+    bcvBadge.textContent = 'USD BCV';
+    const bcvWrap = document.createElement('div');
+    bcvWrap.className = 'tasa-input-wrap';
+    const bcvInp = document.createElement('input');
+    bcvInp.type = 'text';
+    bcvInp.className = 'tasa-input';
+    bcvInp.id = 'navbar-tasa-bcv';
+    bcvInp.setAttribute('inputmode', 'decimal');
+    bcvInp.setAttribute('aria-label', 'Tasa BCV oficial (Bs por USD)');
+    bcvInp.setAttribute('title', 'Tasa BCV oficial — se actualiza automáticamente. Cambia en Configuración → Tasas.');
+    bcvInp.value = rates.bcv > 0 ? rates.bcv.toFixed(4) : '—';
+    bcvInp.readOnly = true;
+    bcvWrap.appendChild(bcvInp);
+    bcvGroup.appendChild(bcvBadge);
+    bcvGroup.appendChild(bcvWrap);
 
-    const mkGroup = (label, badge, initial, key) => {
-      const g = document.createElement('div');
-      g.className = 'tasa-group';
-      const lb = document.createElement('span');
-      lb.className = 'tasa-badge';
-      lb.textContent = badge;
-      const wrap = document.createElement('div');
-      wrap.className = 'tasa-input-wrap';
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.className = 'tasa-input';
-      inp.id = key === 'bcv' ? 'navbar-tasa-bcv' : 'navbar-tasa-usd';
-      inp.setAttribute('inputmode', 'decimal');
-      inp.setAttribute('aria-label', label);
-      inp.value = initial.toFixed(4);
-      inp.readOnly = !puedeEditarTasasServidor;
-      inp.title = puedeEditarTasasServidor
-        ? label
-        : 'Solo el administrador puede modificar las tasas en el servidor';
-      if (puedeEditarTasasServidor) {
-        inp.addEventListener('blur', () => {
-          const v = parseFloat(String(inp.value).replace(',', '.'));
-          if (Number.isNaN(v) || v <= 0) {
-            const cur = loadRates();
-            inp.value = (key === 'bcv' ? cur.bcv : cur.usd).toFixed(4);
-            return;
-          }
-          const other =
-            key === 'bcv'
-              ? parseFloat(String(usdInp.value).replace(',', '.'))
-              : parseFloat(String(bcvInp.value).replace(',', '.'));
-          const bcvVal = key === 'bcv' ? v : other;
-          const usdVal = key === 'usd' ? v : other;
-          if (usdVal < bcvVal) {
-            window.NexusComponents &&
-              window.NexusComponents.showToast &&
-              window.NexusComponents.showToast(
-                'El tipo USD no puede ser menor que el tipo USD BCV',
-                'warning'
-              );
-            const cur = loadRates();
-            inp.value = (key === 'bcv' ? cur.bcv : cur.usd).toFixed(4);
-            return;
-          }
-          const saved = saveRates(bcvVal, usdVal);
-          bcvInp.value = saved.bcv.toFixed(4);
-          usdInp.value = saved.usd.toFixed(4);
-          persistTasasToServer(saved.bcv, saved.usd)
-            .then(() => {
-              window.NexusComponents &&
-                window.NexusComponents.showToast &&
-                window.NexusComponents.showToast('Tasas guardadas (local y servidor)', 'success');
-            })
-            .catch((err) => {
-              window.NexusComponents &&
-                window.NexusComponents.showToast &&
-                window.NexusComponents.showToast(
-                  (err && err.message) || 'No se pudieron guardar las tasas en el servidor',
-                  'danger'
-                );
-            });
-        });
-      }
-      wrap.appendChild(inp);
-      g.appendChild(lb);
-      g.appendChild(wrap);
-      return { g, inp };
-    };
-
-    const b = mkGroup('Tipo USD BCV (Bs por USD)', 'USD BCV', rates.bcv, 'bcv');
-    const u = mkGroup('Tipo USD (Bs por USD)', 'USD', rates.usd, 'usd');
-    const bcvInp = b.inp;
-    const usdInp = u.inp;
-
-    tasasInner.appendChild(b.g);
-    tasasInner.appendChild(u.g);
+    tasasInner.appendChild(bcvGroup);
     ratesWrap.appendChild(tasasInner);
 
     const right = document.createElement('div');
@@ -266,12 +180,55 @@
     userBox.appendChild(userCol);
     userBox.appendChild(logoutBtn);
     applyUserHeader();
+    // Reemplazar handler previo para evitar acumulación de listeners en ciclos login/logout
+    if (_sessionHandler) window.removeEventListener('nexus:session', _sessionHandler);
+    _sessionHandler = applyUserHeader;
     window.addEventListener('nexus:session', applyUserHeader);
 
     const dbBox = document.createElement('div');
     dbBox.className = 'db-status';
-    dbBox.innerHTML =
-      '<span class="db-status-dot" title="Conexión BD simulada"></span><span>BD</span>';
+    const dbDot = document.createElement('span');
+    dbDot.className = 'db-status-dot is-pending';
+    dbDot.title = 'Comprobando conexión…';
+    const dbLbl = document.createElement('span');
+    dbLbl.textContent = 'BD';
+    dbBox.appendChild(dbDot);
+    dbBox.appendChild(dbLbl);
+
+    const DB_HEALTH_POLL_MS = 30000;
+
+    async function pingDatabaseHealth() {
+      const base = String(window.NEXUS_API_BASE || 'http://127.0.0.1:3000').replace(/\/$/, '');
+      const url = `${base}/health/db`;
+      try {
+        const res = await fetch(url, { method: 'GET', cache: 'no-store' });
+        let body = null;
+        try {
+          body = await res.json();
+        } catch (e) {
+          body = null;
+        }
+        if (res.ok && body && body.ok === true && body.database) {
+          dbDot.classList.remove('is-offline', 'is-pending');
+          dbDot.title = `PostgreSQL conectado (${body.database})`;
+          return;
+        }
+        dbDot.classList.add('is-offline');
+        dbDot.classList.remove('is-pending');
+        dbDot.title =
+          body && typeof body.error === 'string' ? body.error : 'Sin conexión a PostgreSQL';
+      } catch (err) {
+        dbDot.classList.add('is-offline');
+        dbDot.classList.remove('is-pending');
+        dbDot.title =
+          err && err.message
+            ? 'No se alcanza el servidor'
+            : 'Sin conexión al servidor o a PostgreSQL';
+      }
+    }
+
+    void pingDatabaseHealth();
+    setInterval(() => void pingDatabaseHealth(), DB_HEALTH_POLL_MS);
 
     right.appendChild(clockBox);
     right.appendChild(userBox);
@@ -284,21 +241,22 @@
     container.appendChild(header);
   }
 
-  /** Refresca los inputs del header según lo guardado en localStorage (tasas efectivas POS). */
+  /** Refresca el display BCV del header según lo guardado en localStorage. */
   function syncNavbarRatesInputsFromLocalStorage() {
     const cur = loadRates();
     const bcvEl = document.getElementById('navbar-tasa-bcv');
-    const usdEl = document.getElementById('navbar-tasa-usd');
-    if (bcvEl) bcvEl.value = cur.bcv.toFixed(4);
-    if (usdEl) usdEl.value = cur.usd.toFixed(4);
+    if (bcvEl) bcvEl.value = cur.bcv > 0 ? cur.bcv.toFixed(4) : '—';
   }
 
   /**
    * Obtiene tasas del servidor siempre fresco (sin caché HTTP) y persiste en localStorage.
    * Punto único para alinear POS con la BD después de cambiar tasas.
+   * Implementa singleton in-flight: llamadas concurrentes reciben la misma promesa.
    * @returns {Promise<{ ok: true, bcv: number, usd: number } | null>}
    */
+  let _hydrateInFlight = null;
   function hydrateTasasDesdeServidorSilent() {
+    if (_hydrateInFlight) return _hydrateInFlight;
     const base = String(window.NEXUS_API_BASE || 'http://127.0.0.1:3000').replace(/\/$/, '');
     const url = `${base}/api/configuracion/tasas-actuales`;
     const init = { method: 'GET', cache: 'no-store' };
@@ -306,18 +264,37 @@
       window.NexusAuth && window.NexusAuth.authFetch
         ? window.NexusAuth.authFetch(url, init)
         : fetch(url, init);
-    return req
-      .then((r) => (r.ok ? r.json() : null))
+    _hydrateInFlight = req
+      .then((r) => {
+        if (r.status === 401) return { __unauthorized: true };
+        return r.ok ? r.json() : null;
+      })
       .then((d) => {
         if (!d) return null;
+        if (d.__unauthorized) return { ok: false, unauthorized: true };
         const bcv = parseFloat(String(d.tasa_bcv != null ? d.tasa_bcv : d.bcv).replace(',', '.'));
         const usd = parseFloat(String(d.tasa_usd != null ? d.tasa_usd : d.usd).replace(',', '.'));
         if (!bcv || Number.isNaN(bcv) || !usd || Number.isNaN(usd)) return null;
-        saveRates(bcv, usd, true);
+        const modo = String(d.modo_moneda_operacion || 'multimoneda').trim().toLowerCase();
+        const usdOperativo = modo === 'solo_bcv' ? bcv : usd;
+        saveRates(bcv, usdOperativo, true);
         syncNavbarRatesInputsFromLocalStorage();
-        return { ok: true, bcv: round4(bcv), usd: round4(usd) };
+        // Notificar a todos los listeners (Inventario, POS, etc.) tras hydrate
+        window.dispatchEvent(
+          new CustomEvent('nexus:tasas', { detail: { tasa_bcv: round4(bcv), tasa_usd: round4(usdOperativo) } })
+        );
+        return {
+          ok: true,
+          bcv: round4(bcv),
+          usd: round4(usdOperativo),
+          modo_moneda_operacion: modo
+        };
       })
-      .catch(() => null);
+      .catch(() => null)
+      .finally(() => {
+        _hydrateInFlight = null;
+      });
+    return _hydrateInFlight;
   }
 
   window.addEventListener('nexus:tasas', syncNavbarRatesInputsFromLocalStorage);

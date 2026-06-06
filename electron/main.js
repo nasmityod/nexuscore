@@ -1,17 +1,85 @@
 'use strict';
 
-// ── dotenv debe cargarse PRIMERO, antes de cualquier lógica que lea process.env ──
-// En producción empaquetada puede no existir .env; las variables vienen del SO.
-const dotenvPath = require('path').join(__dirname, '..', '.env');
-require('dotenv').config({ path: dotenvPath });
-
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
-const { getBundledRoot } = require('./postgres-portable');
-
+const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage } = require('electron');
+const {
+  loadNexusEnv,
+  needsFirstRunSetup,
+  normalizeSetupPayload,
+  testPostgresConnection,
+  saveUserConfigEnv,
+  getSetupDefaults,
+  applySavedConfigToProcess,
+  getUserConfigEnvPath
+} = require('./setupConfig');
 const LOG_PREFIX = '[nexus-core]';
+
+// userData/config.env (asistente) → .env del proyecto (dev) → defaults
+loadNexusEnv(app);
+
+// Debe ejecutarse antes de crear ventanas (agrupación e icono en barra de tareas en Windows).
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.nexuscore.pos');
+}
+
+let cachedAppIcon = null;
+
+/**
+ * Windows empaquetado: el .exe ya lleva icon.ico (electron-builder).
+ * setIcon() desde PNG suele mostrar el placeholder genérico en la barra.
+ */
+function useEmbeddedExeTaskbarIcon() {
+  return app.isPackaged && process.platform === 'win32';
+}
+
+function getBrowserWindowIcon() {
+  if (useEmbeddedExeTaskbarIcon()) return undefined;
+  return loadAppIcon() || undefined;
+}
+
+/** Rutas .png/.ico para setIcon (nativeImage no puede leer el .exe). */
+function getAppIconCandidates() {
+  const list = [];
+  if (app.isPackaged && process.resourcesPath) {
+    list.push(
+      path.join(process.resourcesPath, 'branding', 'icon.png'),
+      path.join(process.resourcesPath, 'branding', 'icon.ico')
+    );
+  }
+  const projectRoot = path.resolve(__dirname, '..');
+  list.push(
+    path.join(projectRoot, 'build-resources', 'icon.png'),
+    path.join(projectRoot, 'build-resources', 'icon.ico')
+  );
+  return list;
+}
+
+function loadAppIcon() {
+  if (cachedAppIcon) return cachedAppIcon;
+  for (const iconPath of getAppIconCandidates()) {
+    if (!fsSync.existsSync(iconPath)) continue;
+    const img = nativeImage.createFromPath(iconPath);
+    if (!img.isEmpty()) {
+      cachedAppIcon = img;
+      return cachedAppIcon;
+    }
+    console.warn(`${LOG_PREFIX} Icono vacío: ${iconPath}`);
+  }
+  console.warn(
+    `${LOG_PREFIX} Sin icono de app — ejecuta "npm run icons" y vuelve a empaquetar`
+  );
+  return null;
+}
+
+function applyWindowIcon(win) {
+  if (useEmbeddedExeTaskbarIcon()) return;
+  const icon = loadAppIcon();
+  if (icon && win && !win.isDestroyed()) {
+    win.setIcon(icon);
+  }
+}
 
 /**
  * Rechaza con un error de timeout si `promise` no resuelve en `ms` milisegundos.
@@ -33,11 +101,8 @@ function withTimeout(promise, ms, label) {
 }
 
 /**
- * Configura las rutas usadas por funciones de respaldo (pg_dump).
- *
- * Tolerante a la ausencia de binarios: la app ya no depende de PostgreSQL
- * portátil para arrancar; los binarios solo son necesarios si el usuario
- * lanza un backup desde la app y no tiene pg_dump en el PATH del sistema.
+ * Carpeta de respaldos en userData. pg_dump se resuelve en el backend (pgDumpResolver)
+ * contra la versión real del servidor — no se fuerza database/postgres del repo.
  */
 function applyNexusBackupEnv() {
   try {
@@ -49,28 +114,13 @@ function applyNexusBackupEnv() {
     const envBin = process.env.NEXUS_PG_BIN_DIR && String(process.env.NEXUS_PG_BIN_DIR).trim();
     if (envDump || envBin) {
       console.log(
-        `${LOG_PREFIX} Respaldos: usando NEXUS_PG_DUMP / NEXUS_PG_BIN_DIR del entorno (.env); no se sobrescribe con binarios embebidos.`
+        `${LOG_PREFIX} Respaldos: NEXUS_PG_DUMP / NEXUS_PG_BIN_DIR desde .env; el backend validará compatibilidad con el servidor.`
       );
-      return;
+    } else {
+      console.log(
+        `${LOG_PREFIX} Respaldos: pg_dump se detectará al conectar (Program Files\\PostgreSQL\\<versión>\\bin, PATH, etc.).`
+      );
     }
-
-    const pgRoot = getBundledRoot(app);
-    if (pgRoot) {
-      const binDir = path.join(pgRoot, 'bin');
-      const dumpName = process.platform === 'win32' ? 'pg_dump.exe' : 'pg_dump';
-      const dump = path.join(binDir, dumpName);
-      if (fsSync.existsSync(dump)) {
-        process.env.NEXUS_PG_BIN_DIR = binDir;
-        console.log(`${LOG_PREFIX} NEXUS_PG_BIN_DIR = ${binDir}`);
-        console.log(
-          `${LOG_PREFIX} Aviso: pg_dump bundleado puede diferir de la versión del servidor. Si los respaldos fallan, define NEXUS_PG_BIN_DIR en .env.`
-        );
-        return;
-      }
-    }
-    console.log(
-      `${LOG_PREFIX} Sin binarios PostgreSQL bundleados; los respaldos usarán pg_dump del PATH del sistema (si está disponible).`
-    );
   } catch (err) {
     console.warn(`${LOG_PREFIX} applyNexusBackupEnv:`, err.message);
   }
@@ -78,14 +128,60 @@ function applyNexusBackupEnv() {
 
 applyNexusBackupEnv();
 
-const { start: startBackend, shutdown: shutdownBackend } = require('../backend/server');
+/** Backend se carga tras el asistente para que PG_* estén definidos. */
+let backendModule = null;
+function getBackendModule() {
+  if (!backendModule) {
+    backendModule = require('../backend/server');
+  }
+  return backendModule;
+}
+function startBackend() {
+  return getBackendModule().start();
+}
+function shutdownBackend() {
+  return getBackendModule().shutdown();
+}
 
 const isDev = !app.isPackaged;
+
+/** true si NEXUS_DEVTOOLS=1 (pruebas en .exe instalado). */
+function isDevToolsEnabled() {
+  if (isDev) return true;
+  const v = String(process.env.NEXUS_DEVTOOLS || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+function openDevToolsDetached(webContents, label) {
+  if (!isDevToolsEnabled() || !webContents || webContents.isDestroyed()) return;
+  webContents.openDevTools({ mode: 'detach' });
+  if (!isDev) {
+    console.log(`${LOG_PREFIX} DevTools abiertas (${label}) — NEXUS_DEVTOOLS activo`);
+  }
+}
+
+function toggleDevTools(webContents) {
+  if (!isDevToolsEnabled() || !webContents || webContents.isDestroyed()) return;
+  if (webContents.isDevToolsOpened()) {
+    webContents.closeDevTools();
+  } else {
+    webContents.openDevTools({ mode: 'detach' });
+  }
+}
 
 let appShuttingDown = false;
 
 let mainWindow = null;
 let splashWindow = null;
+let setupWindow = null;
+/** @type {((ok: boolean) => void) | null} */
+let pendingSetupFinish = null;
+/** @type {1 | 2} */
+let setupWindowStartStep = 1;
+/** Backend ya arrancó durante el wizard (evita doble start). */
+let startupBackendPreloaded = false;
+/** Motivo de licencia inactiva (p. ej. trial expirado) para el paso 2 del wizard. */
+let pendingLicenseReason = null;
 
 /** Evita app.quit() cuando aún no existe la ventana principal (p. ej. al cerrar solo la activación). */
 let mainWindowLifecycleStarted = false;
@@ -110,6 +206,7 @@ function createSplashWindow() {
     transparent: true,
     resizable: false,
     alwaysOnTop: true,
+    icon: getBrowserWindowIcon(),
     webPreferences: {
       preload: getSplashPreloadPath(),
       contextIsolation: true,
@@ -126,6 +223,7 @@ function createSplashWindow() {
   splashWindow.on('closed', () => {
     splashWindow = null;
   });
+  applyWindowIcon(splashWindow);
 }
 
 function updateSplashStatus(status, progress) {
@@ -150,6 +248,156 @@ function closeSplash() {
   }
 }
 
+// ── Asistente de primera ejecución (PostgreSQL) ─────────────────────────
+
+function createSetupWindow(options = {}) {
+  const start = Number(options.startStep);
+  setupWindowStartStep = start === 2 ? 2 : (start === 3 ? 3 : 1);
+  if (setupWindowStartStep === 1) {
+    pendingLicenseReason = null;
+  }
+
+  return new Promise((resolve) => {
+    pendingSetupFinish = resolve;
+
+    const onLicenseActivated = () => {
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        finishSetupWindow(true);
+      }
+    };
+    ipcMain.once('license:activated', onLicenseActivated);
+
+    setupWindow = new BrowserWindow({
+      width: 520,
+      height: 820,
+      resizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      autoHideMenuBar: true,
+      icon: getBrowserWindowIcon(),
+      title: 'Nexus Core · Instalación',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload-setup.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false
+      }
+    });
+
+    setupWindow.loadFile(
+      path.join(__dirname, '..', 'frontend', 'setup.html')
+    ).catch((err) => {
+      console.error(`${LOG_PREFIX} No se pudo cargar setup.html:`, err);
+    });
+    applyWindowIcon(setupWindow);
+
+    openDevToolsDetached(setupWindow.webContents, 'asistente instalación');
+
+    setupWindow.on('closed', () => {
+      setupWindow = null;
+      ipcMain.removeListener('license:activated', onLicenseActivated);
+      if (pendingSetupFinish) {
+        const finish = pendingSetupFinish;
+        pendingSetupFinish = null;
+        finish(false);
+      }
+    });
+  });
+}
+
+function finishSetupWindow(ok) {
+  if (!pendingSetupFinish) return;
+  const finish = pendingSetupFinish;
+  pendingSetupFinish = null;
+  if (ok) pendingLicenseReason = null;
+
+  if (setupWindow && !setupWindow.isDestroyed()) {
+    setupWindow.removeAllListeners('closed');
+    setupWindow.once('closed', () => finish(ok));
+    setupWindow.close();
+  } else {
+    finish(ok);
+  }
+}
+
+function registerSetupIpc() {
+  ipcMain.handle('setup:get-initial-step', () => ({
+    step: setupWindowStartStep,
+    dbDone: setupWindowStartStep >= 2,
+    renewalOnly: setupWindowStartStep === 2,
+    adminOnly: setupWindowStartStep === 3,
+    licenseReason: pendingLicenseReason
+  }));
+
+  ipcMain.handle('setup:get-defaults', () => getSetupDefaults(app));
+
+  ipcMain.handle('setup:test-connection', async (_evt, raw) => {
+    try {
+      const cfg = normalizeSetupPayload(raw);
+      return await testPostgresConnection(cfg);
+    } catch (err) {
+      return { ok: false, message: err.message || 'Datos inválidos.' };
+    }
+  });
+
+  ipcMain.handle('setup:prepare-license-step', async () => {
+    try {
+      if (!backendModule) {
+        await withTimeout(startBackend(), 60_000, 'Inicio del servidor backend');
+      }
+      startupBackendPreloaded = true;
+      const { ok: licenseActive } = await checkLicense();
+      return { ok: true, licenseActive };
+    } catch (err) {
+      startupBackendPreloaded = false;
+      backendModule = null;
+      return { ok: false, message: err.message || 'No se pudo iniciar el sistema.' };
+    }
+  });
+
+  ipcMain.handle('setup:save-and-continue', async (_evt, raw) => {
+    try {
+      const cfg = normalizeSetupPayload(raw);
+      const test = await testPostgresConnection(cfg);
+      if (!test.ok) {
+        return { ok: false, message: test.message };
+      }
+      await saveUserConfigEnv(app, cfg);
+      applySavedConfigToProcess(app);
+      applyNexusBackupEnv();
+
+      // Si el backend ya estaba corriendo (p. ej. el usuario volvió al paso 1
+      // para corregir la config PG), apagarlo limpiamente antes de reiniciar
+      // con la nueva configuración para evitar EADDRINUSE.
+      if (startupBackendPreloaded && backendModule) {
+        console.log(`${LOG_PREFIX} Backend previo detectado — reiniciando con nueva configuración PG.`);
+        try {
+          await withTimeout(shutdownBackend(), 8000, 'Apagado backend previo');
+        } catch (shutErr) {
+          console.warn(`${LOG_PREFIX} Apagado previo con advertencia:`, shutErr.message);
+        }
+        startupBackendPreloaded = false;
+        backendModule = null;
+      } else {
+        backendModule = null;
+      }
+
+      await withTimeout(startBackend(), 60_000, 'Inicio del servidor backend');
+      startupBackendPreloaded = true;
+      const { ok: licenseActive } = await checkLicense();
+      return { ok: true, licenseActive, message: test.message };
+    } catch (err) {
+      startupBackendPreloaded = false;
+      backendModule = null;
+      return { ok: false, message: err.message || 'No se pudo guardar la configuración.' };
+    }
+  });
+
+  ipcMain.handle('setup:open-postgres-help', async () => {
+    await shell.openExternal('https://www.postgresql.org/download/windows/');
+  });
+}
+
 // ── Ventana de Activación de Licencia ─────────────────────────────────────
 
 let activationWindow = null;
@@ -165,7 +413,8 @@ function createActivationWindow() {
       maximizable:      false,
       fullscreenable:   false,
       autoHideMenuBar:  true,
-      title:            'Nexus-Core · Activación de Licencia',
+      icon:             getBrowserWindowIcon(),
+      title:            'Nexus Core · Activación de Licencia',
       webPreferences: {
         preload:          path.join(__dirname, 'preload-activation.js'),
         contextIsolation: true,
@@ -179,10 +428,9 @@ function createActivationWindow() {
     ).catch((err) => {
       console.error(`${LOG_PREFIX} No se pudo cargar activation.html:`, err);
     });
+    applyWindowIcon(activationWindow);
 
-    if (isDev) {
-      activationWindow.webContents.openDevTools({ mode: 'detach' });
-    }
+    openDevToolsDetached(activationWindow.webContents, 'activación licencia');
 
     // El renderer envía este evento cuando la activación es exitosa
     ipcMain.once('license:activated', () => {
@@ -261,6 +509,16 @@ function licenciaEstadoPath(ids) {
  * Comprueba la licencia contra el backend local.
  * @returns {{ ok: boolean, estado: object | null }}
  */
+async function fetchSetupAdminEstado() {
+  try {
+    const res = await fetch('http://127.0.0.1:3000/api/setup/estado');
+    if (!res.ok) return { adminPendiente: true };
+    return await res.json();
+  } catch (_e) {
+    return { adminPendiente: true };
+  }
+}
+
 async function checkLicense() {
   try {
     const ids = computeHardwareIdCandidates();
@@ -321,7 +579,7 @@ async function checkLicense() {
             `Reactiva con un código emitido para este HWID o usa la BD del equipo original.`
           );
         }
-        return { ok: false, estado: null };
+        return { ok: false, estado: resp || null };
       } catch (e) {
         lastNetErr = e;
         await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
@@ -347,8 +605,10 @@ function createMainWindow() {
     minWidth: 1024,
     minHeight: 768,
     show: false,
-    fullscreen: !isDev,
+    fullscreen: false,
+    fullscreenable: true,
     autoHideMenuBar: true,
+    icon: getBrowserWindowIcon(),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -364,20 +624,21 @@ function createMainWindow() {
     if (input.key === 'F11' && input.type === 'keyDown') {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
     }
-    // Desactivar menú contextual (click derecho) en producción
-    if (!isDev && input.type === 'mouseDown' && input.button === 'right') {
+    if (input.key === 'F12' && input.type === 'keyDown' && isDevToolsEnabled()) {
+      toggleDevTools(mainWindow.webContents);
+    }
+    // Desactivar menú contextual (click derecho) en producción sin NEXUS_DEVTOOLS
+    if (!isDevToolsEnabled() && input.type === 'mouseDown' && input.button === 'right') {
       event.preventDefault();
     }
   });
 
   mainWindow.once('ready-to-show', () => {
+    applyWindowIcon(mainWindow);
     closeSplash();
     if (mainWindow) {
       mainWindow.show();
       mainWindow.focus();
-      if (!isDev) {
-        mainWindow.setFullScreen(true);
-      }
     }
   });
 
@@ -400,9 +661,7 @@ function createMainWindow() {
     console.error(`${LOG_PREFIX} No se pudo cargar la ventana principal:`, err);
   });
 
-  if (isDev) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
+  openDevToolsDetached(mainWindow.webContents, 'ventana principal');
 }
 
 function registerBasicIpc() {
@@ -472,115 +731,196 @@ function registerBasicIpc() {
   });
 }
 
-app.whenReady().then(async () => {
-  console.log(`${LOG_PREFIX} Electron listo. isDev=${isDev}, platform=${process.platform}`);
-  console.log(`${LOG_PREFIX} userData: ${app.getPath('userData')}`);
-  console.log(`${LOG_PREFIX} PG_HOST=${process.env.PG_HOST || '127.0.0.1'} PG_PORT=${process.env.PG_PORT || '5432'}`);
-  console.log(`${LOG_PREFIX} NODE_ENV=${process.env.NODE_ENV || '(no definido)'}`);
+function buildStartupDiagnostic(err) {
+  const msg = err && err.message ? err.message : String(err);
+  return {
+    message: msg,
+    technicalLog:
+      '─── Diagnóstico ───\n' +
+      `PG_HOST=${process.env.PG_HOST || '127.0.0.1'}\n` +
+      `PG_PORT=${process.env.PG_PORT || '5432'}\n` +
+      `PG_DATABASE=${process.env.PG_DATABASE || 'nexuscore'}\n` +
+      `PG_USER=${process.env.PG_USER || 'postgres'}\n` +
+      `Config: ${getUserConfigEnvPath(app)}\n\n` +
+      'Verifica que el servicio "postgresql-x64-XX" esté en ejecución\n' +
+      '(Servicios de Windows) y que la base/usuario/contraseña coincidan\n' +
+      'con la configuración guardada.'
+  };
+}
 
-  registerBasicIpc();
+async function runStartupSequence() {
+  updateSplashStatus('Verificando PostgreSQL...', 10);
 
+  if (!startupBackendPreloaded) {
+    updateSplashStatus('Iniciando servidor backend...', 30);
+    await withTimeout(startBackend(), 60_000, 'Inicio del servidor backend');
+  } else {
+    console.log(`${LOG_PREFIX} Backend ya iniciado en instalación — omitiendo arranque duplicado.`);
+    startupBackendPreloaded = false;
+    updateSplashStatus('Servidor backend listo...', 30);
+  }
+
+  updateSplashStatus('Aplicando migraciones...', 70);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  updateSplashStatus('Verificando licencia...', 85);
+  const { ok: licenciaOk, estado: licenciaEstado } = await checkLicense();
+
+  if (licenciaOk && licenciaEstado && licenciaEstado.esTrial) {
+    const hrs = licenciaEstado.horasRestantes;
+    console.warn(
+      `${LOG_PREFIX} [licencia] MODO PRUEBA — Vence en ${hrs != null ? hrs : '?'}h (${licenciaEstado.expira || '—'})`
+    );
+    if (hrs != null && hrs <= 6) {
+      await dialog.showMessageBox({
+        type: 'warning',
+        title: 'Licencia de prueba por vencer',
+        message: `Tu período de prueba vence en ${hrs} hora(s).`,
+        detail:
+          'Contacta a tu proveedor para activar la licencia completa y continuar usando el sistema sin interrupciones.',
+        buttons: ['Entendido']
+      });
+    }
+  }
+
+  if (!licenciaOk) {
+    pendingLicenseReason =
+      licenciaEstado && licenciaEstado.motivo ? String(licenciaEstado.motivo) : null;
+    console.log(
+      `${LOG_PREFIX} Licencia inactiva — paso 2 del asistente` +
+      (pendingLicenseReason ? ` (${pendingLicenseReason})` : '.')
+    );
+    updateSplashStatus('Se requiere activación...', 90);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    closeSplash();
+    const activated = await createSetupWindow({ startStep: 2 });
+    if (!activated) {
+      console.log(`${LOG_PREFIX} Activación cancelada o ventana cerrada — saliendo.`);
+      app.quit();
+      return;
+    }
+    pendingLicenseReason = null;
+    if (!splashWindow || splashWindow.isDestroyed()) {
+      createSplashWindow();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  } else {
+    console.log(`${LOG_PREFIX} Licencia válida — continuando.`);
+    const adminEstado = await fetchSetupAdminEstado();
+    if (adminEstado && adminEstado.adminPendiente) {
+      console.log(`${LOG_PREFIX} Falta crear administrador — paso 3 del asistente.`);
+      updateSplashStatus('Configurar administrador...', 88);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      closeSplash();
+      const adminDone = await createSetupWindow({ startStep: 3 });
+      if (!adminDone) {
+        console.log(`${LOG_PREFIX} Configuración de administrador cancelada — saliendo.`);
+        app.quit();
+        return;
+      }
+      if (!splashWindow || splashWindow.isDestroyed()) {
+        createSplashWindow();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
+  }
+
+  updateSplashStatus('Cargando interfaz...', 95);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  updateSplashStatus('¡Listo!', 100);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  console.log(`${LOG_PREFIX} Secuencia de inicio completada. Abriendo ventana principal.`);
+  createMainWindow();
+}
+
+async function handleStartupFailure(err) {
+  const diag = buildStartupDiagnostic(err);
+  console.error(`${LOG_PREFIX} *** ERROR DE INICIO ***`);
+  console.error(diag.message);
+
+  showSplashError({ message: diag.message }, diag.technicalLog);
+
+  await new Promise((resolve) => setTimeout(resolve, 800));
+
+  const { response } = await dialog.showMessageBox({
+    type: 'error',
+    title: 'Nexus Core — Error de inicio',
+    message: 'No se pudo conectar a PostgreSQL o iniciar el sistema.',
+    detail: `${diag.message}\n\nPuedes reconfigurar la conexión o salir.`,
+    buttons: ['Reconfigurar conexión', 'Salir'],
+    defaultId: 0,
+    cancelId: 1
+  });
+
+  closeSplash();
+
+  if (response === 0) {
+    const reconfigured = await createSetupWindow();
+    if (reconfigured) {
+      applySavedConfigToProcess(app);
+      applyNexusBackupEnv();
+      backendModule = null;
+      app.relaunch();
+      app.quit();
+    } else {
+      app.quit();
+    }
+  } else {
+    app.quit();
+  }
+}
+
+function beginSplashStartup() {
   createSplashWindow();
 
-  // Registrar el handler ANTES de que el splash pueda enviar el evento.
-  // ipcMain.once garantiza que solo se procese el primer disparo aunque
-  // el Splash se recargue por algún motivo.
   ipcMain.once('splash:ready', async () => {
     console.log(`${LOG_PREFIX} splash:ready recibido — comenzando secuencia de inicio.`);
     try {
-      updateSplashStatus('Verificando PostgreSQL...', 10);
-
-      updateSplashStatus('Iniciando servidor backend...', 30);
-      // Timeout amplio (60s): cubre 5 reintentos de 12s con backoff lineal.
-      // El backend internamente usa initDatabaseWithRetry para tolerar
-      // arranques lentos del servicio Windows o bloqueos transitorios de antivirus.
-      await withTimeout(startBackend(), 60_000, 'Inicio del servidor backend');
-
-      updateSplashStatus('Aplicando migraciones...', 70);
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      updateSplashStatus('Verificando licencia...', 85);
-      const { ok: licenciaOk, estado: licenciaEstado } = await checkLicense();
-
-      if (licenciaOk && licenciaEstado && licenciaEstado.esTrial) {
-        const hrs = licenciaEstado.horasRestantes;
-        console.warn(
-          `${LOG_PREFIX} [licencia] MODO PRUEBA — Vence en ${hrs != null ? hrs : '?'}h (${licenciaEstado.expira || '—'})`
-        );
-        if (hrs != null && hrs <= 6) {
-          await dialog.showMessageBox({
-            type: 'warning',
-            title: 'Licencia de prueba por vencer',
-            message: `Tu período de prueba vence en ${hrs} hora(s).`,
-            detail:
-              'Contacta a tu proveedor para activar la licencia completa y continuar usando el sistema sin interrupciones.',
-            buttons: ['Entendido'],
-          });
-        }
-      }
-
-      if (!licenciaOk) {
-        // ── Sin licencia válida: mostrar pantalla de activación ──────────
-        console.log(`${LOG_PREFIX} Licencia no encontrada — mostrando pantalla de activación.`);
-        updateSplashStatus('Se requiere activación...', 90);
-        await new Promise(resolve => setTimeout(resolve, 300));
-        closeSplash();
-        // Espera hasta que el usuario active correctamente
-        const activated = await createActivationWindow();
-        if (!activated) {
-          console.log(`${LOG_PREFIX} Activación cancelada o ventana cerrada — saliendo.`);
-          app.quit();
-          return;
-        }
-      } else {
-        console.log(`${LOG_PREFIX} Licencia válida — continuando.`);
-      }
-
-      updateSplashStatus('Cargando interfaz...', 95);
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      updateSplashStatus('¡Listo!', 100);
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      console.log(`${LOG_PREFIX} Secuencia de inicio completada. Abriendo ventana principal.`);
-      createMainWindow();
-
+      await runStartupSequence();
     } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
-      console.error(`${LOG_PREFIX} *** ERROR DE INICIO ***`);
-      console.error(msg);
-
-      // Construir log técnico para mostrar en el Splash.
-      // Ya no leemos postgres.log porque el cluster no es nuestro; mostramos
-      // una pista clara sobre PostgreSQL del sistema y las variables PG_*.
-      const technicalLog =
-        '─── Diagnóstico ───\n' +
-        `PG_HOST=${process.env.PG_HOST || '127.0.0.1'}\n` +
-        `PG_PORT=${process.env.PG_PORT || '5432'}\n` +
-        `PG_DATABASE=${process.env.PG_DATABASE || 'nexuscore'}\n` +
-        `PG_USER=${process.env.PG_USER || 'postgres'}\n\n` +
-        'Verifica que el servicio "postgresql-x64-XX" esté en ejecución\n' +
-        '(Servicios de Windows) y que la base/usuario/contraseña coincidan\n' +
-        'con los valores del archivo .env.';
-
-      showSplashError(err, technicalLog);
-
-      setTimeout(() => {
-        dialog.showErrorBox(
-          'Nexus-Core — Error de Inicio',
-          `No se pudo iniciar el sistema:\n\n${msg}\n\n` +
-          'Asegúrate de que PostgreSQL del sistema esté en ejecución y de que\n' +
-          'las variables PG_HOST, PG_PORT, PG_USER, PG_PASSWORD y PG_DATABASE\n' +
-          'del archivo .env sean correctas.'
-        );
-        app.quit();
-      }, 5000);
+      await handleStartupFailure(err);
     }
   });
+}
+
+app.whenReady().then(async () => {
+  console.log(`${LOG_PREFIX} Electron listo. isDev=${isDev}, devTools=${isDevToolsEnabled()}, platform=${process.platform}`);
+  console.log(`${LOG_PREFIX} userData: ${app.getPath('userData')}`);
+  console.log(`${LOG_PREFIX} PG_HOST=${process.env.PG_HOST || '127.0.0.1'} PG_PORT=${process.env.PG_PORT || '5432'}`);
+  console.log(`${LOG_PREFIX} NODE_ENV=${process.env.NODE_ENV || '(no definido)'}`);
+  if (isDev && process.platform === 'win32') {
+    console.log(
+      `${LOG_PREFIX} Icono en barra (dev): Windows usa electron.exe de node_modules, no el de marca. ` +
+        'Para probar el icono real: npm run start:packaged'
+    );
+  } else if (useEmbeddedExeTaskbarIcon()) {
+    console.log(
+      `${LOG_PREFIX} Icono en barra: recurso embebido en "${path.basename(process.execPath)}" (sin setIcon)`
+    );
+  }
+
+  registerBasicIpc();
+  registerSetupIpc();
+
+  if (needsFirstRunSetup(app)) {
+    console.log(`${LOG_PREFIX} Primera ejecución — asistente de instalación (pasos 1–3).`);
+    const setupOk = await createSetupWindow({ startStep: 1 });
+    if (!setupOk) {
+      console.log(`${LOG_PREFIX} Instalación cancelada — saliendo.`);
+      app.quit();
+      return;
+    }
+    applySavedConfigToProcess(app);
+    applyNexusBackupEnv();
+  }
+
+  beginSplashStartup();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createSplashWindow();
+      beginSplashStartup();
     }
   });
 });

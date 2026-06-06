@@ -9,17 +9,14 @@
  * Autenticación: header  Authorization: Bearer <NEXUS_ADMIN_API_KEY>
  */
 
-const { createPrivateKey, sign, createHash } = require('crypto');
+const { createPrivateKey, sign } = require('crypto');
 
 const { validateAdminAuth, sendError, sendOk } = require('../../lib/validate');
 const { createLogger, logServerMisconfig } = require('../../lib/logger');
+const { hashHwid } = require('../../lib/crypto');
 
 function b64url(buf) {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function sha256(str) {
-  return createHash('sha256').update(str).digest('hex');
 }
 
 module.exports = async function handler(req, res) {
@@ -90,7 +87,7 @@ module.exports = async function handler(req, res) {
   const tSign = Date.now();
   try {
     const payload = {
-      h: sha256(hwidTrim),
+      h: hashHwid(hwidTrim),
       e: empresaTrim,
       ed: editionVal,
       ex: expiraEn || null,

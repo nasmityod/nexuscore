@@ -1,7 +1,7 @@
 {
   "name": "nexus-core",
   "version": "1.0.0",
-  "description": "Nexus-Core ERP/POS — escritorio Windows (Win7+)",
+  "description": "Nexus Core ERP/POS — escritorio Windows (Win7+)",
   "main": "electron/main.js",
   "private": true,
   "engines": {
@@ -10,11 +10,17 @@
   },
   "scripts": {
     "start": "electron .",
+    "start:packaged": "npm run icons && npm run pack && \"dist\\win-unpacked\\Nexus Core.exe\"",
     "backend": "node backend/server.js",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder --win",
-    "dist:portable": "electron-builder --win portable",
-    "dist:nsis": "electron-builder --win nsis",
+    "pack": "node scripts/ensure-icons.js && electron-builder --dir && node scripts/patch-exe-icon.js",
+    "dist": "node scripts/ensure-icons.js && electron-builder --win",
+    "dist:portable": "node scripts/ensure-icons.js && electron-builder --win portable",
+    "dist:nsis": "node scripts/ensure-icons.js && electron-builder --win nsis",
+    "icons": "node scripts/generate-app-icon.js",
+    "db:reset": "node scripts/reset-database.js --confirm",
+    "db:reset:all": "node scripts/reset-database.js --confirm --all-databases",
+    "db:reset:full": "node scripts/reset-database.js --confirm --full",
+    "db:reset:seed": "node scripts/reset-database.js --confirm --seed",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -40,12 +46,15 @@
   },
   "devDependencies": {
     "electron": "^36.9.5",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^3.0.1",
+    "rcedit": "^4.0.1",
+    "sharp": "^0.34.5"
   },
   "build": {
     "appId": "com.nexuscore.pos",
-    "productName": "NexusCore POS",
-    "copyright": "Copyright © 2024-2026 NexusCore",
+    "productName": "Nexus Core",
+    "copyright": "Copyright © 2024-2026 Nexus Core",
     "directories": {
       "output": "dist",
       "buildResources": "build-resources"
@@ -76,9 +85,8 @@
           ]
         }
       ],
-      "icon": "build-resources/icon.ico",
-      "requestedExecutionLevel": "asInvoker",
-      "signAndEditExecutable": false
+      "icon": "icon.ico",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
@@ -86,15 +94,23 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "NexusCore POS",
-      "installerIcon": "build-resources/icon.ico",
-      "uninstallerIcon": "build-resources/icon.ico",
-      "installerHeaderIcon": "build-resources/icon.ico",
+      "shortcutName": "Nexus Core",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "installerHeaderIcon": "icon.ico",
       "language": "3082",
       "include": "build-resources/installer.nsh"
     },
     "publish": null,
     "extraResources": [
+      {
+        "from": "build-resources/icon.ico",
+        "to": "branding/icon.ico"
+      },
+      {
+        "from": "build-resources/icon.png",
+        "to": "branding/icon.png"
+      },
       {
         "from": "database/postgres",
         "to": "postgres",

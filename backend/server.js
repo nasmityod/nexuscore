@@ -20,6 +20,19 @@ const {
   runPatch023RolesPermDashboardMerge,
   runPatch024FixIdempotencyIndex,
   runPatch025UsuarioPermisosOverride,
+  runPatch026QueryPerformanceIndexes,
+  runPatch027CasheaNivelesConfigExpress,
+  runPatch028MonedaCostoProducto,
+  runPatch029VentasTotalRefUsdBcv,
+  runPatch030VentasTasaBcvAplicada,
+  runPatch031IdempotenciaIndiceReconciliar,
+  runPatch032VentasCasheaPctInicialNumeric,
+  runPatch033CasheaTarifasComisionOficial,
+  runPatch034TasaBcvFeriadosVe2026,
+  runPatch035NomenclaturaTasaUsdSinParalela,
+  runPatch036SetupAdminLegacy,
+  runPatch037TotalBsBcvModoMoneda,
+  runPatch038CasheaPctInicialSemilla60,
   cleanupSesionesHuerfanas,
   ensureSemillaAdminSiFalta
 } = require('./config/migrations');
@@ -44,11 +57,47 @@ const comprasRoutes = require('./routes/compras.routes');
 const casheaRoutes       = require('./routes/cashea.routes');
 const devolucionesRoutes = require('./routes/devoluciones.routes');
 const licenciaRoutes     = require('./routes/licencia.routes');
+const setupRoutes        = require('./routes/setup.routes');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
 app.disable('x-powered-by');
+
+// Validación obligatoria en arranque (regla VARIABLES-DE-ENTORNO):
+// si NODE_ENV=production y JWT_SECRET es el fallback de desarrollo o está vacío,
+// el servidor DEBE abortar inmediatamente. Esto evita firmar tokens con un secret
+// público en producción si alguien olvidó configurar el .env.
+(function assertSecretsForProduction() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (!isProduction) return;
+
+  const DEV_FALLBACK = 'nexus-core-dev-jwt-secret-cambiar-en-produccion';
+  const secret = process.env.JWT_SECRET;
+  const insecure = !secret || String(secret).trim() === '' || secret === DEV_FALLBACK;
+
+  if (insecure) {
+    const msg =
+      '[Nexus-Core] FATAL: JWT_SECRET no configurado o usa el valor por defecto inseguro. ' +
+      'Define JWT_SECRET (≥48 bytes hex) en el entorno de producción antes de iniciar.';
+    console.error(msg);
+    logger.error(msg);
+    process.exit(1);
+  }
+
+  if (!process.env.NEXUS_LICENSE_PUBLIC_KEY) {
+    logger.warn(
+      '[Nexus-Core] NEXUS_LICENSE_PUBLIC_KEY no definida; se usará la clave pública embebida por defecto.'
+    );
+  }
+
+  const pgPwd = process.env.PG_PASSWORD;
+  if (!pgPwd || String(pgPwd).trim() === '') {
+    logger.warn(
+      '[Nexus-Core] PG_PASSWORD está vacío en producción. Configure la contraseña en el archivo de entorno.'
+    );
+  }
+})();
 
 // CORS: permite peticiones desde file:// (origin: null) y localhost.
 // El backend solo escucha en 127.0.0.1, por lo que no hay riesgo de acceso externo.
@@ -98,11 +147,14 @@ const loginRateLimiter = rateLimit({
 });
 
 app.use('/api/auth/login', loginRateLimiter);
+app.use('/api/setup/admin-inicial', loginRateLimiter);
+// activar-inicial es sin JWT: rate-limit igual que login para evitar fuerza bruta de códigos
+app.use('/api/licencia/activar-inicial', loginRateLimiter);
 app.use('/api/auth', authRoutes);
 
-// Licencia debe ir ANTES de app.use('/api', apiProtected): ese router aplica requireAuth a
-// TODO lo que empiece por /api y bloqueaba /api/licencia/activar-inicial con 401.
+// Licencia y setup inicial deben ir ANTES de app.use('/api', apiProtected).
 app.use('/api/licencia', licenciaRoutes);
+app.use('/api/setup', setupRoutes);
 
 const apiProtected = express.Router();
 apiProtected.use(requireAuth);
@@ -138,6 +190,13 @@ async function start() {
       });
     }
   });
+
+  try {
+    const SyncService = require('./services/syncService');
+    await SyncService.ensurePgDumpReady(db);
+  } catch (pgDumpErr) {
+    logger.warn('pg_dump: detección automática omitida al arrancar', { error: pgDumpErr.message });
+  }
 
   try {
     const migrationResult = await runBootstrapMigrations(db);
@@ -224,6 +283,46 @@ async function start() {
     if (patch025.ran) {
       logger.info('Parche 025 aplicado: columna permisos_override en usuarios');
     }
+    const patch026 = await runPatch026QueryPerformanceIndexes(db);
+    if (patch026.ran) {
+      logger.info('Parche 026 aplicado: índices consultas ventas/cashea/detalles');
+    }
+    const patch027 = await runPatch027CasheaNivelesConfigExpress(db);
+    if (patch027.ran) {
+      logger.info('Parche 027 aplicado: Cashea 6 niveles, Express, día de pago configurable');
+    }
+    const patch028 = await runPatch028MonedaCostoProducto(db);
+    if (patch028.ran) {
+      logger.info('Parche 028 aplicado: metadato moneda_costo en productos y ajustes_inventario');
+    }
+    const patch029 = await runPatch029VentasTotalRefUsdBcv(db);
+    if (patch029.ran) {
+      logger.info('Parche 029 aplicado: ventas.total_ref_usd_bcv (histórico $ BCV)');
+    }
+    const patch030 = await runPatch030VentasTasaBcvAplicada(db);
+    if (patch030.ran) {
+      logger.info('Parche 030 aplicado: ventas.tasa_bcv_aplicada');
+    }
+    const patch031 = await runPatch031IdempotenciaIndiceReconciliar(db);
+    if (patch031.ran) {
+      logger.info('Parche 031 aplicado: índice idempotency ventas reconciliado (usuario_id + key)');
+    }
+    const patch032 = await runPatch032VentasCasheaPctInicialNumeric(db);
+    if (patch032.ran) {
+      logger.info('Parche 032 aplicado: ventas_cashea.pct_inicial NUMERIC(5,2)');
+    }
+    const patch033 = await runPatch033CasheaTarifasComisionOficial(db);
+    if (patch033.ran) {
+      logger.info('Parche 033 aplicado: tarifas comisión Cashea oficial por línea/modo');
+    }
+    const patch034 = await runPatch034TasaBcvFeriadosVe2026(db);
+    if (patch034.ran) {
+      logger.info('Parche 034 aplicado: calendario feriados VE 2026 (tasa BCV)');
+    }
+    const patch035 = await runPatch035NomenclaturaTasaUsdSinParalela(db);
+    if (patch035.ran) {
+      logger.info('Parche 035 aplicado: nomenclatura tasa USD sin paralela');
+    }
     const adminSeed = await ensureSemillaAdminSiFalta(db);
     if (adminSeed.ran) {
       if (adminSeed.created) {
@@ -232,6 +331,20 @@ async function start() {
       if (adminSeed.repairedRol) {
         logger.info('Semilla: usuario admin reasignado al rol administrador');
       }
+    }
+    const patch036 = await runPatch036SetupAdminLegacy(db);
+    if (patch036.ran) {
+      logger.info('Parche 036 aplicado: setup admin instalaciones legacy', {
+        marcarCompletado: patch036.marcarCompletado
+      });
+    }
+    const patch037 = await runPatch037TotalBsBcvModoMoneda(db);
+    if (patch037.ran) {
+      logger.info('Parche 037 aplicado: total_bs_bcv_operativo + modo_moneda_operacion');
+    }
+    const patch038 = await runPatch038CasheaPctInicialSemilla60(db);
+    if (patch038.ran) {
+      logger.info('Parche 038 aplicado: pct_inicial_semilla 60% (nivel Semilla Lv1)');
     }
 
     // ── Cleanup de sesiones huérfanas (cierres forzados, cortes de luz, kill -9) ──
@@ -264,10 +377,39 @@ async function start() {
     });
     server.once('error', reject);
   });
+
+  try {
+    const BackupScheduler = require('./services/backupScheduler');
+    await BackupScheduler.start(db);
+  } catch (err) {
+    logger.warn('Programa de respaldos automáticos periódicos no iniciado', { error: err.message });
+  }
+
+  try {
+    const BcvTasaAutoService = require('./services/bcvTasaAutoService');
+    await BcvTasaAutoService.start(db);
+  } catch (err) {
+    logger.warn('Sincronización automática tasa BCV no iniciada', { error: err.message });
+  }
+
   return server;
 }
 
 async function shutdown() {
+  try {
+    const BackupScheduler = require('./services/backupScheduler');
+    BackupScheduler.stop();
+  } catch (err) {
+    logger.warn('BackupScheduler.stop omitido', { error: err.message });
+  }
+
+  try {
+    const BcvTasaAutoService = require('./services/bcvTasaAutoService');
+    BcvTasaAutoService.stop();
+  } catch (err) {
+    logger.warn('BcvTasaAutoService.stop omitido', { error: err.message });
+  }
+
   try {
     const SyncService = require('./services/syncService');
     const r = await SyncService.runFullBackup({ source: 'app_shutdown' });

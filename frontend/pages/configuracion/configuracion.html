@@ -1,30 +1,4 @@
 <section class="page-content config-page">
-<style>
-.config-page .config-tabs { display:flex;border-bottom:2px solid var(--border-primary);margin-bottom:1.5rem;gap:.1rem;flex-wrap:wrap; }
-.config-page .cfg-tab { padding:.65rem 1.25rem;cursor:pointer;border:none;background:transparent;color:var(--text-secondary);font-size:.9rem;border-bottom:2px solid transparent;margin-bottom:-2px;font-weight:500; }
-.config-page .cfg-tab:hover { color:var(--text-primary); }
-.config-page .cfg-tab.activo { color:#3b82f6;font-weight:700;border-bottom-color:#3b82f6; }
-.config-page .cfg-panel { display:none; }
-.config-page .cfg-panel.activo { display:block; }
-.campo-grupo { margin-bottom:1rem; }
-.campo-grupo label { display:block;font-size:.85rem;font-weight:600;color:var(--text-secondary);margin-bottom:.35rem; }
-.input-g { width:100%;height:44px;padding:0 .875rem;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);color:var(--text-primary);font-size:.95rem; }
-.input-g:focus { outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.25); }
-.btn-primary { height:44px;padding:0 1.5rem;border-radius:var(--radius-md);background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.9rem;font-weight:600;display:inline-flex;align-items:center;gap:.5rem; }
-.btn-primary:hover { background:#2563eb; }
-.btn-secondary { height:44px;padding:0 1rem;border-radius:var(--radius-md);background:var(--bg-tertiary);border:1px solid var(--border-primary);color:var(--text-primary);cursor:pointer;font-size:.875rem; }
-.btn-danger { height:44px;padding:0 1rem;border-radius:var(--radius-md);background:transparent;border:1px solid rgba(239,68,68,.4);color:#ef4444;cursor:pointer;font-size:.875rem; }
-.config-seccion { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:1.25rem;margin-bottom:1rem; }
-.config-seccion h3 { margin:0 0 1rem;font-size:.95rem;color:var(--text-secondary);text-transform:uppercase;font-size:.8rem;letter-spacing:.05em; }
-.tasa-display { font-size:2rem;font-weight:700;text-align:center;padding:.5rem; }
-/* Usuarios */
-.usuario-row { display:flex;align-items:center;gap:.75rem;padding:.6rem;border-bottom:1px solid var(--border-subtle); }
-.usuario-avatar { width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem;flex-shrink:0; }
-.modal-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;padding:1rem; }
-.modal-box { background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:var(--radius-lg);max-width:480px;width:100%;padding:1.5rem; }
-.modal-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem; }
-</style>
-
 <div class="page-header">
   <div>
     <h1 class="page-title">Configuración</h1>
@@ -32,207 +6,277 @@
   </div>
 </div>
 
-<!-- Tabs -->
-<div class="config-tabs">
-  <button class="cfg-tab activo" data-tab="tasas">💱 Tasas de Cambio</button>
-  <button class="cfg-tab" data-tab="empresa">🏢 Mi Empresa</button>
-  <button class="cfg-tab" data-tab="impresora">🖨️ Impresora</button>
-  <button class="cfg-tab" data-tab="usuarios">👥 Usuarios</button>
-  <button class="cfg-tab" data-tab="respaldo">💾 Respaldo</button>
-  <button class="cfg-tab" data-tab="licencia">🔐 Licencia</button>
-</div>
+<!-- Layout: navegación vertical (patrón sidebar) + área de contenido -->
+<div class="config-layout">
+  <nav class="config-nav" aria-label="Secciones de configuración">
+    <button class="cfg-tab activo" data-tab="tasas">
+      <span class="cfg-tab-label">Tasas de cambio</span>
+      <span class="cfg-tab-desc">Configuración BCV y USD</span>
+    </button>
+    <button class="cfg-tab" data-tab="empresa">
+      <span class="cfg-tab-label">Empresa</span>
+      <span class="cfg-tab-desc">Datos fiscales y comerciales</span>
+    </button>
+    <button class="cfg-tab" data-tab="impresora">
+      <span class="cfg-tab-label">Impresora</span>
+      <span class="cfg-tab-desc">Ticket de venta</span>
+    </button>
+    <button class="cfg-tab" data-tab="usuarios">
+      <span class="cfg-tab-label">Usuarios</span>
+      <span class="cfg-tab-desc">Acceso y permisos</span>
+    </button>
+    <button class="cfg-tab" data-tab="respaldo">
+      <span class="cfg-tab-label">Respaldo</span>
+      <span class="cfg-tab-desc">Backup automático</span>
+    </button>
+    <button class="cfg-tab" data-tab="licencia">
+      <span class="cfg-tab-label">Licencia</span>
+      <span class="cfg-tab-desc">Estado del sistema</span>
+    </button>
+  </nav>
 
-<!-- ═══ TAB: TASAS ═══ -->
-<div class="cfg-panel activo" id="panel-tasas">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
-    <div class="config-seccion">
-      <h3>📊 Tasa BCV (oficial)</h3>
-      <div class="tasa-display" id="display-bcv" style="color:#3b82f6">—</div>
-      <div class="campo-grupo" style="margin:0">
-        <label>Nueva tasa BCV</label>
-        <input type="number" id="input-tasa-bcv" class="input-g" step="0.0001" min="1" placeholder="Ej: 89.5462">
-      </div>
-    </div>
-    <div class="config-seccion">
-      <h3>💵 Tasa Paralela (USD)</h3>
-      <div class="tasa-display" id="display-usd" style="color:#f59e0b">—</div>
-      <div class="campo-grupo" style="margin:0">
-        <label>Nueva tasa Paralela</label>
-        <input type="number" id="input-tasa-usd" class="input-g" step="0.0001" min="1" placeholder="Ej: 92.1800">
-      </div>
-    </div>
-  </div>
-  <p data-tasas-admin-only style="display:none;font-size:.85rem;color:var(--text-secondary);margin:0 0 1rem;padding:.5rem .75rem;background:rgba(148,163,184,.12);border-radius:var(--radius-sm)">
-    Solo el <strong>administrador</strong> puede modificar las tasas globales del sistema. Consulta los valores actuales arriba.
-  </p>
-  <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:var(--radius-sm);padding:.75rem;font-size:.85rem;margin-bottom:1rem">
-    ⚠️ <strong>Importante:</strong> Actualiza las tasas todos los días. Los precios de todos los productos se recalculan automáticamente.
-  </div>
-  <button class="btn-primary" id="btn-guardar-tasas">💾 Guardar Tasas</button>
-</div>
+  <div class="config-content">
 
-<!-- ═══ TAB: EMPRESA ═══ -->
-<div class="cfg-panel" id="panel-empresa">
-  <div class="config-seccion">
-    <h3>Información de la empresa</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-      <div class="campo-grupo" style="grid-column:1/-1">
-        <label>Nombre del negocio *</label>
-        <input type="text" id="cfg-empresa-nombre" class="input-g" placeholder="Ej: Distribuidora El Éxito">
-      </div>
-      <div class="campo-grupo">
-        <label>RIF o Cédula</label>
-        <input type="text" id="cfg-empresa-rif" class="input-g" placeholder="J-12345678-9">
-      </div>
-      <div class="campo-grupo">
-        <label>Teléfono</label>
-        <input type="text" id="cfg-empresa-telefono" class="input-g" placeholder="0412-1234567">
-      </div>
-      <div class="campo-grupo" style="grid-column:1/-1">
-        <label>Dirección</label>
-        <input type="text" id="cfg-empresa-direccion" class="input-g" placeholder="Av. Principal, Local #5">
-      </div>
-      <div class="campo-grupo" style="grid-column:1/-1">
-        <label>Correo electrónico</label>
-        <input type="email" id="cfg-empresa-email" class="input-g" placeholder="negocio@correo.com">
-      </div>
-      <div class="campo-grupo">
-        <label>Número de control inicial (facturas)</label>
-        <input type="number" id="cfg-factura-control-desde" class="input-g" min="1" step="1" placeholder="1">
-      </div>
-      <div class="campo-grupo" style="grid-column:1/-1">
-        <label>Leyenda en facturas</label>
-        <input type="text" id="cfg-factura-leyenda" class="input-g" placeholder="Ej: Este documento no tiene validez fiscal hasta ser timbrado.">
-      </div>
-    </div>
-    <button class="btn-primary" id="btn-guardar-empresa" style="margin-top:.5rem">💾 Guardar datos de empresa</button>
-  </div>
-</div>
-
-<!-- ═══ TAB: IMPRESORA ═══ -->
-<div class="cfg-panel" id="panel-impresora">
-  <div class="config-seccion">
-    <h3>Configuración de impresora térmica</h3>
-    <div class="campo-grupo">
-      <label>Nombre de la impresora</label>
-      <input type="text" id="cfg-imp-nombre" class="input-g" placeholder="Ej: Bixolon SRP-350">
-    </div>
-    <div class="campo-grupo">
-      <label>Interfaz de conexión</label>
-      <select id="cfg-imp-tipo" class="input-g" style="height:44px">
-        <option value="tcp">📡 Red TCP/IP (recomendado)</option>
-        <option value="usb">🔌 USB (\\.\COM3)</option>
-        <option value="none">❌ Sin impresora</option>
-      </select>
-    </div>
-    <div id="cfg-imp-tcp-wrap" class="campo-grupo">
-      <label>Dirección IP y Puerto</label>
-      <input type="text" id="cfg-imp-interfaz" class="input-g" placeholder="tcp://192.168.1.100:9100">
-    </div>
-    <div style="display:flex;gap:.75rem;margin-top:.5rem">
-      <button class="btn-primary" id="btn-guardar-impresora">💾 Guardar</button>
-      <button class="btn-secondary" id="btn-probar-impresora">🖨️ Imprimir prueba</button>
-    </div>
-    <div id="imp-resultado" style="display:none;margin-top:.75rem;padding:.65rem;border-radius:var(--radius-sm);font-size:.875rem"></div>
-  </div>
-</div>
-
-<!-- ═══ TAB: USUARIOS ═══ -->
-<div class="cfg-panel" id="panel-usuarios">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
-    <span style="font-size:.9rem;color:var(--text-secondary)">Personas que pueden usar el sistema</span>
-    <button class="btn-primary" id="btn-nuevo-usuario" style="height:38px;font-size:.85rem">➕ Nuevo usuario</button>
-  </div>
-  <div class="config-seccion" style="padding:.75rem">
-    <div id="usuarios-lista">
-      <p style="color:var(--text-secondary);text-align:center;padding:1rem">⏳ Cargando usuarios...</p>
-    </div>
-  </div>
-</div>
-
-<!-- ═══ TAB: RESPALDO ═══ -->
-<div class="cfg-panel" id="panel-respaldo">
-  <div class="config-seccion">
-    <h3>Respaldo de seguridad</h3>
-    <p style="font-size:.875rem;color:var(--text-secondary);margin-bottom:1rem">
-      El sistema hace un respaldo automático al cerrar la caja. También puedes hacerlo manualmente en cualquier momento.
-    </p>
-    <div id="respaldo-status" style="padding:.75rem;background:var(--bg-tertiary);border-radius:var(--radius-sm);font-size:.875rem;margin-bottom:1rem">
-      ⏳ Cargando estado del respaldo...
-    </div>
-    <button class="btn-primary" id="btn-respaldo-manual">💾 Crear respaldo ahora</button>
-  </div>
-</div>
-
-<!-- ═══ PANEL LICENCIA ═══ -->
-<div class="cfg-panel" id="panel-licencia">
-  <div class="config-seccion">
-    <h3>Estado de la Licencia</h3>
-    <div id="lic-estado-box" style="padding:1rem;border-radius:var(--radius-sm);margin-bottom:1rem;border:1px solid var(--border-primary);background:var(--bg-tertiary)">
-      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem">
-        <span id="lic-icono" style="font-size:2rem">⏳</span>
-        <div>
-          <div id="lic-estado-label" style="font-weight:700;font-size:1.05rem">Verificando...</div>
-          <div id="lic-empresa" style="font-size:.875rem;color:var(--text-secondary)"></div>
+  <!-- ═══ TAB: TASAS ═══ -->
+  <div class="cfg-panel activo" id="panel-tasas">
+    <div class="cfg-tasas-grid">
+      <div class="config-seccion">
+        <h3>Tasa BCV (oficial)</h3>
+        <div class="tasa-display tasa-display--bcv" id="display-bcv">—</div>
+        <div class="campo-grupo campo-grupo--flush">
+          <label>Nueva tasa BCV</label>
+          <input type="number" id="input-tasa-bcv" class="input-g" step="0.0001" min="1" placeholder="Ej: 89.5462">
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;font-size:.85rem">
-        <div><span style="color:var(--text-secondary)">Hardware ID:</span><br><code id="lic-hwid" style="font-size:.8rem;word-break:break-all">—</code></div>
-        <div><span style="color:var(--text-secondary)">Edición:</span><br><strong id="lic-edition">—</strong></div>
-        <div><span style="color:var(--text-secondary)">Expira:</span><br><strong id="lic-expira">—</strong></div>
-        <div><span style="color:var(--text-secondary)">HWID Registrado:</span><br><code id="lic-hwid-reg" style="font-size:.8rem;word-break:break-all">—</code></div>
-        <div style="grid-column:1/-1"><span style="color:var(--text-secondary)">Versión de la aplicación:</span> <strong id="lic-app-version">—</strong></div>
+      <div class="config-seccion">
+        <h3>Tasa USD</h3>
+        <div class="tasa-display tasa-display--usd" id="display-usd">—</div>
+        <div class="campo-grupo campo-grupo--flush">
+          <label>Nueva tasa USD</label>
+          <input type="number" id="input-tasa-usd" class="input-g" step="0.0001" min="1" placeholder="Ej: 92.1800">
+        </div>
       </div>
     </div>
-    <button class="btn-secondary" id="btn-copiar-hwid" style="margin-bottom:1rem">📋 Copiar Hardware ID</button>
+    <p data-tasas-admin-only class="cfg-admin-hint" style="display:none">
+      Solo el <strong>administrador</strong> puede modificar las tasas globales del sistema. Consulta los valores actuales arriba.
+    </p>
+    <div class="config-seccion bcv-auto-panel" id="bcv-auto-panel">
+      <h3>Tasa BCV automática</h3>
+      <p class="bcv-auto-lead">
+        El sistema puede traer la tasa oficial del BCV cada día hábil (~5:30&nbsp;p.&nbsp;m.) y usarla desde
+        <strong>medianoche</strong> del día que indica el BCV. En fines de semana y feriados la tasa no cambia.
+      </p>
+      <div id="bcv-auto-env-banner" class="bcv-auto-env-banner" style="display:none" role="status"></div>
+      <label class="bcv-auto-toggle">
+        <input type="checkbox" id="cfg-bcv-auto-active">
+        <span>Activar actualización automática de la tasa BCV</span>
+      </label>
+      <div class="bcv-auto-resumen" id="bcv-auto-resumen" aria-live="polite">
+        <span class="bcv-auto-badge bcv-auto-badge--off" id="bcv-auto-badge">—</span>
+        <p class="bcv-auto-msg-principal" id="bcv-auto-msg-principal">Cargando estado…</p>
+        <p class="bcv-auto-msg-secundaria" id="bcv-auto-msg-secundaria" hidden></p>
+      </div>
+      <details class="bcv-auto-details" id="bcv-auto-detalles">
+        <summary>Ver detalles técnicos</summary>
+        <ul class="bcv-auto-detalles-list" id="bcv-auto-detalles-list"></ul>
+      </details>
+      <details class="bcv-auto-details bcv-auto-feriados-wrap" id="bcv-auto-feriados-wrap">
+        <summary>Calendario de feriados (avanzado)</summary>
+        <p class="bcv-auto-feriados-hint">
+          Solo si necesitas corregir fechas del calendario Sudeban. Formato: lista de fechas
+          <code>AAAA-MM-DD</code> separadas por comas en JSON.
+        </p>
+        <textarea id="cfg-bcv-feriados" class="input-g bcv-auto-feriados-ta" rows="3" spellcheck="false"></textarea>
+      </details>
+      <div class="bcv-auto-actions">
+        <button type="button" class="btn-secondary" id="btn-bcv-auto-sync">Consultar ahora</button>
+        <button type="button" class="btn-warning" id="btn-bcv-auto-forzar" style="display:none">Aplicar ahora</button>
+        <button type="button" class="btn-primary" id="btn-guardar-bcv-auto">Guardar cambios</button>
+      </div>
+    </div>
+    <p class="bcv-auto-nota-usd">
+      La <strong>tasa USD</strong> de la derecha siempre se actualiza <strong>manualmente</strong> con «Guardar Tasas».
+    </p>
+    <button class="btn-primary" id="btn-guardar-tasas">Guardar Tasas</button>
   </div>
 
-  <div class="config-seccion" id="lic-activar-seccion">
-    <h3>Activar Licencia</h3>
-    <p style="font-size:.875rem;color:var(--text-secondary);margin-bottom:1rem">
-      Ingresa la clave de licencia proporcionada por el distribuidor. Incluye tu Hardware ID al solicitarla.
-    </p>
-    <div class="campo-grupo">
-      <label>Clave de Licencia *</label>
-      <textarea id="lic-clave-input" class="input-g" rows="3"
-        style="height:auto;padding:.5rem .875rem;resize:vertical;font-family:monospace;font-size:.85rem"
-        placeholder="Pega aquí tu clave de licencia..."></textarea>
+  <!-- ═══ TAB: EMPRESA ═══ -->
+  <div class="cfg-panel" id="panel-empresa">
+    <div class="config-seccion">
+      <h3>Información de la empresa</h3>
+      <div class="cfg-form-grid">
+        <div class="campo-grupo campo-span2">
+          <label>Nombre del negocio *</label>
+          <input type="text" id="cfg-empresa-nombre" class="input-g" placeholder="Ej: Distribuidora El Éxito">
+        </div>
+        <div class="campo-grupo">
+          <label>RIF o Cédula</label>
+          <input type="text" id="cfg-empresa-rif" class="input-g" placeholder="J-12345678-9">
+        </div>
+        <div class="campo-grupo">
+          <label>Teléfono / celular del negocio (11 dígitos Venezuela)</label>
+          <input type="text" id="cfg-empresa-telefono" class="input-g" maxlength="11" inputmode="numeric" />
+        </div>
+        <div class="campo-grupo campo-span2">
+          <label>Dirección</label>
+          <input type="text" id="cfg-empresa-direccion" class="input-g" placeholder="Av. Principal, Local #5">
+        </div>
+        <div class="campo-grupo campo-span2">
+          <label>Correo electrónico</label>
+          <input type="email" id="cfg-empresa-email" class="input-g" placeholder="negocio@correo.com">
+        </div>
+        <div class="campo-grupo">
+          <label>Número de control inicial (facturas)</label>
+          <input type="number" id="cfg-factura-control-desde" class="input-g" min="1" step="1" placeholder="1">
+        </div>
+        <div class="campo-grupo campo-span2">
+          <label>Leyenda en facturas</label>
+          <input type="text" id="cfg-factura-leyenda" class="input-g" placeholder="Ej: Este documento no tiene validez fiscal hasta ser timbrado.">
+        </div>
+      </div>
+      <button class="btn-primary cfg-btn-guardar" id="btn-guardar-empresa">Guardar datos de empresa</button>
     </div>
-    <button class="btn-primary" id="btn-activar-licencia">🔐 Activar Licencia</button>
   </div>
 
-  <div class="config-seccion" id="lic-generar-seccion" style="display:none">
-    <h3>Generar Clave (Distribuidor)</h3>
-    <p style="font-size:.875rem;color:var(--text-secondary);margin-bottom:1rem">
-      Genera una clave de activación para un cliente dado su Hardware ID.
-    </p>
-    <div class="campo-grupo">
-      <label>Hardware ID del cliente *</label>
-      <input type="text" id="lic-gen-hwid" class="input-g" placeholder="Ej: A1B2C3D4E5F6...">
-    </div>
-    <div class="campo-grupo">
-      <label>Empresa</label>
-      <input type="text" id="lic-gen-empresa" class="input-g" placeholder="Ej: Comercial Flores, C.A.">
-    </div>
-    <div class="campo-grupo">
-      <label>Fecha de expiración (dejar vacío = perpetua)</label>
-      <input type="date" id="lic-gen-expira" class="input-g">
-    </div>
-    <button class="btn-primary" id="btn-generar-clave">⚙️ Generar Clave</button>
-    <div id="lic-gen-resultado" style="margin-top:1rem;display:none;padding:1rem;background:var(--bg-tertiary);border-radius:var(--radius-sm)">
-      <p style="font-size:.8rem;color:var(--text-secondary);margin-bottom:.5rem">Clave generada:</p>
-      <code id="lic-gen-clave-output" style="word-break:break-all;font-size:.85rem"></code>
-      <button class="btn-secondary" id="btn-copiar-gen-clave" style="margin-top:.5rem">📋 Copiar</button>
+  <!-- ═══ TAB: IMPRESORA ═══ -->
+  <div class="cfg-panel" id="panel-impresora">
+    <div class="config-seccion">
+      <h3>Configuración de impresora térmica</h3>
+      <div class="campo-grupo">
+        <label>Nombre de la impresora</label>
+        <input type="text" id="cfg-imp-nombre" class="input-g" placeholder="Ej: Bixolon SRP-350">
+      </div>
+      <div class="campo-grupo">
+        <label>Interfaz de conexión</label>
+        <select id="cfg-imp-tipo" class="input-g">
+          <option value="tcp">Red TCP/IP (recomendado)</option>
+          <option value="usb">USB (\\.\COM3)</option>
+          <option value="none">Sin impresora</option>
+        </select>
+      </div>
+      <div id="cfg-imp-tcp-wrap" class="campo-grupo">
+        <label>Dirección IP y Puerto</label>
+        <input type="text" id="cfg-imp-interfaz" class="input-g" placeholder="tcp://192.168.1.100:9100">
+      </div>
+      <div class="cfg-btn-row">
+        <button class="btn-primary" id="btn-guardar-impresora">Guardar</button>
+        <button class="btn-secondary" id="btn-probar-impresora">Imprimir prueba</button>
+      </div>
+      <div id="imp-resultado" class="cfg-imp-resultado" style="display:none"></div>
     </div>
   </div>
-</div>
+
+  <!-- ═══ TAB: USUARIOS ═══ -->
+  <div class="cfg-panel" id="panel-usuarios">
+    <div class="cfg-usuarios-head">
+      <span class="cfg-usuarios-lead">Personas que pueden usar el sistema</span>
+      <button class="btn-primary cfg-btn-sm" id="btn-nuevo-usuario">Nuevo usuario</button>
+    </div>
+    <div class="config-seccion cfg-usuarios-card">
+      <div id="usuarios-lista">
+        <p class="cfg-cargando">Cargando usuarios...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: RESPALDO ═══ -->
+  <div class="cfg-panel" id="panel-respaldo">
+    <div class="config-seccion">
+      <h3>Respaldo de seguridad</h3>
+      <p class="cfg-respaldo-lead">
+        El sistema hace un respaldo al cerrar la caja y al salir de la aplicación. Podés activar además
+        respaldos automáticos cada cierto tiempo (requiere <code>pg_dump</code> de la misma versión mayor que PostgreSQL).
+        Tras iniciar el programa el primer respaldo programado corre en unos minutos (tope 5&nbsp;min); después se repite según el intervalo.
+      </p>
+      <div id="respaldo-status" class="cfg-respaldo-status">
+        Cargando estado del respaldo...
+      </div>
+      <div id="respaldo-env-priority-banner" class="cfg-respaldo-env-banner" style="display:none"></div>
+      <div id="respaldo-scheduler-wrap" class="cfg-respaldo-sched">
+        <label class="cfg-respaldo-sched-toggle">
+          <input type="checkbox" id="cfg-backup-sched-active" />
+          <span>Respaldos automáticos programados cada</span>
+        </label>
+        <div class="cfg-respaldo-sched-row">
+          <select id="cfg-backup-sched-interval-min" class="input-g cfg-respaldo-sched-select"></select>
+          <button type="button" class="btn-secondary" id="btn-guardar-backup-sched">Guardar programa</button>
+        </div>
+      </div>
+      <button class="btn-primary" id="btn-respaldo-manual">Crear respaldo ahora</button>
+    </div>
+  </div>
+
+  <!-- ═══ PANEL LICENCIA ═══ -->
+  <div class="cfg-panel" id="panel-licencia">
+    <div class="config-seccion">
+      <h3>Estado de la Licencia</h3>
+      <div id="lic-estado-box" class="lic-estado-box">
+        <div class="lic-head">
+          <span id="lic-icono" class="lic-icono"></span>
+          <div>
+            <div id="lic-estado-label" class="lic-estado-label">Verificando...</div>
+            <div id="lic-empresa" class="lic-empresa"></div>
+          </div>
+        </div>
+        <div class="lic-grid">
+          <div><span class="text-muted">Hardware ID:</span><br><code id="lic-hwid" class="lic-code">—</code></div>
+          <div><span class="text-muted">Edición:</span><br><strong id="lic-edition">—</strong></div>
+          <div><span class="text-muted">Expira:</span><br><strong id="lic-expira">—</strong></div>
+          <div><span class="text-muted">HWID Registrado:</span><br><code id="lic-hwid-reg" class="lic-code">—</code></div>
+          <div class="lic-grid-full"><span class="text-muted">Versión de la aplicación:</span> <strong id="lic-app-version">—</strong></div>
+        </div>
+      </div>
+      <button class="btn-secondary cfg-btn-guardar" id="btn-copiar-hwid">Copiar Hardware ID</button>
+    </div>
+
+    <div class="config-seccion" id="lic-activar-seccion">
+      <h3>Activar Licencia</h3>
+      <p class="cfg-seccion-lead">
+        Ingresa la clave de licencia proporcionada por el distribuidor. Incluye tu Hardware ID al solicitarla.
+      </p>
+      <div class="campo-grupo">
+        <label>Clave de Licencia *</label>
+        <textarea id="lic-clave-input" class="input-g lic-clave-ta" rows="3"
+          placeholder="Pega aquí tu clave de licencia..."></textarea>
+      </div>
+      <button class="btn-primary" id="btn-activar-licencia">Activar Licencia</button>
+    </div>
+
+    <div class="config-seccion" id="lic-generar-seccion" style="display:none">
+      <h3>Generar Clave (Distribuidor)</h3>
+      <p class="cfg-seccion-lead">
+        Genera una clave de activación para un cliente dado su Hardware ID.
+      </p>
+      <div class="campo-grupo">
+        <label>Hardware ID del cliente *</label>
+        <input type="text" id="lic-gen-hwid" class="input-g" placeholder="Ej: A1B2C3D4E5F6...">
+      </div>
+      <div class="campo-grupo">
+        <label>Empresa</label>
+        <input type="text" id="lic-gen-empresa" class="input-g" placeholder="Ej: Comercial Flores, C.A.">
+      </div>
+      <div class="campo-grupo">
+        <label>Fecha de expiración (dejar vacío = perpetua)</label>
+        <input type="date" id="lic-gen-expira" class="input-g">
+      </div>
+      <button class="btn-primary" id="btn-generar-clave">Generar Clave</button>
+      <div id="lic-gen-resultado" class="lic-gen-resultado" style="display:none">
+        <p class="lic-gen-resultado-lead">Clave generada:</p>
+        <code id="lic-gen-clave-output" class="lic-code"></code>
+        <button class="btn-secondary cfg-btn-guardar" id="btn-copiar-gen-clave">Copiar</button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /.config-content -->
+</div><!-- /.config-layout -->
 
 <!-- ═══ MODAL USUARIO ═══ -->
 <div class="modal-overlay" id="modal-usuario">
   <div class="modal-box">
     <div class="modal-header">
       <h2 id="modal-usuario-titulo">Nuevo Usuario</h2>
-      <button style="background:transparent;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-secondary)" id="btn-cerrar-modal-usuario">✕</button>
+      <button class="modal-close" id="btn-cerrar-modal-usuario">✕</button>
     </div>
     <input type="hidden" id="usuario-id">
     <div class="campo-grupo">
@@ -249,16 +293,31 @@
     </div>
     <div class="campo-grupo">
       <label>Rol</label>
-      <select id="usuario-rol" class="input-g" style="height:44px">
-        <option value="cajero">👤 Cajero (solo vender)</option>
-        <option value="supervisor">🔑 Supervisor (ventas + inventario)</option>
-        <option value="admin">👑 Administrador (acceso total)</option>
+      <select id="usuario-rol" class="input-g">
+        <option value="cajero">Cajero (solo vender)</option>
+        <option value="supervisor">Supervisor (ventas + inventario)</option>
+        <option value="admin">Administrador (acceso total)</option>
       </select>
     </div>
-    <div style="display:flex;gap:.75rem;margin-top:1rem;justify-content:flex-end">
+    <div class="modal-acciones">
       <button class="btn-secondary" id="btn-cancelar-modal-usuario">Cancelar</button>
-      <button class="btn-primary" id="btn-guardar-usuario">💾 Guardar</button>
+      <button class="btn-primary" id="btn-guardar-usuario">Guardar</button>
     </div>
   </div>
 </div>
+
+<!-- ═══ MODAL CONFIRMACIÓN CAMBIO MANUAL DE TASA USD ═══ -->
+<div class="modal-overlay" id="modal-confirm-tasa-usd">
+  <div class="modal-box modal-box--sm">
+    <div class="modal-header">
+      <h2>Cambio de tasa USD</h2>
+    </div>
+    <p id="modal-confirm-tasa-usd-texto" class="cfg-confirm-texto"></p>
+    <div class="modal-acciones">
+      <button class="btn-secondary" id="btn-confirm-usd-cancelar">Cancelar</button>
+      <button class="btn-danger" id="btn-confirm-usd-confirmar">Confirmar cambio</button>
+    </div>
+  </div>
+</div>
+
 </section>

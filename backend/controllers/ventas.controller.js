@@ -49,9 +49,90 @@ function round2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+function normalizarPagosVentaJson(pagos) {
+  if (pagos == null) return [];
+  if (Array.isArray(pagos)) return pagos;
+  if (typeof pagos === 'string') {
+    try {
+      const j = JSON.parse(pagos);
+      return Array.isArray(j) ? j : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Total ref. $ BCV para API / listados: usa columna si es > 0; si no, reconstruye desde
+ * cashea_desglose en pagos (ventas sin total_ref_usd_bcv persistido o previas al parche 029).
+ */
+function resolverTotalRefUsdBcvParaApi(row) {
+  const col = Number(row && row.total_ref_usd_bcv);
+  if (Number.isFinite(col) && col > 0) return col;
+
+  const pagos = normalizarPagosVentaJson(row && row.pagos);
+  for (let i = 0; i < pagos.length; i += 1) {
+    const p = pagos[i];
+    if (!p || String(p.metodo || '').toLowerCase() !== 'cashea') continue;
+    const d = p.cashea_desglose;
+    if (!d || typeof d !== 'object') continue;
+
+    const tvRef = Number(d.totalVentaUsdBcvRef ?? d.totalUsdBcvRef);
+    if (Number.isFinite(tvRef) && tvRef > 0) return round4(tvRef);
+
+    const ri = Number(d.refInicialUsdBcv);
+    const rp = Number(d.refPrestadoUsdBcv);
+    if (
+      Number.isFinite(ri) &&
+      ri >= 0 &&
+      Number.isFinite(rp) &&
+      rp >= 0 &&
+      ri + rp > 0
+    ) {
+      return round4(ri + rp);
+    }
+  }
+
+  const metodo = String(row && row.metodo_pago || '').toLowerCase();
+  const reconCadenaDesdeTotalUsd =
+    metodo === 'efectivo_bs' ||
+    metodo === 'transferencia_bs' ||
+    metodo === 'pago_movil' ||
+    metodo === 'punto' ||
+    metodo === 'mixto';
+
+  if (reconCadenaDesdeTotalUsd) {
+    const tbcv =
+      Number(row.tasa_bcv_aplicada) ||
+      Number(row.historial_tasa_bcv_dia) ||
+      NaN;
+    const tusd = Number(row.tasa_cambio_aplicada);
+    const pe = Number(row.total_usd);
+    if (
+      Number.isFinite(tbcv) &&
+      tbcv > 0 &&
+      Number.isFinite(tusd) &&
+      tusd > 0 &&
+      Number.isFinite(pe) &&
+      pe > 0
+    ) {
+      try {
+        const chain = PreciosService.aplicarCadenaPorPrecioEfectivo(pe, tbcv, tusd, { precisionPe: 4 });
+        const r = round4(chain.precio_usd_bcv);
+        if (r > 0) return r;
+      } catch (_) {
+        /* tasa inválida o precio cero en cadena */
+      }
+    }
+  }
+
+  return null;
+}
+
 /** Tolerancia verificación total USD declarado vs servidor (precios). */
 const EPS_USD_PRECIOS = 0.01;
-/** Alineado con POS (ajuste operativo paralelo‑BCV; ~1 céntimo USD). */
+/** Alineado con POS (ajuste operativo USD‑BCV; ~1 céntimo USD). */
 const EPS_USD_PAGOS = 0.01;
 const EPS_BS_TOTAL = 0.01;
 
@@ -69,82 +150,42 @@ async function obtenerDescuentoMaxVentaPct(t, user) {
 
 /**
  * Precio unitario USD efectivo según catálogo y tasas vigentes (ignora lo enviado por el cliente).
+ * Delega a PreciosService.precioVentaUnitarioCatalogo (M2 — DRY).
  */
 function precioUnitarioUsdServidor(producto, tasaBcv, tasaUsd) {
-  const manualRaw = producto.precio_manual_usd;
-  const manual =
-    manualRaw != null && String(manualRaw).trim() !== ''
-      ? parseFloat(String(manualRaw).replace(/\s/g, '').replace(',', '.'))
-      : null;
-  if (manual != null && !Number.isNaN(manual) && manual > 0) {
-    try {
-      return round4(
-        PreciosService.aplicarCadenaPorPrecioEfectivo(manual, tasaBcv, tasaUsd).precio_usd_efectivo
-      );
-    } catch (e) {
-      throw httpError(400, `Producto "${producto.nombre}": ${e.message}`);
-    }
-  }
-  const costo = parseFloat(producto.costo_usd);
-  const margen = parseFloat(producto.margen_ganancia_pct);
-  if (!costo || costo <= 0 || Number.isNaN(costo)) {
-    throw httpError(
-      400,
-      `Producto "${producto.nombre}": sin costo USD ni precio manual válido para fijar precio`
-    );
-  }
-  let pr;
   try {
-    pr = PreciosService.calcularPrecios(
-      costo,
-      Number.isNaN(margen) ? 0 : margen,
-      tasaBcv,
-      tasaUsd
+    return round4(
+      PreciosService.precioVentaUnitarioCatalogo(
+        producto.costo_usd,
+        producto.margen_ganancia_pct,
+        producto.precio_manual_usd,
+        tasaBcv,
+        tasaUsd
+      ).precio_usd_efectivo
     );
   } catch (e) {
     throw httpError(400, `Producto "${producto.nombre}": ${e.message}`);
   }
-  return round4(pr.precio_usd_efectivo);
 }
 
 /**
- * Ref. USD BCV por unidad — misma tabla que PreciosServiceClient/recalcLine usa en el POS.
+ * Ref. USD BCV por unidad — misma cadena que PreciosServiceClient/recalcLine usa en el POS.
+ * Delega a PreciosService.precioVentaUnitarioCatalogo (M2 — DRY).
  */
 function precioUsdBcvPorUnidad(producto, tasaBcv, tasaUsd) {
-  const manualRaw = producto.precio_manual_usd;
-  const manual =
-    manualRaw != null && String(manualRaw).trim() !== ''
-      ? parseFloat(String(manualRaw).replace(/\s/g, '').replace(',', '.'))
-      : null;
-  if (manual != null && !Number.isNaN(manual) && manual > 0) {
-    try {
-      return round4(
-        PreciosService.aplicarCadenaPorPrecioEfectivo(manual, tasaBcv, tasaUsd).precio_usd_bcv
-      );
-    } catch (e) {
-      throw httpError(400, `Producto "${producto.nombre}": ${e.message}`);
-    }
-  }
-  const costo = parseFloat(producto.costo_usd);
-  const margen = parseFloat(producto.margen_ganancia_pct);
-  if (!costo || costo <= 0 || Number.isNaN(costo)) {
-    throw httpError(
-      400,
-      `Producto "${producto.nombre}": sin costo USD ni precio manual válido para fijar precio`
-    );
-  }
-  let pr;
   try {
-    pr = PreciosService.calcularPrecios(
-      costo,
-      Number.isNaN(margen) ? 0 : margen,
-      tasaBcv,
-      tasaUsd
+    return round4(
+      PreciosService.precioVentaUnitarioCatalogo(
+        producto.costo_usd,
+        producto.margen_ganancia_pct,
+        producto.precio_manual_usd,
+        tasaBcv,
+        tasaUsd
+      ).precio_usd_bcv
     );
   } catch (e) {
     throw httpError(400, `Producto "${producto.nombre}": ${e.message}`);
   }
-  return round4(pr.precio_usd_bcv);
 }
 
 function buildVentasListFilters(req, startParamIndex) {
@@ -179,14 +220,21 @@ async function list(req, res) {
   const mainParams = [limit, offset, ...main.params];
 
   const rows = await db.any(
-    `SELECT v.*, c.nombre AS cliente_nombre
+    `SELECT v.*, c.nombre AS cliente_nombre, ht.tasa_bcv AS historial_tasa_bcv_dia
      FROM ventas v
      LEFT JOIN clientes c ON c.id = v.cliente_id
+     LEFT JOIN historial_tasas ht ON ht.fecha = DATE(v.fecha_venta)
      ${main.where}
      ORDER BY v.fecha_venta DESC, v.id DESC
      LIMIT $1 OFFSET $2`,
     mainParams
   );
+
+  const data = rows.map((v) => {
+    const ref = resolverTotalRefUsdBcvParaApi(v);
+    const { historial_tasa_bcv_dia: _htBcv, ...rest } = v;
+    return { ...rest, total_ref_usd_bcv: ref };
+  });
 
   const cnt = buildVentasListFilters(req, 1);
   const totalRow = await db.one(
@@ -194,7 +242,7 @@ async function list(req, res) {
     cnt.params
   );
 
-  res.json({ data: rows, total: totalRow.total, limit, offset });
+  res.json({ data, total: totalRow.total, limit, offset });
 }
 
 async function getById(req, res) {
@@ -210,6 +258,21 @@ async function getById(req, res) {
     [id]
   );
   if (!venta) throw httpError(404, 'Venta no encontrada');
+
+  if (
+    venta.tasa_bcv_aplicada == null &&
+    venta.fecha_venta != null
+  ) {
+    const ht = await db.oneOrNone(
+      `SELECT tasa_bcv FROM historial_tasas WHERE fecha = ($1::timestamp)::date LIMIT 1`,
+      [venta.fecha_venta]
+    );
+    if (ht && ht.tasa_bcv != null) {
+      venta.tasa_bcv_aplicada = ht.tasa_bcv;
+    }
+  }
+
+  venta.total_ref_usd_bcv = resolverTotalRefUsdBcvParaApi(venta);
 
   const detalles = await db.any(
     `SELECT d.*, p.nombre AS producto_nombre, p.codigo_barras, p.codigo_interno
@@ -488,13 +551,17 @@ async function create(req, res) {
       throw httpError(400, 'Inconsistencia de Precios');
     }
 
-    const total_bs = PreciosService.totalBsDesdeUsdTasaCalle(total_usd, tasa_usd_calle);
-    if (Math.abs(total_bs - total_bs_cliente_declarado) > EPS_BS_TOTAL) {
+    if (total_bs_bcv_operativo == null || !(total_bs_bcv_operativo > 0)) {
+      throw httpError(400, 'No se pudo calcular el total Bs BCV de la venta');
+    }
+    if (Math.abs(total_bs_bcv_operativo - total_bs_cliente_declarado) > EPS_BS_TOTAL) {
       throw httpError(
         400,
-        'Inconsistencia en conversión Bs/USD: el total Bs no corresponde a total USD × tasa Calle'
+        'Inconsistencia en total Bs BCV: el monto no corresponde a la cadena BCV del ticket'
       );
     }
+
+    const total_bs = total_bs_bcv_operativo;
 
     /* ── 4) Cuadre de pagos en equivalente USD a tasa Calle ── */
     let sumaPagosUsd;
@@ -545,24 +612,50 @@ async function create(req, res) {
         if (Math.abs(totalBsReconstruido - total_bs_bcv_operativo) > EPS_BS_CADENA) {
           throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
         }
+      } else if (total_bs_bcv_operativo != null) {
+        // Crédito USD_BCV, Cashea u otros: validar en cadena Bs BCV (como el POS).
+        // Evita rechazar ventas 100 % crédito por ~céntimos en conversión ref×BCV→USD calle.
+        let sumBsCadena;
+        try {
+          sumBsCadena = PreciosService.sumaPagosEquivBsBcvOperativo(
+            pagosArr,
+            tasa_usd_calle,
+            tasa_bcv,
+            { totalVentaUsd: total_usd, totalBsBcvOperativo: total_bs_bcv_operativo }
+          );
+        } catch (e) {
+          throw httpError(400, e.message || 'Error al validar pagos');
+        }
+        if (Math.abs(round2(sumBsCadena) - round2(total_bs_bcv_operativo)) > EPS_BS_CADENA) {
+          throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
+        }
       } else {
         throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
       }
     }
 
     const tasa_cambio_aplicada = round4(tasa_usd_calle);
+    const tasa_bcv_aplicada = round4(tasa_bcv);
+
+    const total_ref_usd_bcv = round4(refUsdBcvCabServidor);
 
     const ventaRow = await t.one(
       `INSERT INTO ventas (
         numero_venta, sesion_caja_id, cliente_id, usuario_id,
         subtotal_usd, descuento_porcentaje, descuento_monto_usd,
-        iva_porcentaje, iva_monto_usd, total_usd, total_bs, total_bs_cliente, tasa_cambio_aplicada,
+        iva_porcentaje, iva_monto_usd, total_usd, total_bs, total_bs_bcv_operativo, total_bs_cliente,
+        tasa_cambio_aplicada,
+        tasa_bcv_aplicada,
+        total_ref_usd_bcv,
         metodo_pago, pagos, estado, notas, idempotency_key
       ) VALUES (
         $1, $2, $3, $4,
         $5, $6, $7,
         $8, $9, $10, $11, $12, $13,
-        $14, $15::jsonb, 'completada', $16, $17
+        $14,
+        $15,
+        $16,
+        $17, $18::jsonb, 'completada', $19, $20
       ) RETURNING *`,
       [
         numero_venta,
@@ -576,8 +669,11 @@ async function create(req, res) {
         iva_monto_usd,
         total_usd,
         total_bs,
+        total_bs_bcv_operativo,
         total_bs_cliente_declarado,
         tasa_cambio_aplicada,
+        tasa_bcv_aplicada,
+        total_ref_usd_bcv,
         metodo_pago,
         JSON.stringify(pagosArr),
         notas,
@@ -723,6 +819,20 @@ async function anular(req, res) {
       throw httpError(409, `No se puede anular una venta en estado "${venta.estado}"`);
     }
 
+    const casheaLiquidacion = await t.oneOrNone(
+      `SELECT estado_liquidacion FROM ventas_cashea WHERE venta_id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (
+      casheaLiquidacion &&
+      String(casheaLiquidacion.estado_liquidacion || '').toUpperCase() === 'LIQUIDADO'
+    ) {
+      throw httpError(
+        409,
+        'No se puede anular: la venta ya consta como liquidada en Cashea.'
+      );
+    }
+
     const detalles = await t.any(`SELECT * FROM detalles_ventas WHERE venta_id = $1`, [id]);
 
     for (let i = 0; i < detalles.length; i += 1) {
@@ -814,6 +924,16 @@ async function anular(req, res) {
         anulada_por = $3
        WHERE id = $1`,
       [id, motivo, usuario_id]
+    );
+
+    // Marcar ventas_cashea como ANULADA si existe registro para esta venta.
+    // Evita que liquidaciones pendientes incluyan comisiones de ventas anuladas.
+    await t.none(
+      `UPDATE ventas_cashea
+          SET estado_liquidacion = 'ANULADA'
+        WHERE venta_id = $1
+          AND estado_liquidacion != 'ANULADA'`,
+      [id]
     );
   });
 

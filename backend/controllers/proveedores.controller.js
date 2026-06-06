@@ -2,6 +2,7 @@
 
 const { db } = require('../config/database');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
+const { normalizarTelefonoMovilVeOpcional } = require('../utils/telefonoVe');
 
 const INSERTABLE = [
   'nombre',
@@ -81,8 +82,17 @@ async function create(req, res) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
     let v = body[key];
     if (key === 'nombre' && typeof v === 'string') v = v.trim();
-    if (['rif', 'contacto_nombre', 'telefono', 'email', 'direccion', 'notas', 'condicion_pago'].includes(key)) {
+    if (['rif', 'contacto_nombre', 'email', 'direccion', 'notas', 'condicion_pago'].includes(key)) {
       v = normalizeNullable(v);
+    }
+    if (key === 'telefono') {
+      v = normalizeNullable(v);
+      if (typeof v === 'string') v = v.trim() || null;
+      if (v) {
+        const r = normalizarTelefonoMovilVeOpcional(v);
+        if (!r.ok) throw httpError(400, r.error);
+        v = r.normalizado;
+      }
     }
     cols.push(key);
     vals.push(v);
@@ -118,8 +128,17 @@ async function update(req, res) {
     pairs.push(`${key} = $${pairs.length + 1}`);
     let v = body[key];
     if (key === 'nombre' && typeof v === 'string') v = v.trim();
-    if (['rif', 'contacto_nombre', 'telefono', 'email', 'direccion', 'notas', 'condicion_pago'].includes(key)) {
+    if (['rif', 'contacto_nombre', 'email', 'direccion', 'notas', 'condicion_pago'].includes(key)) {
       v = normalizeNullable(v);
+    }
+    if (key === 'telefono') {
+      v = normalizeNullable(v);
+      if (typeof v === 'string') v = v.trim() || null;
+      if (v) {
+        const r = normalizarTelefonoMovilVeOpcional(v);
+        if (!r.ok) throw httpError(400, r.error);
+        v = r.normalizado;
+      }
     }
     vals.push(v);
   });
