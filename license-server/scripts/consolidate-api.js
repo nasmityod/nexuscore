@@ -93,8 +93,10 @@ rm('api/panel/stats.js');
 rm('api/admin/licenses');
 rm('api/admin/codes');
 rm('api/admin/diagnostics');
-fs.unlinkSync(path.join(root, 'api/license/activate.js'));
-fs.unlinkSync(path.join(root, 'api/license/generate.js'));
-console.log('DEL api/license/activate.js + generate.js');
+rm('api/license/activate.js');
+rm('api/license/generate.js');
+rm('api/panel/[...path].js');
+rm('api/admin/[...path].js');
+rm('api/license/[...path].js');
 
 console.log('DONE');

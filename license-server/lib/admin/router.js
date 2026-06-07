@@ -32,8 +32,8 @@ function withKeyHwid(req, key, hwid) {
   };
 }
 
-async function route(req, res) {
-  const segs = pathSegments(req);
+async function route(req, res, apiPrefix = '/api/admin') {
+  const segs = pathSegments(req, apiPrefix);
   const m = req.method;
 
   if (segs[0] === 'licenses') {

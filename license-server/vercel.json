@@ -1,5 +1,13 @@
 {
   "version": 2,
+  "rewrites": [
+    { "source": "/api/panel", "destination": "/api/panel" },
+    { "source": "/api/panel/:path*", "destination": "/api/panel" },
+    { "source": "/api/admin", "destination": "/api/admin" },
+    { "source": "/api/admin/:path*", "destination": "/api/admin" },
+    { "source": "/api/license", "destination": "/api/license" },
+    { "source": "/api/license/:path*", "destination": "/api/license" }
+  ],
   "functions": {
     "api/**/*.js": {
       "maxDuration": 10

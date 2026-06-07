@@ -6,8 +6,8 @@ const { sendError } = require('../validate');
 const activate = require('./handlers/activate');
 const generate = require('./handlers/generate');
 
-async function route(req, res) {
-  const segs = pathSegments(req);
+async function route(req, res, apiPrefix = '/api/license') {
+  const segs = pathSegments(req, apiPrefix);
   const m = req.method;
 
   if (segs[0] === 'activate' && m === 'POST') return activate(req, res);
