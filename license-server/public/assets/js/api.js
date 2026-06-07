@@ -25,7 +25,10 @@ const Api = (() => {
     try { data = await res.json(); } catch (_e) {}
 
     if (res.status === 401 && path !== '/auth/session' && path !== '/auth/login') {
-      window.dispatchEvent(new CustomEvent('nx:unauthorized'));
+      const msg = String((data && data.error) || '');
+      if (/sesi[oó]n/i.test(msg)) {
+        window.dispatchEvent(new CustomEvent('nx:unauthorized'));
+      }
     }
     if (!res.ok) {
       const msg = (data && data.error) || ('Error ' + res.status);

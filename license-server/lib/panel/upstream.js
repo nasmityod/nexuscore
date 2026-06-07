@@ -1,15 +1,21 @@
 'use strict';
 
 /**
- * lib/panel/upstream.js — Proxy hacia los endpoints /api/admin/* del mismo license-server.
+ * lib/panel/upstream.js — Proxy hacia /api/admin/* del mismo license-server.
  *
- * Integrado en un solo despliegue: si LICENSE_SERVER_URL no está definida, usa VERCEL_URL
- * (mismo proyecto) o localhost en desarrollo. La NEXUS_ADMIN_API_KEY nunca sale al navegador.
+ * Mismo despliegue: preferir dominio de producción estable (VERCEL_PROJECT_PRODUCTION_URL
+ * o LICENSE_SERVER_URL). VERCEL_URL apunta al hostname único del deploy y suele tener
+ * Deployment Protection → 401 en llamadas server-to-server.
  */
 
 function upstreamBase() {
   const explicit = process.env.LICENSE_SERVER_URL || process.env.NEXUS_LICENSE_SERVER_URL;
   if (explicit) return String(explicit).replace(/\/+$/, '');
+
+  const production = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (production) {
+    return 'https://' + String(production).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  }
 
   if (process.env.VERCEL_URL) {
     return 'https://' + String(process.env.VERCEL_URL).replace(/\/+$/, '');
@@ -51,8 +57,11 @@ async function callUpstream(method, path, body, auth = true) {
   try { json = await res.json(); } catch (_e) {}
 
   if (!res.ok) {
-    const err = new Error((json && json.error) || ('El servidor de licencias respondió ' + res.status + '.'));
-    err.status = res.status;
+    const upstreamMsg = (json && json.error) || ('El servidor de licencias respondió ' + res.status + '.');
+    const err = new Error(upstreamMsg);
+    // 401 del upstream (admin o Deployment Protection) no es sesión del panel.
+    err.status = res.status === 401 || res.status === 403 ? 502 : res.status;
+    err.upstreamStatus = res.status;
     throw err;
   }
   return json || {};

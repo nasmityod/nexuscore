@@ -66,7 +66,7 @@ No requiere `rewrites`:
 | `PANEL_SESSION_SECRET` | **Sí** (panel `/`) | Secreto HMAC para la cookie de sesión (≥ 32 bytes hex). |
 | `PANEL_SESSION_HOURS` | No | Duración de sesión en horas (default 12). |
 | `PANEL_EXPIRING_SOON_DAYS` | No | Umbral "por vencer" en dashboard (default 30). |
-| `LICENSE_SERVER_URL` | No | Solo si el panel apunta a **otro** deploy. En el mismo proyecto no hace falta. |
+| `LICENSE_SERVER_URL` | Recomendada | URL pública del deploy (p. ej. `https://nexuscore-iota.vercel.app`). El panel la usa para llamar a `/api/admin/*` sin pasar por la URL interna `VERCEL_URL` (suele tener Deployment Protection → 401). Si no la defines, se usa `VERCEL_PROJECT_PRODUCTION_URL` automáticamente. |
 
 Configura las variables para **Production** (y Preview si lo usas). Tras cambiarlas, **redeploy**.
 
