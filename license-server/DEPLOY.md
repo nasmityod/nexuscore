@@ -45,9 +45,10 @@ license-server/
 
 ## 2. `vercel.json`
 
-Ya incluido. Define `maxDuration: 10s`, runtime `nodejs20.x` (evita el warning de `>=20`)
-y cabeceras de seguridad. No requiere `rewrites`: `public/index.html` se sirve en `/` y
-`public/admin/` en `/admin`.
+Ya incluido. Define `maxDuration: 10s` y cabeceras de seguridad. La versión de Node se fija
+con `"engines": { "node": "20.x" }` en `package.json` (no uses `runtime` en `vercel.json` —
+Vercel lo rechaza con *Function Runtimes must have a valid version*). No requiere `rewrites`:
+`public/index.html` se sirve en `/` y `public/admin/` en `/admin`.
 
 ---
 
