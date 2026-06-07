@@ -10,36 +10,33 @@ y scripts CLI.
 
 ```
 license-server/
-├── api/
+├── api/                                  ░ 7 Serverless Functions (límite Hobby: 12) ░
 │   ├── health.js                         GET  /api/health
-│   ├── license/                          (sistema legado de códigos de venta NC-…)
-│   │   ├── activate.js
-│   │   └── generate.js
-│   ├── licenses/                         ░ sistema profesional (license-key NXCS) ░
+│   ├── licenses/                         sistema profesional (license-key NXCS)
 │   │   ├── activate.js                   POST /api/licenses/activate
 │   │   ├── verify.js                     POST /api/licenses/verify
 │   │   └── deactivate.js                 POST /api/licenses/deactivate
-│   ├── admin/
-│   │   ├── codes/…                       (legado)
-│   │   └── licenses/…                    API admin directa (Bearer NEXUS_ADMIN_API_KEY)
-│   └── panel/                            ░ BFF del panel web (cookie de sesión) ░
-│       ├── auth/                         POST /api/panel/auth/login|logout, GET session
-│       ├── health.js                     GET  /api/panel/health
-│       ├── stats.js                      GET  /api/panel/stats
-│       └── licenses/…                    Proxy seguro → /api/admin/licenses/*
-├── lib/                                  crypto, kv, validate, licenses + lib/panel/
+│   ├── license/[...path].js              legado NC-… (activate, generate)
+│   ├── admin/[...path].js                API admin (Bearer NEXUS_ADMIN_API_KEY)
+│   └── panel/[...path].js                BFF del panel web (cookie de sesión)
+├── lib/
+│   ├── panel/router.js + handlers/       rutas /api/panel/*
+│   ├── admin/router.js + handlers/       rutas /api/admin/*
+│   ├── license/router.js + handlers/     rutas /api/license/*
+│   └── crypto, kv, validate, licenses…
 ├── public/
 │   ├── index.html                        Panel profesional integrado  →  /
 │   ├── assets/                           CSS + JS del panel
 │   └── admin/index.html                  Panel legado (clave en navegador)  →  /admin
-├── scripts/                              CLI: create / trial / list / revoke / suspend / extend / export
+├── scripts/                              CLI + consolidate-api.js (migración one-shot)
 ├── vercel.json
 └── package.json
 ```
 
-> Las rutas dinámicas `[key]` y `[hwid]` usan el enrutado por sistema de archivos de Vercel.
-> Los parámetros llegan en `req.query.key` / `req.query.hwid`. Las rutas estáticas
-> (`create`, `trial`, `index`) tienen prioridad sobre `[key]`, por lo que no colisionan.
+> **Plan Hobby:** Vercel permite máximo **12** Serverless Functions por despliegue. Este proyecto
+> usa **7** funciones: las 3 de `licenses/`, `health`, y tres catch-all (`panel`, `admin`, `license`).
+> La lógica de cada ruta vive en `lib/*/handlers/` y se despacha desde `lib/*/router.js`.
+> Los parámetros dinámicos (`key`, `hwid`) se inyectan en `req.query` dentro del router.
 
 ---
 
