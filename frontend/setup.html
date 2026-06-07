@@ -468,9 +468,9 @@
         <button type="button" class="btn-copy" id="btn-copy-hwid">Copiar</button>
       </div>
       <div class="section-label">Código de activación</div>
-      <input type="text" id="input-code" class="code-input" maxlength="21"
-             placeholder="NC-XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false">
-      <p class="code-hint">Escribe el código tal como lo recibiste.</p>
+      <input type="text" id="input-code" class="code-input" maxlength="24"
+             placeholder="NXCS-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+      <p class="code-hint">Ingresa la clave que recibiste al comprar. Los guiones se agregan solos.</p>
       <div class="progress-wrap" id="progress-wrap">
         <div class="progress-bar-outer"><div class="progress-bar-inner" id="progress-bar"></div></div>
         <p class="progress-text" id="progress-text"></p>
@@ -963,19 +963,12 @@
 
       codeEl.addEventListener('input', function () {
         var raw = codeEl.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        var formatted = '';
-        if (raw.indexOf('NC') === 0) {
-          var rest = raw.slice(2);
-          formatted = 'NC';
-          for (var i = 0; i < rest.length && i < 15; i++) {
-            if (i % 5 === 0) formatted += '-';
-            formatted += rest[i];
-          }
-        } else {
-          formatted = raw.slice(0, 17);
-        }
-        codeEl.value = formatted;
-        btnActivar.disabled = codeEl.value.replace(/-/g, '').length < 17;
+        if (raw.indexOf('NXCS') === 0) raw = raw.slice(4);
+        raw = raw.slice(0, 16);
+        var groups = [];
+        for (var i = 0; i < raw.length; i += 4) groups.push(raw.slice(i, i + 4));
+        codeEl.value = 'NXCS' + (groups.length ? '-' + groups.join('-') : (raw.length ? '-' : ''));
+        btnActivar.disabled = raw.length < 16 || isHwidError(hwid);
         hideLicenseAlerts();
       });
 
@@ -1042,67 +1035,54 @@
         });
       });
 
+      function licenseReasonMessage(res) {
+        var r = res || {};
+        if (r.reason === 'offline') return 'Sin conexión a internet. Conéctate para activar.';
+        if (r.message) return r.message;
+        if (r.reason === 'rejected') return 'Licencia inválida o ya en uso en otra máquina.';
+        return 'No se pudo activar. Verifica la clave e intenta de nuevo.';
+      }
+
       btnActivar.addEventListener('click', function () {
-        var code = codeEl.value.trim();
-        if (!code || isHwidError(hwid)) return;
+        var key = codeEl.value.trim();
+        if (!key || btnActivar.disabled || isHwidError(hwid)) return;
+        if (!navigator.onLine) {
+          showLicenseError('Sin conexión a internet. Conéctate para activar.');
+          return;
+        }
+        var L = window.nexusLicense || {};
+        if (!L.activate) {
+          showLicenseError('Activación no disponible en este entorno.');
+          return;
+        }
 
         btnActivar.disabled = true;
         btnActivar.textContent = 'Activando…';
         hideLicenseAlerts();
         setLicenseProgress(15, 'Conectando al servidor de licencias…');
 
-        fetch(serverUrl + '/api/license/activate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: code, hwid: hwid })
-        })
-        .then(function (r) {
-          setLicenseProgress(45, 'Verificando código…');
-          return r.json().then(function (d) {
-            if (!r.ok) throw new Error(d.error || 'Código inválido o ya usado en otro equipo');
-            return d;
-          });
-        })
-        .then(function (data) {
-          setLicenseProgress(70, 'Guardando licencia en este equipo…');
-          var serverInfo = data.info || {
-            empresa: data.empresa,
-            edition: data.edition,
-            expira: data.expiraEn != null && data.expiraEn !== '' ? data.expiraEn : null
-          };
-          var payloadInicial = { clave: data.token, hwid: hwid };
-          if (hwidCompat && hwidCompat !== hwid) payloadInicial.hwid_compat = hwidCompat;
-
-          return fetch('http://127.0.0.1:3000/api/licencia/activar-inicial', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payloadInicial)
-          }).then(function (r2) {
-            return r2.json().then(function (d2) {
-              if (!r2.ok) throw new Error(d2.error || 'No se pudo guardar la licencia localmente');
-              return serverInfo;
-            });
-          });
-        })
-        .then(function (info) {
-          setLicenseProgress(100, '¡Licencia activada!');
-          var expTxt = info.expira
-            ? (typeof window.formatExpiraLicenciaUi === 'function'
-              ? window.formatExpiraLicenciaUi(info.expira) : info.expira)
-            : 'Sin fecha límite';
-          showLicenseSuccess(
-            'Activado · ' + (info.empresa ? info.empresa + ' · ' : '') +
-            'Vence: ' + expTxt + '. Continuando…'
-          );
-          setTimeout(proceedAfterLicense, 1200);
-        })
-        .catch(function (e) {
-          progressWrap.classList.remove('show');
-          var msg = e.message || 'Error desconocido';
-          if (/fetch|network|failed/i.test(msg)) {
-            msg = 'Sin conexión a internet. Necesitas internet solo esta vez para activar.';
+        L.activate(key).then(function (res) {
+          if (res && res.ok) {
+            setLicenseProgress(100, '¡Licencia activada!');
+            var info = res.info || {};
+            var expTxt = info.expiresAt
+              ? (typeof window.formatExpiraLicenciaUi === 'function'
+                ? window.formatExpiraLicenciaUi(info.expiresAt) : info.expiresAt)
+              : 'Sin fecha límite';
+            showLicenseSuccess(
+              'Activado · ' + (info.customerName ? info.customerName + ' · ' : '') +
+              'Vence: ' + expTxt + '. Continuando…'
+            );
+            setTimeout(proceedAfterLicense, 1200);
+            return;
           }
-          showLicenseError(msg);
+          progressWrap.classList.remove('show');
+          showLicenseError(licenseReasonMessage(res));
+          btnActivar.disabled = false;
+          btnActivar.textContent = 'Activar Nexus Core';
+        }).catch(function (e) {
+          progressWrap.classList.remove('show');
+          showLicenseError((e && e.message) || 'Error al activar.');
           btnActivar.disabled = false;
           btnActivar.textContent = 'Activar Nexus Core';
         });

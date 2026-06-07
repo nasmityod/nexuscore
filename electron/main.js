@@ -361,8 +361,8 @@ function registerSetupIpc() {
         await withTimeout(startBackend(), 60_000, 'Inicio del servidor backend');
       }
       startupBackendPreloaded = true;
-      const { ok: licenseActive } = await checkLicense();
-      return { ok: true, licenseActive };
+      const gate = await evaluateLicenseGate();
+      return { ok: true, licenseActive: gate.ok };
     } catch (err) {
       startupBackendPreloaded = false;
       backendModule = null;
@@ -399,8 +399,8 @@ function registerSetupIpc() {
 
       await withTimeout(startBackend(), 60_000, 'Inicio del servidor backend');
       startupBackendPreloaded = true;
-      const { ok: licenseActive } = await checkLicense();
-      return { ok: true, licenseActive, message: test.message };
+      const gate = await evaluateLicenseGate();
+      return { ok: true, licenseActive: gate.ok, message: test.message };
     } catch (err) {
       startupBackendPreloaded = false;
       backendModule = null;

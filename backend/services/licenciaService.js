@@ -60,6 +60,18 @@ function fromB64url(s) {
   return Buffer.from(b64 + '='.repeat(pad), 'base64');
 }
 
+/** NEXUS-DUAL: contraparte en electron/licenseManager.js */
+function parseTokenExpiry(ex) {
+  if (ex == null || ex === '') return null;
+  if (typeof ex === 'number' || /^\d+$/.test(String(ex).trim())) {
+    const n = Number(ex);
+    if (!Number.isFinite(n)) return null;
+    const ms = n < 1e12 ? n * 1000 : n;
+    return new Date(ms);
+  }
+  return new Date(ex);
+}
+
 /**
  * Obtiene epoch UTC en ms desde respuestas JSON de APIs de tiempo público.
  * Importante: timeapi.io devuelve dateTime ISO sin "Z"; Date.parse lo interpretaría
@@ -192,14 +204,14 @@ function verificarClave(clave, hwid) {
       return { ok: false, motivo: 'Esta licencia pertenece a otro equipo' };
     }
 
-    // Verificar expiración
+    // Verificar expiración (ex: ISO 8601 o segundos Unix — ver parseTokenExpiry)
     if (payload.ex) {
-      const expira = new Date(payload.ex);
-      if (Number.isNaN(expira.getTime())) {
+      const expira = parseTokenExpiry(payload.ex);
+      if (!expira || Number.isNaN(expira.getTime())) {
         return { ok: false, motivo: 'Fecha de expiración inválida en la clave' };
       }
       if (expira < new Date()) {
-        return { ok: false, motivo: `Licencia expirada el ${payload.ex}` };
+        return { ok: false, motivo: `Licencia expirada el ${expira.toISOString()}` };
       }
     }
 

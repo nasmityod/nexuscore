@@ -206,6 +206,18 @@ function fromB64url(s) {
   return Buffer.from(b64 + '='.repeat(pad), 'base64');
 }
 
+/** NEXUS-DUAL: contraparte en backend/services/licenciaService.js */
+function parseTokenExpiry(ex) {
+  if (ex == null || ex === '') return null;
+  if (typeof ex === 'number' || /^\d+$/.test(String(ex).trim())) {
+    const n = Number(ex);
+    if (!Number.isFinite(n)) return null;
+    const ms = n < 1e12 ? n * 1000 : n;
+    return new Date(ms);
+  }
+  return new Date(ex);
+}
+
 /**
  * @returns {{ ok:true, payload:object } | { ok:false, motivo:string }}
  */
@@ -226,8 +238,8 @@ function verifyTokenOffline(token, hwid) {
       return { ok: false, motivo: 'Esta licencia pertenece a otro equipo' };
     }
     if (payload.ex) {
-      const exp = new Date(payload.ex);
-      if (Number.isNaN(exp.getTime())) return { ok: false, motivo: 'Fecha de expiración inválida' };
+      const exp = parseTokenExpiry(payload.ex);
+      if (!exp || Number.isNaN(exp.getTime())) return { ok: false, motivo: 'Fecha de expiración inválida' };
       if (exp < new Date()) return { ok: false, motivo: 'Licencia vencida' };
     }
     return { ok: true, payload };

@@ -22,5 +22,9 @@ contextBridge.exposeInMainWorld('nexusCore', {
 
 contextBridge.exposeInMainWorld('nexusLicense', {
   getServerUrl: () => ipcRenderer.invoke('license:get-server-url'),
-  confirmed: () => ipcRenderer.send('license:activated')
+  confirmed: () => ipcRenderer.send('license:activated'),
+  getHwid: () => ipcRenderer.invoke('license:get-hwid'),
+  getStatus: () => ipcRenderer.invoke('license:get-status'),
+  activate: (licenseKey) => ipcRenderer.invoke('license:activate', { licenseKey }),
+  deactivate: () => ipcRenderer.invoke('license:deactivate')
 });

@@ -329,11 +329,13 @@ function removeActivation(rec, hwidOrHash) {
  * @returns {string} token NC1.*
  */
 function signClientToken(rec, hwid) {
+  // ex en el token debe ser ISO 8601 (como el sistema legado NC-). El cliente usa new Date(ex);
+  // pasar segundos Unix hacía que expirara al instante (1970 + N seg como ms).
   return firmarToken({
     hwidHash: hashHwid(hwid),
     empresa: rec.customerName || 'NexusCore',
     edition: rec.type,
-    expiraEn: rec.expiresAt ? Math.floor(Date.parse(rec.expiresAt) / 1000) : null,
+    expiraEn: rec.expiresAt || null,
     esTrial: rec.type === 'trial'
   });
 }
