@@ -3,19 +3,18 @@
 /**
  * Capa de almacenamiento Redis con dos modos:
  *
- * 1) REST (Upstash / @vercel/kv) — preferido en serverless “puro”
+ * 1) REST (Upstash) — preferido en serverless
  *    KV_REST_API_URL + KV_REST_API_TOKEN
  *    (o UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN)
+ *    Cliente: @upstash/redis (reemplazo oficial de @vercel/kv, deprecado).
  *
- * 2) TCP (redis://…) — Redis Cloud, Redis Labs, muchas integraciones Vercel
- *    KV_REDIS_URL o REDIS_URL
- *    Usa el paquete `redis` (node-redis). El cliente se reutiliza en globalThis
- *    entre invocaciones calientes de la misma lambda.
+ * 2) TCP (redis://…) — Redis Cloud / integraciones TCP
+ *    KV_REDIS_URL o REDIS_URL — paquete `redis` (node-redis).
  *
  * No mezcles en el mismo deploy credenciales de dos bases distintas.
  */
 
-const { createClient: createRestClient } = require('@vercel/kv');
+const { Redis } = require('@upstash/redis');
 
 function pickRestCredentials() {
   if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
@@ -35,7 +34,73 @@ function pickTcpUrl() {
 }
 
 /**
- * Adaptador con la misma forma de uso que @vercel/kv en este proyecto.
+ * Adaptador REST con la misma forma de uso que tenía @vercel/kv en este proyecto.
+ */
+class RestKvAdapter {
+  constructor(creds) {
+    this._redis = new Redis({ url: creds.url, token: creds.token });
+  }
+
+  async get(key) {
+    return this._redis.get(key);
+  }
+
+  async set(key, value, opts = {}) {
+    if (opts.ex) {
+      return this._redis.set(key, value, { ex: opts.ex });
+    }
+    return this._redis.set(key, value);
+  }
+
+  async incr(key) {
+    return this._redis.incr(key);
+  }
+
+  async expire(key, seconds) {
+    return this._redis.expire(key, seconds);
+  }
+
+  async ttl(key) {
+    return this._redis.ttl(key);
+  }
+
+  async del(key) {
+    return this._redis.del(key);
+  }
+
+  /** Compatible con el contrato previo: [nextCursor, keys] */
+  async scan(cursorIn, options = {}) {
+    const cursor = cursorIn === 0 || cursorIn === undefined || cursorIn === ''
+      ? 0
+      : Number(cursorIn);
+    const result = await this._redis.scan(cursor, {
+      match: options.match,
+      count: options.count || 10,
+    });
+    if (Array.isArray(result)) return result;
+    return [result.cursor ?? 0, result.keys ?? []];
+  }
+
+  async mget(...keys) {
+    if (!keys.length) return [];
+    return this._redis.mget(...keys);
+  }
+
+  async lpush(key, ...elements) {
+    return this._redis.lpush(key, ...elements);
+  }
+
+  async ltrim(key, start, stop) {
+    return this._redis.ltrim(key, start, stop);
+  }
+
+  async ping() {
+    return this._redis.ping();
+  }
+}
+
+/**
+ * Adaptador TCP (node-redis) — misma interfaz que RestKvAdapter.
  */
 class TcpKvAdapter {
   async _client() {
@@ -99,9 +164,6 @@ class TcpKvAdapter {
     await c.del(key);
   }
 
-  /**
-   * Compatible con @vercel/kv: [nextCursor, keys]
-   */
   async scan(cursorIn, options = {}) {
     const c = await this._client();
     const cursor = cursorIn === 0 || cursorIn === undefined || cursorIn === ''
@@ -145,14 +207,11 @@ class TcpKvAdapter {
 }
 
 const restCreds = pickRestCredentials();
-const tcpUrl    = pickTcpUrl();
+const tcpUrl = pickTcpUrl();
 
 let kv;
 if (restCreds) {
-  kv = createRestClient({
-    url: restCreds.url,
-    token: restCreds.token,
-  });
+  kv = new RestKvAdapter(restCreds);
 } else if (tcpUrl) {
   kv = new TcpKvAdapter();
 } else {

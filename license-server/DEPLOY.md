@@ -45,9 +45,10 @@ license-server/
 
 ## 2. `vercel.json`
 
-Ya incluido. Define `maxDuration: 10s` y cabeceras de seguridad. La versión de Node se fija
-con `"engines": { "node": "20.x" }` en `package.json` (no uses `runtime` en `vercel.json` —
-Vercel lo rechaza con *Function Runtimes must have a valid version*). No requiere `rewrites`:
+Ya incluido. Define `maxDuration: 10s` y cabeceras de seguridad. La versión de Node debe
+coincidir en `package.json` (`"engines": { "node": "24.x" }`) y en Vercel → Settings →
+Node.js Version (p. ej. 24.x). No uses `runtime` en `vercel.json` — Vercel lo rechaza.
+No requiere `rewrites`:
 `public/index.html` se sirve en `/` y `public/admin/` en `/admin`.
 
 ---
@@ -83,7 +84,7 @@ pequeño (cientos), perfectamente manejable con `SCAN`.
 ### Opción A — Upstash (Marketplace de Vercel)
 1. Vercel Dashboard → **Storage** → **Create Database** → **Upstash for Redis**.
 2. Conéctala al proyecto: Vercel inyecta `KV_REST_API_URL` y `KV_REST_API_TOKEN` automáticamente.
-3. Listo — `lib/kv.js` las detecta.
+3. Listo — `lib/kv.js` las detecta vía `@upstash/redis` (no uses `@vercel/kv`, está deprecado).
 
 ### Opción B — Redis Cloud / otro (TCP)
 1. Crea una instancia y copia su `redis://default:PASSWORD@host:port`.
@@ -98,7 +99,7 @@ pequeño (cientos), perfectamente manejable con `SCAN`.
 
 ```bash
 cd license-server
-npm install            # instala @vercel/kv y redis
+npm install            # instala @upstash/redis y redis
 vercel                 # primer deploy (Preview) — vincula el proyecto
 vercel --prod          # despliegue a Producción
 ```

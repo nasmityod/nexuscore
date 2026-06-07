@@ -4,13 +4,13 @@
   "private": true,
   "description": "Servidor de licencias Ed25519 + panel de administración integrado para NexusCore ERP",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "start:local": "vercel dev --listen 3000"
   },
   "dependencies": {
-    "@vercel/kv": "^3.0.0",
+    "@upstash/redis": "^1.34.3",
     "redis": "^4.7.0"
   }
 }
