@@ -1,21 +1,23 @@
 'use strict';
 
 /**
- * Sincronización automática de tasa BCV oficial vía dolarapi.
- * ÚNICA salida HTTP permitida además de licenciaService (regla AISLAMIENTO-DE-RED).
- * La tasa publicada por el BCV rige desde las 00:00 del día fecha valor (America/Caracas).
+ * Sincronización automática de tasa BCV oficial y feriados vía API privada (dayzove.lat).
+ * ÚNICA salida HTTP permitida además de licenciaService (regla AISLAMIENTO-DE-RED);
+ * la red la realiza bcvApiClient. La tasa publicada por el BCV rige desde las 00:00 del
+ * día fecha valor (America/Caracas).
  *
  * Programación: una consulta diaria tras la publicación típica del BCV (~17:30 Caracas)
- * y aplicación a medianoche sin volver a llamar a la API.
+ * y aplicación a medianoche sin volver a llamar a la API. Los feriados se sincronizan
+ * desde el servidor (año actual + siguiente) al arrancar, en la consulta diaria y a
+ * petición; así, al actualizarlos en el servidor, el sistema los lee y la vigencia legal
+ * de la tasa (días no hábiles) queda correcta sin tocar el cliente.
  */
 
 const PreciosService = require('./preciosService');
+const bcvApiClient = require('./bcvApiClient');
 const bcvVigencia = require('../utils/bcvVigenciaVe');
 const feriadosBcvVe = require('../utils/feriadosBcvVe');
 const { logger } = require('../config/logger');
-
-/** API pública BCV oficial — no requiere credenciales ni variable de entorno */
-const DOLARAPI_BCV_OFICIAL_URL = 'https://ve.dolarapi.com/v1/dolares/oficial';
 
 /** Hora local Venezuela para consultar la tasa del día (publicación BCV ~16:00–17:00) */
 const CONSULTA_DIARIA_HORA = 17;
@@ -28,6 +30,9 @@ const CFG_ULTIMA_CONSULTA = 'tasa_bcv_auto_ultima_consulta';
 const CFG_ULTIMO_APLICADO = 'tasa_bcv_auto_ultima_aplicacion';
 const CFG_ULTIMO_ERROR = 'tasa_bcv_auto_ultimo_error';
 const CFG_FERIADOS = 'tasa_bcv_feriados_ve';
+/** Metadatos de la sincronización de feriados desde el servidor. */
+const CFG_FERIADOS_SYNC_TS = 'tasa_bcv_feriados_sync_ts';
+const CFG_FERIADOS_FUENTE = 'tasa_bcv_feriados_fuente';
 /** Registro de ajuste automático de USD al ser menor que BCV (aviso al admin en UI) */
 const CFG_USD_AJUSTE_TS = 'bcv_auto_usd_ajuste_ts';
 const CFG_USD_AJUSTE_DE = 'bcv_auto_usd_ajuste_de';
@@ -84,6 +89,8 @@ async function leerEstado(db) {
     CFG_ULTIMO_APLICADO,
     CFG_ULTIMO_ERROR,
     CFG_FERIADOS,
+    CFG_FERIADOS_SYNC_TS,
+    CFG_FERIADOS_FUENTE,
     'tasa_bcv',
     CFG_USD_AJUSTE_TS,
     CFG_USD_AJUSTE_DE,
@@ -139,44 +146,29 @@ async function leerEstado(db) {
     feriados: [...feriados].sort(),
     feriados_cantidad: feriados.size,
     feriados_bd_vacio: feriadosDesdeCalendario2026,
+    feriados_sync_ts: map[CFG_FERIADOS_SYNC_TS] || null,
+    feriados_fuente:
+      map[CFG_FERIADOS_FUENTE] || (feriadosDesdeCalendario2026 ? 'local_calendario' : 'manual'),
     calendario_anio: feriadosBcvVe.ANIO_CALENDARIO,
-    api_url: DOLARAPI_BCV_OFICIAL_URL
+    ...bcvApiClient.describirConexion()
   };
 }
 
 /**
- * Consulta dolarapi y guarda tasa pendiente (no aplica hasta fecha valor).
+ * Consulta la API privada BCV y guarda la tasa pendiente (no aplica hasta fecha valor).
  * @param {object} db
  */
 async function consultarApiYGuardarPendiente(db) {
-  const url = DOLARAPI_BCV_OFICIAL_URL;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const tasa = await bcvApiClient.obtenerTasa();
 
-  let payload;
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' }
-    });
-    if (!res.ok) {
-      throw new Error(`bcvTasaAutoService: HTTP ${res.status} al consultar tasa oficial`);
-    }
-    payload = await res.json();
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const promedio = PreciosService.redondearTasa4(payload && payload.promedio);
+  const promedio = PreciosService.redondearTasa4(tasa.rate);
   if (!promedio || promedio <= 0 || Number.isNaN(promedio)) {
-    throw new Error('bcvTasaAutoService: promedio inválido en respuesta de dolarapi');
+    throw new Error('bcvTasaAutoService: tasa inválida en la respuesta de la API BCV');
   }
 
-  const fechaApi = bcvVigencia.parseFechaValorApi(
-    payload && (payload.fechaActualizacion || payload.fecha_actualizacion)
-  );
+  const fechaApi = tasa.effective_date;
   if (!fechaApi) {
-    throw new Error('bcvTasaAutoService: fechaActualizacion ausente o inválida en dolarapi');
+    throw new Error('bcvTasaAutoService: fecha valor ausente o inválida en la API BCV');
   }
 
   // Cargar feriados para validar la fecha valor
@@ -184,7 +176,7 @@ async function consultarApiYGuardarPendiente(db) {
   const feriados = feriadosBcvVe.feriadosEfectivos(feriadosRaw);
   const hoy = bcvVigencia.ymdCaracas();
 
-  // La API devuelve fechaActualizacion = fecha valor (día en que la tasa entra en vigencia).
+  // La API entrega la fecha valor (día en que la tasa entra en vigencia, 00:00 Caracas).
   // Si la fecha valor es ESTRICTAMENTE anterior a hoy (dato obsoleto) o cae en día no hábil,
   // se avanza al siguiente día hábil para cumplir la normativa BCV.
   // Si la fecha valor es HOY (tasa ya vigente desde medianoche de hoy), NO se avanza:
@@ -192,7 +184,7 @@ async function consultarApiYGuardarPendiente(db) {
   let fechaValor = fechaApi;
   if (fechaValor < hoy || bcvVigencia.esDiaNoHabil(fechaValor, feriados)) {
     fechaValor = bcvVigencia.siguienteDiaHabilDesde(hoy, feriados);
-    logger.warn('bcvTasaAutoService: fechaActualizacion API no es día hábil futuro; ajustado a siguiente día hábil', {
+    logger.warn('bcvTasaAutoService: fecha valor de la API no es día hábil futuro; ajustado a siguiente día hábil', {
       fecha_api: fechaApi,
       fecha_valor_ajustada: fechaValor
     });
@@ -203,7 +195,86 @@ async function consultarApiYGuardarPendiente(db) {
   await upsertConfig(db, CFG_ULTIMA_CONSULTA, new Date().toISOString());
   await upsertConfig(db, CFG_ULTIMO_ERROR, '');
 
-  return { promedio, fecha_valor: fechaValor, fecha_api: fechaApi, fuente: payload.fuente || 'oficial' };
+  return { promedio, fecha_valor: fechaValor, fecha_api: fechaApi, fuente: tasa.fuente };
+}
+
+/**
+ * Sincroniza el calendario de feriados desde el servidor (año actual + siguiente) y lo
+ * persiste en configuracion.tasa_bcv_feriados_ve. Requiere NEXUS_BCV_API_KEY.
+ *
+ * Seguridad ante fallos parciales: solo reemplaza los feriados de los años que la API
+ * respondió correctamente; los de un año que falló se conservan. Nunca vacía el calendario.
+ * @param {object} db
+ */
+async function sincronizarFeriados(db) {
+  if (!bcvApiClient.tieneApiKey()) {
+    return { omitido: true, motivo: 'sin_api_key' };
+  }
+
+  const hoy = bcvVigencia.ymdCaracas();
+  const anioActual = Number(hoy.slice(0, 4));
+  const anios = [anioActual, anioActual + 1];
+
+  const set = new Set();
+  const aniosOk = new Set();
+  const detalle = [];
+  let algunaOk = false;
+
+  for (const anio of anios) {
+    try {
+      const r = await bcvApiClient.obtenerFeriados(anio);
+      r.fechas.forEach((f) => set.add(f));
+      aniosOk.add(anio);
+      algunaOk = true;
+      detalle.push({ anio, cantidad: r.fechas.length });
+    } catch (err) {
+      detalle.push({ anio, error: err && err.message ? err.message : String(err) });
+      logger.warn('bcvTasaAutoService: fallo al sincronizar feriados de un año', {
+        anio,
+        error: err && err.message ? err.message : String(err)
+      });
+    }
+  }
+
+  if (!algunaOk) {
+    throw new Error('bcvTasaAutoService: no se pudieron sincronizar los feriados desde la API');
+  }
+
+  // Conservar feriados existentes de años cuya consulta NO tuvo éxito (no perder histórico).
+  const existentes = feriadosBcvVe.feriadosEfectivos(
+    (await leerClaves(db, [CFG_FERIADOS]))[CFG_FERIADOS]
+  );
+  existentes.forEach((f) => {
+    const y = Number(String(f).slice(0, 4));
+    if (!aniosOk.has(y)) set.add(f);
+  });
+
+  const lista = [...set].sort();
+  if (lista.length === 0) {
+    logger.warn('bcvTasaAutoService: la sincronización de feriados quedó vacía; se conserva el calendario actual');
+    return { ok: true, total: 0, sin_cambios: true, anios: detalle };
+  }
+
+  await upsertConfig(db, CFG_FERIADOS, JSON.stringify(lista));
+  await upsertConfig(db, CFG_FERIADOS_SYNC_TS, new Date().toISOString());
+  await upsertConfig(db, CFG_FERIADOS_FUENTE, 'api');
+
+  logger.info('bcvTasaAutoService: feriados sincronizados desde la API', {
+    total: lista.length,
+    anios: detalle
+  });
+  return { ok: true, total: lista.length, anios: detalle };
+}
+
+/** Sincroniza feriados sin propagar errores (uso en arranque / ciclo diario). */
+async function sincronizarFeriadosSeguro(db) {
+  try {
+    return await sincronizarFeriados(db);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    logger.warn('bcvTasaAutoService: sincronización de feriados falló', { error: msg });
+    return { error: msg };
+  }
 }
 
 /**
@@ -262,7 +333,7 @@ async function intentarAplicarPendiente(db, { forzarInstalacionInicial = false }
 
   const result = await PreciosService.actualizarTasaBcvAutomatica(db, pendiente, {
     fecha_valor: fechaValor,
-    fuente: 'dolarapi',
+    fuente: 'dayzove',
     tasa_usd_previa: prevUsd
   });
 
@@ -285,6 +356,9 @@ async function intentarAplicarPendiente(db, { forzarInstalacionInicial = false }
 async function ejecutarConsultaDiaria(db) {
   const estado = await leerEstado(db);
   if (!estado.activo) return { omitido: true };
+
+  // Refrescar feriados antes de validar la fecha valor (la vigencia depende de ellos).
+  await sincronizarFeriadosSeguro(db);
 
   const feriados = feriadosBcvVe.feriadosEfectivos(
     (await leerClaves(db, [CFG_FERIADOS]))[CFG_FERIADOS]
@@ -443,10 +517,25 @@ function programarMedianoche(db) {
 async function start(db) {
   limpiarTemporizadores();
 
+  const conKey = bcvApiClient.tieneApiKey();
+  if (!conKey) {
+    logger.warn(
+      'bcvTasaAutoService: sin NEXUS_BCV_API_KEY; los feriados usarán el calendario local y la tasa el endpoint público. Define la clave para sincronizar feriados del servidor.',
+      bcvApiClient.describirConexion()
+    );
+  }
+
   const estado = await leerEstado(db);
   if (!estado.activo) {
+    // Aunque la tasa automática esté apagada, sincronizar feriados al arrancar (si hay clave):
+    // afectan la vigencia legal de la tasa incluso cuando se actualiza manualmente.
+    if (conKey) {
+      setTimeout(() => {
+        sincronizarFeriadosSeguro(db).catch(() => {});
+      }, 20 * 1000);
+    }
     logger.info('bcvTasaAutoService: sincronización BCV automática desactivada');
-    return { activo: false };
+    return { activo: false, api: bcvApiClient.describirConexion() };
   }
 
   // En primera instalación (sin consulta previa) ejecutar el ciclo completo de inmediato
@@ -456,9 +545,13 @@ async function start(db) {
 
   setTimeout(() => {
     if (!runningSync) {
-      const tarea = esInstalacionInicial
-        ? () => ejecutarCicloInicial(db)
-        : () => ejecutarAplicacionMedianoche(db);
+      const tarea = async () => {
+        // Feriados primero (afectan la vigencia), luego la tasa.
+        await sincronizarFeriadosSeguro(db);
+        return esInstalacionInicial
+          ? ejecutarCicloInicial(db)
+          : ejecutarAplicacionMedianoche(db);
+      };
       runningSync = tarea()
         .catch((e) => logger.error('bcvTasaAutoService arranque', { error: e.message }))
         .finally(() => {
@@ -472,10 +565,11 @@ async function start(db) {
 
   logger.info('bcvTasaAutoService: programador iniciado (consulta 1×/día, aplicación a medianoche)', {
     consulta_diaria: etiquetaConsultaDiaria(),
-    instalacion_inicial: esInstalacionInicial
+    instalacion_inicial: esInstalacionInicial,
+    ...bcvApiClient.describirConexion()
   });
 
-  return { activo: true, consulta_diaria_hora: etiquetaConsultaDiaria() };
+  return { activo: true, consulta_diaria_hora: etiquetaConsultaDiaria(), api: bcvApiClient.describirConexion() };
 }
 
 function stop() {
@@ -491,6 +585,13 @@ async function sincronizarManual(db) {
   if (runningSync) await runningSync.catch(() => {});
   const r = await ejecutarCiclo(db);
   return leerEstado(db).then((estado) => ({ ...r, estado }));
+}
+
+/** Sincroniza solo los feriados desde el servidor (sin tocar la tasa). */
+async function sincronizarFeriadosManual(db) {
+  const resultado = await sincronizarFeriados(db);
+  const estado = await leerEstado(db);
+  return { resultado, estado };
 }
 
 async function setActivo(db, activo, feriadosJson, usuarioId) {
@@ -509,6 +610,9 @@ async function setActivo(db, activo, feriadosJson, usuarioId) {
       }
     }
     await upsertConfig(db, CFG_FERIADOS, texto);
+    // Edición desde el formulario: el calendario pasa a ser una corrección manual
+    // (la sincronización desde el servidor lo volverá a marcar como 'api').
+    await upsertConfig(db, CFG_FERIADOS_FUENTE, 'manual');
   }
   void usuarioId;
   await restart(db);
@@ -518,7 +622,8 @@ async function setActivo(db, activo, feriadosJson, usuarioId) {
 module.exports = {
   CFG_AUTO,
   CFG_FERIADOS,
-  DOLARAPI_BCV_OFICIAL_URL,
+  CFG_FERIADOS_SYNC_TS,
+  CFG_FERIADOS_FUENTE,
   CONSULTA_DIARIA_HORA,
   CONSULTA_DIARIA_MINUTO,
   leerEstado,
@@ -527,6 +632,8 @@ module.exports = {
   ejecutarCiclo,
   ejecutarCicloInicial,
   sincronizarManual,
+  sincronizarFeriados,
+  sincronizarFeriadosManual,
   setActivo,
   start,
   stop,

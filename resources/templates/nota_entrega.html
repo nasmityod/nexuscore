@@ -3,102 +3,206 @@
 <head>
   <meta charset="UTF-8" />
   <title>Nota de entrega {{NUMERO_VENTA}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=DM+Mono:wght@400;500&family=Sora:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
-    * { box-sizing: border-box; }
+    /* Nexus Core — nota de entrega A4 (misma identidad impresión que factura.html) */
+    @page { size: A4; margin: 1.2cm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Segoe UI', Georgia, serif;
+      font-family: 'Sora', Georgia, serif;
       font-size: 11pt;
-      color: #1a1a1a;
+      color: #111827;
+      background: #fafafa;
       max-width: 210mm;
-      min-height: 297mm;
-      margin: 12mm auto;
-      padding: 0 14mm;
+      margin: 0 auto;
+      padding: 0 4mm;
     }
     .doc-header {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      border-bottom: 2px solid #2563eb;
-      padding-bottom: 10mm;
-      margin-bottom: 8mm;
+      border-bottom: 2px solid #f0a500;
+      padding-bottom: 8mm;
+      margin-bottom: 7mm;
     }
     .doc-brand h1 {
-      font-size: 18pt;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 16pt;
       font-weight: 700;
-      color: #1e3a8a;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #090d18;
       margin-bottom: 2mm;
     }
-    .doc-brand p { margin: 1mm 0; font-size: 10pt; color: #374151; line-height: 1.35; }
+    .doc-brand p {
+      margin: 1mm 0;
+      font-size: 9.5pt;
+      color: #374151;
+      line-height: 1.35;
+    }
     .doc-meta {
       text-align: right;
-      font-size: 10pt;
+      font-size: 9.5pt;
+      color: #374151;
     }
     .doc-meta .badge {
       display: inline-block;
-      background: #eff6ff;
-      border: 1px solid #93c5fd;
+      background: #f0a500;
+      border: 1px solid #c47f00;
       padding: 2mm 4mm;
-      border-radius: 4px;
-      font-weight: 600;
-      color: #1d4ed8;
+      border-radius: 3px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 10pt;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #05080f;
       margin-bottom: 3mm;
+    }
+    .doc-meta .numero {
+      font-family: 'DM Mono', monospace;
+      font-size: 12pt;
+      font-weight: 500;
+      color: #090d18;
     }
     .doc-block {
       margin-bottom: 6mm;
     }
     .doc-block h2 {
-      font-size: 10pt;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.14em;
       color: #6b7280;
       margin-bottom: 2mm;
     }
-    .two-col { display: flex; gap: 12mm; }
-    .two-col > div { flex: 1; }
+    .doc-block p {
+      font-size: 9.5pt;
+      line-height: 1.4;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5mm;
+    }
+    .info-panel {
+      border: 1px solid #d1d5db;
+      border-left: 3px solid #090d18;
+      padding: 4mm 5mm;
+      border-radius: 3px;
+      background: #fff;
+    }
     table.detalle {
       width: 100%;
       border-collapse: collapse;
-      font-size: 10pt;
+      font-size: 9pt;
       margin-top: 2mm;
+      table-layout: fixed;
+      background: #fff;
     }
     table.detalle th {
-      background: #f3f4f6;
-      border: 1px solid #d1d5db;
+      background: #0d1424;
+      color: #e5e7eb;
+      border: 1px solid #090d18;
       padding: 2.5mm 2mm;
       text-align: left;
-      font-weight: 600;
+      font-family: 'DM Mono', monospace;
+      font-weight: 500;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
     }
     table.detalle td {
       border: 1px solid #e5e7eb;
       padding: 2mm;
       vertical-align: top;
+      color: #111827;
     }
-    table.detalle td.num { text-align: right; white-space: nowrap; }
-    .totals {
+    table.detalle td.num,
+    table.detalle th.num {
+      font-family: 'DM Mono', monospace;
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    table.detalle .col-desc { width: 36%; }
+    table.detalle .col-cant { width: 8%; }
+    table.detalle .col-pu { width: 18%; }
+    table.detalle .col-sub { width: 19%; }
+    table.detalle .col-ref { width: 19%; }
+    table.detalle .col-pago { width: 62%; }
+    table.detalle .col-monto { width: 38%; }
+    table.detalle td.col-desc {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    table.detalle tbody tr:nth-child(even) { background: #f4f5f7; }
+    .totals-wrap {
+      display: flex;
+      justify-content: flex-end;
       margin-top: 6mm;
-      margin-left: auto;
-      width: 85mm;
-      font-size: 10pt;
+      margin-bottom: 6mm;
     }
-    .totals table { width: 100%; border-collapse: collapse; }
-    .totals td { padding: 1.5mm 2mm; border-bottom: 1px solid #e5e7eb; }
-    .totals td:last-child { text-align: right; font-weight: 500; }
+    .totals {
+      width: 95mm;
+      font-size: 9.5pt;
+    }
+    .totals table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: #fff;
+    }
+    .totals td {
+      padding: 1.8mm 2mm;
+      border-bottom: 1px solid #e5e7eb;
+      color: #374151;
+    }
+    .totals td:first-child { width: 58%; }
+    .totals td:last-child {
+      width: 42%;
+      font-family: 'DM Mono', monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: #111827;
+    }
     .totals .grand td {
+      font-family: 'Barlow Condensed', sans-serif;
       font-weight: 700;
       font-size: 11pt;
-      border-bottom: 2px solid #2563eb;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: #f0a500;
+      color: #05080f;
+      border-bottom: none;
       padding-top: 3mm;
+      padding-bottom: 3mm;
+    }
+    .totals .grand td:last-child {
+      font-family: 'DM Mono', monospace;
+      font-weight: 500;
+    }
+    .totals .ref td {
+      font-size: 8.5pt;
+      color: #6b7280;
+    }
+    .totals .ref td:last-child {
+      font-family: 'DM Mono', monospace;
     }
     .firmas {
       display: flex;
       justify-content: space-between;
-      margin-top: 18mm;
+      margin-top: 14mm;
       gap: 16mm;
-      font-size: 10pt;
+      font-size: 9pt;
     }
     .firmas .line {
       flex: 1;
-      border-top: 1px solid #111;
+      border-top: 1px solid #090d18;
       padding-top: 2mm;
       text-align: center;
       color: #374151;
@@ -107,7 +211,10 @@
       margin-top: 10mm;
       font-size: 8pt;
       color: #6b7280;
-      line-height: 1.4;
+      line-height: 1.45;
+      border-top: 1px solid #d1d5db;
+      padding-top: 4mm;
+      text-align: center;
     }
   </style>
 </head>
@@ -122,19 +229,19 @@
       </div>
       <div class="doc-meta">
         <div class="badge">NOTA DE ENTREGA</div>
-        <p><strong>{{NUMERO_VENTA}}</strong></p>
+        <p class="numero">{{NUMERO_VENTA}}</p>
         <p>Fecha: {{FECHA_VENTA}}</p>
-        <p>Tasa aplicada (Bs/USD): {{TASA_CAMBIO}}</p>
+        <p>Tasa BCV: {{TASA_CAMBIO}}</p>
       </div>
     </header>
 
     <section class="doc-block two-col">
-      <div>
+      <div class="info-panel">
         <h2>Cliente</h2>
         <p><strong>{{CLIENTE_NOMBRE}}</strong></p>
         <p>{{CLIENTE_DOC}}</p>
       </div>
-      <div>
+      <div class="info-panel">
         <h2>Condiciones</h2>
         <p>Método de pago: <strong>{{METODO_PAGO}}</strong></p>
         <p>Estado venta: {{ESTADO_VENTA}}</p>
@@ -146,10 +253,11 @@
       <table class="detalle">
         <thead>
           <tr>
-            <th style="width:40%">Descripción</th>
-            <th class="num">Cant.</th>
-            <th class="num">P. unit. USD</th>
-            <th class="num">Subtotal USD</th>
+            <th class="col-desc">Descripción</th>
+            <th class="num col-cant">Cant.</th>
+            <th class="num col-pu">P. unit. (Bs.)</th>
+            <th class="num col-sub">Subtotal (Bs.)</th>
+            <th class="num col-ref">Ref. USD</th>
           </tr>
         </thead>
         <tbody>
@@ -161,20 +269,29 @@
     <section class="doc-block">
       <h2>Pagos registrados</h2>
       <table class="detalle">
+        <thead>
+          <tr>
+            <th class="col-pago">Forma de pago</th>
+            <th class="num col-monto">Monto</th>
+          </tr>
+        </thead>
         <tbody>
           {{PAGOS_ROWS}}
         </tbody>
       </table>
     </section>
 
-    <div class="totals">
-      <table>
-        <tr><td>Subtotal USD</td><td>{{SUBTOTAL_USD}}</td></tr>
-        <tr><td>Descuento</td><td>{{DESCUENTO_INFO}}</td></tr>
-        <tr><td>IVA ({{IVA_PCT}}%)</td><td>{{IVA_USD}}</td></tr>
-        <tr class="grand"><td>TOTAL USD</td><td>{{TOTAL_USD}}</td></tr>
-        <tr class="grand"><td>TOTAL Bs</td><td>{{TOTAL_BS}}</td></tr>
-      </table>
+    <div class="totals-wrap">
+      <div class="totals">
+        <table>
+          <tr><td>Subtotal (Bs.)</td><td>{{SUBTOTAL_BS}}</td></tr>
+          <tr class="ref"><td>Subtotal ref. USD (BCV)</td><td>{{SUBTOTAL_USD}}</td></tr>
+          <tr><td>Descuento</td><td>{{DESCUENTO_INFO}}</td></tr>
+          <tr><td>IVA ({{IVA_PCT}}%)</td><td>{{IVA_BS}}</td></tr>
+          <tr class="grand"><td>Total Bolívares</td><td>{{TOTAL_BS}}</td></tr>
+          <tr class="ref"><td>Referencia USD (BCV)</td><td>{{TOTAL_USD}}</td></tr>
+        </table>
+      </div>
     </div>
 
     <section class="firmas">

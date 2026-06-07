@@ -327,6 +327,7 @@
       inventario_edit: false,
       compras_all: false,
       proveedores_all: false,
+      cuentas_pagar_all: false,
       reportes_all: false,
       config_read: false,
       config_write: false,
@@ -347,6 +348,7 @@
       inventario_edit: false,
       compras_all: false,
       proveedores_all: false,
+      cuentas_pagar_all: false,
       reportes_all: true,
       config_read: true,
       config_write: false,
@@ -367,6 +369,7 @@
       inventario_edit: true,
       compras_all: true,
       proveedores_all: true,
+      cuentas_pagar_all: true,
       reportes_all: false,
       config_read: false,
       config_write: false,
@@ -387,6 +390,7 @@
       inventario_edit: true,
       compras_all: true,
       proveedores_all: true,
+      cuentas_pagar_all: true,
       reportes_all: true,
       config_read: true,
       config_write: true,
@@ -407,11 +411,18 @@
     if (!u) return {};
     var p = normalizePermisosObj(u.permisos);
     if (p.all === true) return p;
-    if (Object.keys(p).length > 0) return p;
     var rn = String(u.rol_nombre || u.rol || '')
       .toLowerCase()
       .trim();
-    return normalizePermisosObj(ROLE_PERM_FALLBACK[rn]) || {};
+    var preset = normalizePermisosObj(ROLE_PERM_FALLBACK[rn]) || {};
+    if (preset.all === true) return preset;
+    // Fusión preset (base del rol) + permisos del JWT (override), idéntico al
+    // backend (permissions.middleware.js → { ...preset, ...p }). Así un permiso
+    // nuevo añadido al preset (ej. cuentas_pagar_all) queda visible aunque el
+    // JWT/​sesión sea anterior a la migración que lo introdujo, y cualquier
+    // override explícito del token sigue teniendo prioridad.
+    if (Object.keys(p).length > 0) return Object.assign({}, preset, p);
+    return preset;
   }
 
   function can(permissionKey) {

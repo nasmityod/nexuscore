@@ -65,7 +65,7 @@
 
 <!-- ═══ MODAL: NUEVO / EDITAR PRODUCTO ═══ -->
 <div class="modal-overlay" id="modal-producto">
-  <div class="modal-box">
+  <div class="modal-box modal-box--producto">
     <div class="modal-header">
       <h2 id="wizard-titulo">Nuevo Producto</h2>
       <button class="btn-cerrar-modal" data-cerrar-modal="modal-producto">✕</button>
@@ -184,6 +184,23 @@
           </div>
           <small>El sistema calcula el % de ganancia necesario</small>
         </div>
+
+        <div class="campo-grupo" id="panel-modo-usd-cobro-obj" style="display:none">
+          <label for="input-usd-objetivo">¿Cuánto quieres cobrar en USD/Zelle por este producto?</label>
+          <div class="input-con-prefijo">
+            <span class="prefijo">$</span>
+            <input
+              type="number"
+              id="input-usd-objetivo"
+              step="0.01"
+              min="0.01"
+              class="input-grande"
+              placeholder="Ej: 30.00"
+            />
+          </div>
+          <small>El sistema calculará el margen de ganancia necesario para que cobres ese monto cuando el cliente pague en USD/Zelle (con el descuento divisa activo).</small>
+          <div id="feedback-modo-usd-objetivo" class="inv-feedback-usd-cobro-obj" style="display:none"></div>
+        </div>
       </div>
 
       <!-- Selector de modo de precio (siempre visible) -->
@@ -193,6 +210,16 @@
           <button type="button" class="btn-modo-precio activo" data-modo="margen">% Ganancia</button>
           <button type="button" class="btn-modo-precio" data-modo="bcv">$BCV · Precio final</button>
           <button type="button" class="btn-modo-precio" data-modo="usd">$USD · Precio final</button>
+          <button
+            type="button"
+            class="btn-modo-precio nexus-multimoneda-only"
+            data-modo="usd_objetivo"
+            data-requiere-divisa="true"
+            id="btn-modo-usd-objetivo"
+            style="display:none;"
+            title="Define cuánto quieres recibir en USD/Zelle y el sistema calcula el margen">
+            USD a recibir
+          </button>
         </div>
       </div>
 
@@ -241,6 +268,43 @@
         <p class="precios-nota">
           Tasas activas — BCV: <strong id="res-tasa-bcv">—</strong> Bs/$<span class="nexus-usd-only"> · USD: <strong id="res-tasa-usd">—</strong> Bs/$</span>
         </p>
+      </div>
+
+      <div id="bloque-preview-divisa" class="nexus-multimoneda-only card-preview-divisa" style="display:none;">
+        <div class="preview-divisa-header">
+          <h4 class="inv-precios-titulo preview-divisa-titulo">Cobro estimado en USD/Zelle</h4>
+          <span id="preview-divisa-badge" class="preview-divisa-badge"></span>
+        </div>
+        <div class="preview-divisa-body">
+          <div class="preview-divisa-fila">
+            <span class="preview-divisa-label">Descuento divisa activo:</span>
+            <span id="preview-divisa-pct" class="preview-divisa-valor">—</span>
+          </div>
+          <div class="preview-divisa-fila">
+            <span class="preview-divisa-label">Precio etiqueta (Ref. BCV):</span>
+            <span id="preview-divisa-ref-bcv" class="preview-divisa-valor">—</span>
+          </div>
+          <div class="preview-divisa-fila preview-divisa-fila--destacada">
+            <span class="preview-divisa-label">Cobrarás en USD/Zelle:</span>
+            <strong id="preview-divisa-cobro-usd" class="preview-divisa-valor preview-divisa-cobro">—</strong>
+          </div>
+          <div class="preview-divisa-fila">
+            <span class="preview-divisa-label">Ganancia real en billetes:</span>
+            <span id="preview-divisa-ganancia-real" class="preview-divisa-valor">—</span>
+          </div>
+          <div class="preview-divisa-fila preview-divisa-fila--referencia">
+            <span class="preview-divisa-label">Margen configurado:</span>
+            <span id="preview-divisa-margen-config" class="preview-divisa-valor preview-divisa-config">—</span>
+          </div>
+        </div>
+        <div id="preview-divisa-alerta" class="preview-divisa-alerta" style="display:none;">
+          Atención: la ganancia real en billetes es <span id="preview-alerta-delta"></span>% menor
+          que tu margen configurado. Considera subir el margen de este producto si quieres
+          mantener rentabilidad en cobros USD/Zelle.
+        </div>
+        <div id="preview-divisa-inactivo" class="preview-divisa-inactivo" style="display:none;">
+          Sin descuento divisa: cobro USD = Ref. BCV · Ganancia real = margen configurado
+        </div>
       </div>
 
       <div class="form-producto-acciones">

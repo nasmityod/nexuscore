@@ -3,44 +3,61 @@
 <head>
   <meta charset="UTF-8" />
   <title>Ticket {{NUMERO_VENTA}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=DM+Mono:wght@400;500&family=Sora:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
-    /* Ticket térmico ~80mm — referencia visual / impresión navegador */
+    /* Nexus Core — ticket térmico ~80mm (identidad adaptada a B/N) */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-family: 'Sora', sans-serif;
       font-size: 11px;
-      color: #111;
+      color: #090d18;
       width: 72mm;
       max-width: 72mm;
       padding: 3mm 2mm;
       margin: 0 auto;
+      background: #fff;
     }
     .ticket-brand {
       text-align: center;
+      font-family: 'Barlow Condensed', sans-serif;
       font-weight: 700;
       font-size: 13px;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #090d18;
       margin-bottom: 2mm;
     }
     .ticket-muted {
       text-align: center;
       font-size: 9px;
-      color: #333;
+      color: #374151;
       line-height: 1.35;
       margin-bottom: 3mm;
     }
     .ticket-rule {
       border: none;
-      border-top: 1px dashed #999;
+      border-top: 1px solid #f0a500;
       margin: 2mm 0;
+    }
+    .ticket-rule--navy {
+      border-top-color: #090d18;
     }
     .ticket-row {
       display: flex;
       justify-content: space-between;
       font-size: 10px;
       margin: 1mm 0;
+      gap: 2mm;
     }
     .ticket-row strong { font-weight: 600; }
+    .ticket-row .val {
+      font-family: 'DM Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      flex-shrink: 0;
+    }
     table.ticket-lines {
       width: 100%;
       border-collapse: collapse;
@@ -49,31 +66,46 @@
     }
     table.ticket-lines th {
       text-align: left;
-      border-bottom: 1px solid #333;
+      border-bottom: 2px solid #090d18;
       padding: 1mm 0;
-      font-weight: 600;
+      font-family: 'DM Mono', monospace;
+      font-size: 8px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #6b7280;
     }
     table.ticket-lines td {
       padding: 1.2mm 0;
       vertical-align: top;
-      border-bottom: 1px dotted #ccc;
+      border-bottom: 1px dotted #d1d5db;
     }
-    table.ticket-lines td.num { text-align: right; white-space: nowrap; }
+    table.ticket-lines td.num,
+    table.ticket-lines th.num {
+      font-family: 'DM Mono', monospace;
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
     .ticket-totals {
       margin-top: 3mm;
       font-size: 10px;
     }
     .ticket-totals .big {
+      font-family: 'DM Mono', monospace;
       font-weight: 700;
-      font-size: 12px;
+      font-size: 11px;
       margin-top: 2mm;
       display: flex;
       justify-content: space-between;
+      padding: 1.5mm 1mm;
+      background: #f0a500;
+      color: #05080f;
     }
     .ticket-footer {
       text-align: center;
       font-size: 9px;
-      color: #444;
+      color: #6b7280;
       margin-top: 4mm;
       line-height: 1.4;
     }
@@ -88,41 +120,41 @@
       {{TELEFONO_EMPRESA}}
     </div>
     <hr class="ticket-rule" />
-    <div class="ticket-row"><span><strong>Ticket</strong></span><span>{{NUMERO_VENTA}}</span></div>
-    <div class="ticket-row"><span>Fecha</span><span>{{FECHA_VENTA}}</span></div>
+    <div class="ticket-row"><span><strong>Ticket</strong></span><span class="val">{{NUMERO_VENTA}}</span></div>
+    <div class="ticket-row"><span>Fecha</span><span class="val">{{FECHA_VENTA}}</span></div>
     <div class="ticket-row"><span>Cliente</span><span>{{CLIENTE_NOMBRE}}</span></div>
     <div class="ticket-row"><span>Método</span><span>{{METODO_PAGO}}</span></div>
-    <div class="ticket-row"><span>Tasa BCV</span><span>{{TASA_CAMBIO}}</span></div>
-    <hr class="ticket-rule" />
+    <div class="ticket-row"><span>Tasa BCV</span><span class="val">{{TASA_CAMBIO}}</span></div>
+    <hr class="ticket-rule ticket-rule--navy" />
     <table class="ticket-lines">
       <thead>
         <tr>
           <th>Producto</th>
           <th class="num">Cant</th>
-          <th class="num">P.Unit</th>
-          <th class="num">$ BCV</th>
+          <th class="num">Ref. USD</th>
+          <th class="num">Subt.</th>
         </tr>
       </thead>
       <tbody>
         {{LINEAS_ROWS}}
       </tbody>
     </table>
-    <hr class="ticket-rule" />
+    <hr class="ticket-rule ticket-rule--navy" />
     <table class="ticket-lines">
       <tbody>
         {{PAGOS_ROWS}}
       </tbody>
     </table>
     <div class="ticket-totals">
-      <div class="ticket-row"><span>Subtotal $ BCV</span><span>{{SUBTOTAL_USD}}</span></div>
-      <div class="ticket-row"><span>Descuento</span><span>{{DESCUENTO_INFO}}</span></div>
-      <div class="ticket-row"><span>IVA ({{IVA_PCT}}%)</span><span>{{IVA_USD}}</span></div>
-      <div class="big"><span>TOTAL $ BCV</span><span>{{TOTAL_USD}}</span></div>
-      <div class="big"><span>TOTAL Bs BCV</span><span>{{TOTAL_BS}}</span></div>
+      <div class="ticket-row"><span>Subtotal ref.</span><span class="val">{{SUBTOTAL_USD}}</span></div>
+      <div class="ticket-row"><span>Descuento</span><span class="val">{{DESCUENTO_INFO}}</span></div>
+      {{DESCUENTO_DIVISA_ROW}}
+      <div class="ticket-row"><span>IVA ({{IVA_PCT}}%)</span><span class="val">{{IVA_USD}}</span></div>
+      <div class="big"><span>Total ref. USD</span><span>{{TOTAL_USD}}</span></div>
+      <div class="big"><span>Total Bolívares</span><span>{{TOTAL_BS}}</span></div>
     </div>
     <div class="ticket-footer">
-      {{PIE_TICKET}}<br />
-      Gracias por su compra — Nexus Core POS
+      {{PIE_TICKET}}
     </div>
   </div>
 </body>

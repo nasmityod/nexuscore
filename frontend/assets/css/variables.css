@@ -8,7 +8,8 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
-:root {
+:root,
+[data-theme="dark"] {
 
   /* ── FONDOS (de más oscuro a más elevado) ─────────────────── */
   --bg-primary:      #05080f;   /* base de la app, el más oscuro */
@@ -32,9 +33,21 @@
   --accent-info-dim:  rgba(59, 130, 246, 0.15);
 
   /* ── ESTADOS SEMÁFORO ─────────────────────────────────────── */
-  --accent-success:  #22c55e;   /* ventas completadas, stock OK */
-  --accent-warning:  #f59e0b;   /* stock bajo, alertas */
-  --accent-danger:   #ef4444;   /* anulaciones, errores */
+  --accent-success:      #22c55e;   /* ventas completadas, stock OK */
+  --accent-success-dim:  #059669;   /* hover botones verdes */
+  --accent-warning:      #f59e0b;   /* stock bajo, alertas */
+  --accent-danger:       #ef4444;   /* anulaciones, errores */
+  --accent-danger-dim:   #dc2626;   /* hover botones rojos */
+  --accent-orange:       #f97316;   /* bucket cartera nivel 2 */
+
+  /* ── ESTADOS NEUTROS / TEXTO SUAVE (pages.css) ────────────── */
+  --neutral-slate:       #64748b;   /* inactivo, cancelado, comparativa igual */
+  --dash-sem-yellow:     #eab308;   /* semáforo amarillo dashboard */
+  --label-warning-text:  #ca8a04;   /* etiqueta stock bajo */
+  --text-success-soft:   #6ee7b7;   /* texto verde sobre fondo tintado */
+  --text-danger-soft:    #fecaca;   /* texto rojo claro sobre fondo tintado */
+  --text-danger-muted:   #f87171;   /* texto rojo medio (urgente) */
+  --btn-disabled-bg:     #6b7280;   /* botón deshabilitado */
 
   /* ── TEXTO ─────────────────────────────────────────────────── */
   --text-primary:    #edf2f7;
@@ -43,6 +56,7 @@
   --text-bright:     #ffffff;
   --text-accent:     var(--accent-primary);
   --text-on-accent:  #05080f;   /* texto sobre botón primario ámbar */
+  --text-on-color:   #ffffff;   /* texto sobre fondos semáforo (verde/rojo) — invariante */
 
   /* ── BORDES ────────────────────────────────────────────────── */
   --border-primary:  #1a2540;
@@ -109,6 +123,195 @@
   --header-height:    50px;
   --scrollbar-thumb:  var(--border-primary);
   --scrollbar-track:  var(--bg-primary);
+
+  /* ── OVERLAY MODAL ─────────────────────────────────────────── */
+  --overlay-bg: rgba(0, 0, 0, 0.75);
+
+  /* ── GRADIENTES DEL FONDO (para theming) ───────────────────── */
+  --body-gradient-amber: rgba(240, 165, 0, 0.022);
+  --body-gradient-info:  rgba(59, 130, 246, 0.018);
+
+  /* ── BADGES — tokens semánticos por variante de color ──────── */
+  --badge-blue-bg:      rgba(59, 130, 246, 0.12);
+  --badge-blue-text:    #93c5fd;
+  --badge-blue-border:  rgba(59, 130, 246, 0.20);
+  --badge-green-bg:     rgba(34, 197, 94, 0.12);
+  --badge-green-text:   #4ade80;
+  --badge-green-border: rgba(34, 197, 94, 0.20);
+  --badge-yellow-bg:    rgba(245, 158, 11, 0.12);
+  --badge-yellow-text:  #fcd34d;
+  --badge-yellow-border:rgba(245, 158, 11, 0.20);
+  --badge-red-bg:       rgba(239, 68, 68, 0.12);
+  --badge-red-text:     #f87171;
+  --badge-red-border:   rgba(239, 68, 68, 0.20);
+  --badge-purple-bg:    rgba(168, 85, 247, 0.12);
+  --badge-purple-text:  #c4b5fd;
+  --badge-purple-border:rgba(168, 85, 247, 0.20);
+
+  /* ── CARD — realce superficial (highlight de 1 px interior) ── */
+  --card-highlight: rgba(255, 255, 255, 0.015);
+
+  /* ── POS — banners de cobro (indicadores semáforo) ─────────── */
+  --cobro-banner-border:      rgba(255, 255, 255, 0.12);
+  --cobro-banner-green-from:  #059669;
+  --cobro-banner-green-to:    #34d399;
+  --cobro-banner-yellow-from: #d97706;
+  --cobro-banner-yellow-to:   #fbbf24;
+  --cobro-banner-yellow-text: #0f172a;
+  --cobro-banner-yellow-label:rgba(15, 23, 42, 0.85);
+  --cobro-banner-red-from:    #dc2626;
+  --cobro-banner-red-to:      #f87171;
+  --cobro-banner-on-color:    #ffffff;
+
+  /* ── POS — marquee boxes (resumen de contexto en panel) ─────── */
+  --marquee-green-from:  #059669;
+  --marquee-green-to:    #047857;
+  --marquee-yellow-from: #d97706;
+  --marquee-yellow-to:   #b45309;
+  --marquee-red-from:    #dc2626;
+  --marquee-red-to:      #b91c1c;
+  --marquee-on-color:    #ffffff;
+
+  /* ── POS — tecla OK del keypad de cobro ────────────────────── */
+  --cobro-key-ok-border: #059669;
+
+  /* ── CHART — tokens semánticos para gráficos Chart.js ──────── */
+  --chart-income:     #10b981;                  /* verde esmeralda — series de ingresos */
+  --chart-area-fill:  rgba(240, 165, 0, 0.05);  /* ámbar sutil — relleno bajo línea (dark) */
+  --chart-tooltip-bg: var(--bg-elevated);        /* fondo tooltip en dark = #162035 */
+
+  /* ── CASHEA — acentos de stat cards (borde izquierdo) ─────── */
+  --cashea-stat-proximo-border:  #1976d2;
+  --cashea-stat-neto-border:       #2e7d32;
+  --cashea-stat-comision-border:   #e65100;
+
+  /* ── POS — aside clásico (panel lateral dark base) ─────────── */
+  --pos-aside-gradient-end:     #0f2744;
+  --pos-aside-fg:               #e2e8f0;
+  --pos-aside-border-muted:     rgba(255, 255, 255, 0.08);
+  --pos-aside-surface:          rgba(255, 255, 255, 0.08);
+  --pos-aside-input-bg:         rgba(15, 23, 42, 0.72);
+  --pos-aside-input-fg:         #f1f5f9;
+  --pos-aside-input-border:     rgba(148, 163, 184, 0.38);
+  --pos-aside-input-placeholder: rgba(148, 163, 184, 0.88);
+  --pos-aside-list-bg:          rgba(15, 23, 42, 0.5);
+  --pos-aside-list-border:      rgba(255, 255, 255, 0.10);
+  --pos-aside-price-ok:         #6ee7b7;
+  --pos-aside-price-out:        #fca5a5;
+  --pos-aside-preview-bg:       rgba(255, 255, 255, 0.06);
+  --pos-aside-preview-border:   rgba(255, 255, 255, 0.10);
+  --pos-aside-preview-fg:       #f1f5f9;
+  --pos-aside-hover-bg:         rgba(255, 255, 255, 0.07);
+  --pos-aside-hover-border:     rgba(255, 255, 255, 0.12);
+}
+
+/* ── Modo claro ─────────────────────────────────────────────── */
+[data-theme="light"] {
+
+  /* FONDOS */
+  --bg-primary:     #f4f6fa;
+  --bg-secondary:   #ffffff;
+  --bg-tertiary:    #eef1f6;
+  --bg-accent:      #e4eaf4;
+  --bg-elevated:    #ffffff;
+  --bg-glass:       rgba(244, 246, 250, 0.90);
+  --bg-surface:     #eef1f6;
+  --bg-hover:       #e4eaf4;
+
+  /* ACENTO — ámbar siempre igual */
+  --accent-primary:        #f0a500;
+  --accent-primary-dim:    #c47f00;
+  --accent-primary-glow:   rgba(240, 165, 0, 0.14);
+  --accent-primary-bg:     rgba(240, 165, 0, 0.09);
+  --accent-secondary:      #f0a500;
+
+  /* INFO */
+  --accent-info:     #2563eb;
+  --accent-info-dim: rgba(37, 99, 235, 0.15);
+
+  /* SEMÁFOROS */
+  --accent-success:      #16a34a;
+  --accent-success-dim:  #15803d;
+  --accent-warning:      #d97706;
+  --accent-danger:       #dc2626;
+  --accent-danger-dim:     #b91c1c;
+  --accent-orange:       #ea580c;
+
+  /* NEUTROS / TEXTO SUAVE */
+  --neutral-slate:       #94a3b8;
+  --dash-sem-yellow:     #d97706;
+  --label-warning-text:  #92400e;
+  --text-success-soft:   #15803d;
+  --text-danger-soft:    #b91c1c;
+  --text-danger-muted:   #b91c1c;
+  --btn-disabled-bg:     #9ca3af;
+
+  /* TEXTO */
+  --text-primary:    #1a2332;
+  --text-secondary:  #5a6d85;
+  --text-muted:      #8fa3b8;
+  --text-bright:     #0d1520;
+  --text-accent:     #f0a500;
+  --text-on-accent:  #05080f;
+
+  /* BORDES */
+  --border-primary:  #d0dae8;
+  --border-subtle:   #e2e8f2;
+  --border-accent:   rgba(240, 165, 0, 0.30);
+  --border-muted:    rgba(0, 0, 0, 0.06);
+
+  /* SOMBRAS */
+  --shadow-sm:      0 1px 3px rgba(0, 0, 0, 0.10);
+  --shadow-md:      0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-lg:      0 8px 32px rgba(0, 0, 0, 0.15);
+  --shadow-accent:  0 2px 10px rgba(240, 165, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-inset:   inset 0 1px 0 rgba(0, 0, 0, 0.04);
+  --shadow-success: 0 1px 4px rgba(22, 163, 74, 0.25);
+  --shadow-danger:  0 1px 4px rgba(220, 38, 38, 0.25);
+
+  /* OVERLAY MODAL */
+  --overlay-bg: rgba(10, 20, 40, 0.60);
+
+  /* GRADIENTES DEL FONDO */
+  --body-gradient-amber: rgba(240, 165, 0, 0.045);
+  --body-gradient-info:  rgba(37, 99, 235, 0.030);
+
+  /* Scrollbar */
+  --scrollbar-track: var(--bg-tertiary);
+  --scrollbar-thumb: var(--border-primary);
+
+  /* BADGES — variantes claras (mejor contraste sobre fondos claros) */
+  --badge-blue-bg:      rgba(37, 99, 235, 0.10);
+  --badge-blue-text:    #1d4ed8;
+  --badge-blue-border:  rgba(37, 99, 235, 0.28);
+  --badge-green-bg:     rgba(22, 163, 74, 0.10);
+  --badge-green-text:   #15803d;
+  --badge-green-border: rgba(22, 163, 74, 0.28);
+  --badge-yellow-bg:    rgba(217, 119, 6, 0.10);
+  --badge-yellow-text:  #92400e;
+  --badge-yellow-border:rgba(217, 119, 6, 0.28);
+  --badge-red-bg:       rgba(220, 38, 38, 0.10);
+  --badge-red-text:     #b91c1c;
+  --badge-red-border:   rgba(220, 38, 38, 0.28);
+  --badge-purple-bg:    rgba(124, 58, 237, 0.10);
+  --badge-purple-text:  #6d28d9;
+  --badge-purple-border:rgba(124, 58, 237, 0.28);
+
+  /* CARD — realce invertido (tinte oscuro suave sobre fondo claro) */
+  --card-highlight: rgba(0, 0, 0, 0.025);
+
+  /* POS banners — borde se gestiona vía override en pos.css */
+  --cobro-banner-border: transparent;
+
+  /* CHART — overrides para modo claro (evitar manchones en fondo blanco) */
+  --chart-income:     #059669;                   /* verde mayor contraste sobre fondo claro */
+  --chart-area-fill:  rgba(240, 165, 0, 0.015);  /* opacidad drásticamente reducida (light) */
+  --chart-tooltip-bg: var(--bg-secondary);        /* fondo tooltip en light = #ffffff */
+
+  /* CASHEA — bordes con mayor contraste sobre fondo claro */
+  --cashea-stat-proximo-border:  #1565c0;
+  --cashea-stat-neto-border:       #15803d;
+  --cashea-stat-comision-border:   #c2410c;
 }
 
 /* ── SCROLLBARS — identidad propia (thumb borde, hover ámbar) ── */

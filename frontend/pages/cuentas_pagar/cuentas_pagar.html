@@ -1,0 +1,278 @@
+<section class="page-content cxp-page" aria-labelledby="cxp-title">
+
+  <div class="page-header">
+    <div>
+      <h1 id="cxp-title" class="page-title">Cuentas por Pagar</h1>
+      <p class="page-subtitle">Deudas con proveedores por compras a crédito</p>
+    </div>
+    <div class="page-header-actions">
+      <button id="btn-nueva-cxp" class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Nueva deuda
+      </button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid cxp-kpis">
+    <div class="kpi-card nexus-usd-only">
+      <div class="kpi-label">Deuda total USD</div>
+      <div class="kpi-value" id="kpi-total-usd">$0,00</div>
+    </div>
+    <div class="kpi-card kpi-card--blue">
+      <div class="kpi-label">Deuda total bolívares</div>
+      <div class="kpi-value" id="kpi-total-bcv">
+        <div class="cxp-bs-stack cxp-bs-stack--kpi">
+          <span class="cxp-bs-amount">0,00</span>
+          <span class="cxp-bs-unit">bolívares</span>
+        </div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Cuentas abiertas</div>
+      <div class="kpi-value" id="kpi-cuentas">0</div>
+    </div>
+    <div class="kpi-card kpi-card--danger">
+      <div class="kpi-label">Cuentas vencidas</div>
+      <div class="kpi-value kpi-value--danger" id="kpi-vencidas">0</div>
+    </div>
+    <div class="kpi-card kpi-card--danger nexus-usd-only">
+      <div class="kpi-label">Deuda vencida USD</div>
+      <div class="kpi-value kpi-value--danger" id="kpi-venc-usd">$0,00</div>
+    </div>
+  </div>
+
+  <!-- Aging -->
+  <div class="card cxp-card">
+    <div class="cxp-card-head">
+      <h2 class="card-title">Antigüedad de deuda (Aging)</h2>
+    </div>
+    <div class="data-table-wrap">
+      <table id="tabla-aging" class="data-table">
+        <thead>
+          <tr>
+            <th>Período</th>
+            <th class="num">Cuentas</th>
+            <th class="num nexus-usd-only">Monto USD</th>
+            <th class="num">Monto bolívares</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="4" class="cxp-empty">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Filtros + tabla principal -->
+  <div class="card cxp-card">
+    <div class="cxp-card-head">
+      <h2 class="card-title">Cuentas por pagar</h2>
+      <div class="cxp-filters">
+        <select id="filtro-estado" class="input-g">
+          <option value="">Todas</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="parcial">Parcial</option>
+          <option value="vencida">Vencida</option>
+          <option value="pagada">Pagada</option>
+          <option value="anulada">Anulada</option>
+        </select>
+        <select id="filtro-proveedor" class="input-g">
+          <option value="">— Todos los proveedores —</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="data-table-wrap">
+      <table id="tabla-cxp" class="data-table">
+        <thead>
+          <tr>
+            <th>Proveedor</th>
+            <th>Compra / Ref.</th>
+            <th class="num nexus-usd-only">Original USD</th>
+            <th class="num nexus-usd-only">Saldo USD</th>
+            <th class="num cxp-col-usd-bcv nexus-usd-only">Saldo $ BCV</th>
+            <th class="num">Saldo bolívares</th>
+            <th>Vencimiento</th>
+            <th>Mora</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="10" class="cxp-empty">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cxp-pagination">
+      <button id="pag-prev" class="btn-sm btn-secondary" disabled>‹ Anterior</button>
+      <span id="pag-info" class="cxp-pagination-info">Página 1</span>
+      <button id="pag-next" class="btn-sm btn-secondary">Siguiente ›</button>
+    </div>
+  </div>
+
+</section>
+
+<!-- ══════════ MODAL: Nueva CxP manual ══════════ -->
+<div id="modal-crear" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-crear-title" aria-hidden="true">
+  <div class="modal-box cxp-modal">
+    <div class="modal-header">
+      <h3 id="modal-crear-title">Nueva cuenta por pagar</h3>
+      <button id="btn-cerrar-crear" class="modal-close" aria-label="Cerrar">&times;</button>
+    </div>
+    <form id="form-crear" novalidate>
+      <div class="cxp-form">
+        <div class="form-group">
+          <label class="form-label" for="crear-proveedor-id">Proveedor <span class="cxp-req">*</span></label>
+          <select id="crear-proveedor-id" class="input-g" required>
+            <option value="">— Seleccionar —</option>
+          </select>
+        </div>
+        <div id="crear-info" class="abono-info-box">—</div>
+        <div class="form-group">
+          <label class="form-label" for="crear-moneda">Método de registro <span class="cxp-req">*</span></label>
+          <select id="crear-moneda" class="input-g">
+            <option value="efectivo_bs">Efectivo Bs</option>
+            <option value="transferencia_bs">Transferencia Bs</option>
+            <option value="pago_movil">Pago Móvil</option>
+            <option value="punto">Punto TDD</option>
+            <option value="efectivo_usd" class="cxp-opt-usd-calle">Efectivo USD</option>
+            <option value="zelle" class="cxp-opt-usd-calle">Zelle</option>
+            <option value="usd_bcv">Dólares BCV ($ BCV)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="crear-monto-label" for="crear-monto">Monto de la deuda (Bs.) <span class="cxp-req">*</span></label>
+          <input id="crear-monto" type="text" inputmode="decimal" autocomplete="off" class="input-g" data-no-nexus-stepper="true" placeholder="Ej: 25.000,00" required>
+          <p id="crear-tasa-hint" class="abono-tasa-hint"></p>
+        </div>
+        <div id="crear-equiv" class="abono-equiv-box"></div>
+        <div class="cxp-form-row">
+          <div class="form-group">
+            <label class="form-label" for="crear-dias-credito">Días de crédito</label>
+            <input id="crear-dias-credito" type="number" min="1" max="365" class="input-g" value="30" placeholder="30">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="crear-numero-ref">Nro. factura / referencia</label>
+          <input id="crear-numero-ref" type="text" class="input-g" placeholder="FAC-001">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="crear-notas">Notas (opcional)</label>
+          <textarea id="crear-notas" class="input-g cxp-textarea" rows="2" placeholder="Ej: factura pendiente…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer-row">
+        <button type="button" id="btn-cancelar-crear" class="btn-secondary">Cancelar</button>
+        <button type="submit" id="btn-guardar-crear" class="btn btn-primary">Registrar deuda</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: Registrar pago ══════════ -->
+<div id="modal-pago" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-pago-title" aria-hidden="true">
+  <div class="modal-box cxp-modal">
+    <div class="modal-header">
+      <h3 id="modal-pago-title">Registrar pago</h3>
+      <button id="btn-cerrar-pago" class="modal-close" aria-label="Cerrar">&times;</button>
+    </div>
+    <form id="form-pago" novalidate>
+      <input type="hidden" id="pago-cuenta-id">
+      <div class="cxp-form">
+        <div class="cxp-info-block">
+          <div class="cxp-info-label">Proveedor</div>
+          <div id="pago-proveedor" class="cxp-info-value">—</div>
+          <div class="cxp-info-grid">
+            <div id="pago-grupo-saldo-usd">
+              <div class="cxp-info-label">Saldo USD</div>
+              <div id="pago-saldo-usd" class="cxp-mono text-accent">$0,00</div>
+            </div>
+            <div id="pago-grupo-saldo-bcv">
+              <div class="cxp-info-label">Saldo $ BCV</div>
+              <div id="pago-saldo-bcv-ref" class="cxp-mono text-muted">$0,00</div>
+            </div>
+            <div>
+              <div class="cxp-info-label">Saldo bolívares</div>
+              <div id="pago-saldo-bcv" class="text-muted">
+                <div class="cxp-bs-stack cxp-bs-stack--kpi">
+                  <span class="cxp-bs-amount cxp-mono">0,00</span>
+                  <span class="cxp-bs-unit">bolívares</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="pago-metodo">Método de pago <span class="cxp-req">*</span></label>
+          <select id="pago-metodo" class="input-g">
+            <option value="efectivo_bs">Efectivo Bs</option>
+            <option value="transferencia_bs">Transferencia Bs</option>
+            <option value="pago_movil">Pago Móvil</option>
+            <option value="punto">Punto TDD</option>
+            <option value="efectivo_usd" class="cxp-opt-usd-calle">Efectivo USD</option>
+            <option value="zelle" class="cxp-opt-usd-calle">Zelle</option>
+            <option value="cheque">Cheque</option>
+            <option value="otro">Otro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="pago-monto-label" for="pago-monto">Monto a pagar (Bs.) <span class="cxp-req">*</span></label>
+          <input id="pago-monto" type="text" inputmode="decimal" autocomplete="off" class="input-g" data-no-nexus-stepper="true" placeholder="Ej: 25.000,00" required>
+          <p id="pago-tasa-hint" class="abono-tasa-hint"></p>
+        </div>
+        <div id="pago-equiv" class="abono-equiv-box"></div>
+
+        <div class="form-group">
+          <label class="form-label" for="pago-referencia">Referencia / Nro. transacción</label>
+          <input id="pago-referencia" type="text" class="input-g" placeholder="REF-12345">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="pago-notas">Notas</label>
+          <textarea id="pago-notas" class="input-g cxp-textarea" rows="2" placeholder="Opcional…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer-row">
+        <button type="button" id="btn-cancelar-pago" class="btn-secondary">Cancelar</button>
+        <button type="submit" id="btn-guardar-pago" class="btn btn-primary">Confirmar pago</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: Historial de pagos ══════════ -->
+<div id="modal-historial" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-hist-title" aria-hidden="true">
+  <div class="modal-box cxp-modal cxp-modal--wide">
+    <div class="modal-header">
+      <h3 id="modal-hist-title">Historial de pagos</h3>
+      <button id="btn-cerrar-historial" class="modal-close" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="cxp-form">
+      <div id="historial-header" class="cxp-info-block">—</div>
+      <div class="data-table-wrap">
+        <table id="tabla-historial" class="data-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th class="num nexus-usd-only">Monto USD</th>
+              <th class="num">Monto bolívares</th>
+              <th>Método</th>
+              <th>Referencia</th>
+              <th>Registrado por</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="cxp-empty">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer-row cxp-footer-split">
+      <button id="btn-anular-cuenta" class="btn-sm btn-danger" style="display:none">Anular cuenta</button>
+      <button id="btn-cancelar-historial" class="btn-secondary">Cerrar</button>
+    </div>
+  </div>
+</div>

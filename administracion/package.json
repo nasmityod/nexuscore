@@ -1,0 +1,13 @@
+{
+  "name": "nexus-administracion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Panel de administración de licencias de Nexus Core. BFF serverless seguro sobre el servidor de licencias desplegado en Vercel (la clave admin nunca llega al navegador).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start:local": "vercel dev --listen 3000",
+    "deploy": "vercel --prod"
+  }
+}

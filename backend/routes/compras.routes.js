@@ -6,6 +6,7 @@ const { db } = require('../config/database');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { registrarAuditoria } = require('../middleware/audit.middleware');
 const { requirePermission } = require('../middleware/permissions.middleware');
+const cxpSvc = require('../services/cuentasPagarService');
 
 router.use(requirePermission('compras_all'));
 
@@ -50,6 +51,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const rows = await db.any(
     `SELECT c.id, c.numero_compra, c.fecha_compra, c.estado,
             c.total_usd::numeric, c.notas,
+            c.tipo_pago, c.dias_credito,
             p.nombre AS proveedor,
             u.nombre_completo AS usuario,
             (SELECT COUNT(*)::int FROM detalles_compras dc WHERE dc.compra_id = c.id) AS num_items,
@@ -104,10 +106,16 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 // POST /api/compras — crear nueva compra
 router.post('/', asyncHandler(async (req, res) => {
-  const { proveedor_id, notas, items } = req.body;
+  const { proveedor_id, notas, items, tipo_pago = 'contado', dias_credito = 0 } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Debes agregar al menos un producto a la compra' });
+  }
+
+  // Una compra a crédito SIEMPRE debe tener proveedor: sin él no se puede generar
+  // la cuenta por pagar al recibir, y la deuda quedaría huérfana.
+  if (tipo_pago === 'credito' && !proveedor_id) {
+    return res.status(400).json({ error: 'Una compra a crédito requiere un proveedor asignado' });
   }
 
   // Validar y normalizar cada línea en el servidor: nunca confiar en totales del cliente.
@@ -147,10 +155,13 @@ router.post('/', asyncHandler(async (req, res) => {
       }
     }
 
+    const tipoPagoVal = ['contado','credito'].includes(tipo_pago) ? tipo_pago : 'contado';
+    const diasCredVal  = tipoPagoVal === 'credito' ? Math.max(0, parseInt(dias_credito) || 30) : 0;
+
     const c = await t.one(
-      `INSERT INTO compras (numero_compra, proveedor_id, usuario_id, total_usd, notas)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [numero, proveedor_id || null, req.user.id, totalUsd.toFixed(4), notas || null]
+      `INSERT INTO compras (numero_compra, proveedor_id, usuario_id, total_usd, notas, tipo_pago, dias_credito)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [numero, proveedor_id || null, req.user.id, totalUsd.toFixed(4), notas || null, tipoPagoVal, diasCredVal]
     );
 
     for (const l of lineas) {
@@ -250,6 +261,11 @@ router.post('/:id/recibir', asyncHandler(async (req, res) => {
     await t.none(
       `UPDATE compras SET estado = 'recibida' WHERE id = $1`, [compraId]
     );
+
+    // Si la compra es a crédito y tiene proveedor asignado, crear CxP automáticamente
+    if (compra.tipo_pago === 'credito' && compra.proveedor_id) {
+      await cxpSvc.crearDesdCompra({ t, compra, usuario_id: req.user.id, ip_address: req.ip });
+    }
   });
 
   await registrarAuditoria(db, {

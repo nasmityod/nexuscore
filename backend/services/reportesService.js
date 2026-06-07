@@ -67,7 +67,9 @@ class ReportesService {
 
     const sql = `
       SELECT v.id, v.numero_venta, v.fecha_venta,
-             v.total_usd::numeric, v.total_bs::numeric,
+             v.total_usd::numeric,
+             COALESCE(v.total_ref_usd_bcv, v.total_usd)::numeric AS total_bcv,
+             v.total_bs::numeric,
              v.metodo_pago, v.estado,
              u.nombre_completo AS cajero,
              COALESCE(c.nombre, 'Cliente general') AS cliente,
@@ -100,7 +102,8 @@ class ReportesService {
              COALESCE(SUM(total_usd), 0)::numeric AS total_usd,
              COALESCE(SUM(total_bs), 0)::numeric AS total_bs,
              COALESCE(SUM(COALESCE(total_ref_usd_bcv, total_usd)), 0)::numeric AS total_bcv,
-             COALESCE(AVG(total_usd), 0)::numeric AS ticket_promedio
+             COALESCE(AVG(total_usd), 0)::numeric AS ticket_promedio,
+             COALESCE(AVG(COALESCE(total_ref_usd_bcv, total_usd)), 0)::numeric AS ticket_promedio_bcv
       FROM ventas
       WHERE estado = 'completada'
         AND fecha_venta >= NOW() - ($1::integer * INTERVAL '1 day')
@@ -309,7 +312,9 @@ class ReportesService {
       SELECT u.nombre_completo AS cajero,
              COUNT(v.id)::int                             AS num_ventas,
              COALESCE(SUM(v.total_usd), 0)::numeric       AS total_usd,
+             COALESCE(SUM(COALESCE(v.total_ref_usd_bcv, v.total_usd)), 0)::numeric AS total_bcv,
              COALESCE(AVG(v.total_usd), 0)::numeric       AS ticket_promedio,
+             COALESCE(AVG(COALESCE(v.total_ref_usd_bcv, v.total_usd)), 0)::numeric AS ticket_promedio_bcv,
              COALESCE(SUM(
                (SELECT COALESCE(SUM(dv2.subtotal_usd - dv2.costo_unitario_usd * dv2.cantidad), 0)
                 FROM detalles_ventas dv2 WHERE dv2.venta_id = v.id)
@@ -339,7 +344,9 @@ class ReportesService {
     const { desde: desdeStr, hasta: hastaStr } = ReportesService._rangoFechas(desde, hasta, 30);
     const rows = await db.any(`
       SELECT v.id, v.numero_venta, v.fecha_venta,
-             v.total_usd::numeric, v.total_bs::numeric,
+             v.total_usd::numeric,
+             COALESCE(v.total_ref_usd_bcv, v.total_usd)::numeric AS total_bcv,
+             v.total_bs::numeric,
              v.metodo_pago, v.estado,
              u.nombre_completo AS cajero,
              COALESCE(c.nombre, 'Cliente general') AS cliente
@@ -361,7 +368,9 @@ class ReportesService {
              COUNT(*)::int                         AS num_ventas,
              COALESCE(SUM(total_usd), 0)::numeric  AS total_usd,
              COALESCE(SUM(total_bs), 0)::numeric   AS total_bs,
-             COALESCE(AVG(total_usd), 0)::numeric  AS ticket_promedio
+             COALESCE(SUM(COALESCE(total_ref_usd_bcv, total_usd)), 0)::numeric AS total_bcv,
+             COALESCE(AVG(total_usd), 0)::numeric  AS ticket_promedio,
+             COALESCE(AVG(COALESCE(total_ref_usd_bcv, total_usd)), 0)::numeric AS ticket_promedio_bcv
       FROM ventas
       WHERE estado = 'completada'
         AND fecha_venta >= $1::date AND fecha_venta < ($2::date + INTERVAL '1 day')

@@ -15,8 +15,47 @@ const { logAdminAuthRejected, logServerMisconfig } = require('./logger');
 // Formato esperado del código: NC-XXXXX-XXXXX-XXXXX
 const CODE_REGEX = /^NC-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$/i;
 
-// HWID: UUID estándar o cadena hexadecimal de 8-128 caracteres
+// Formato de license key del sistema profesional: NXCS-XXXX-XXXX-XXXX-XXXX
+// (alfabeto restringido sin caracteres ambiguos — alineado con lib/licenses.js)
+const LICENSE_KEY_REGEX = /^NXCS-[ACDEFGHJKLMNPQRTUVWXY3467]{4}-[ACDEFGHJKLMNPQRTUVWXY3467]{4}-[ACDEFGHJKLMNPQRTUVWXY3467]{4}-[ACDEFGHJKLMNPQRTUVWXY3467]{4}$/;
+
+// HWID: UUID estándar o cadena hexadecimal de 8-128 caracteres (SHA-256 = 64 hex)
 const HWID_REGEX = /^[0-9a-f\-]{8,128}$/i;
+
+/**
+ * Valida y normaliza la entrada de un cliente para el sistema de licencias profesional
+ * (activate/verify/deactivate). Lanza Error con .status si algo es inválido.
+ * @param {object} body
+ * @param {{ requireToken?: boolean }} [opts]
+ */
+function validateLicenseClientInput(body, opts = {}) {
+  const raw = body || {};
+  const licenseKey = String(raw.licenseKey || raw.license_key || '').trim().toUpperCase();
+  if (!licenseKey) { const e = new Error('El campo "licenseKey" es obligatorio.'); e.status = 400; throw e; }
+  if (!LICENSE_KEY_REGEX.test(licenseKey)) {
+    const e = new Error('Formato de licencia inválido.'); e.status = 400; throw e;
+  }
+
+  const hwid = String(raw.hwid || '').trim().toLowerCase();
+  if (!hwid) { const e = new Error('El campo "hwid" es obligatorio.'); e.status = 400; throw e; }
+  if (!HWID_REGEX.test(hwid)) { const e = new Error('Formato de Hardware ID inválido.'); e.status = 400; throw e; }
+  if (/^(.)\1+$/.test(hwid.replace(/-/g, ''))) {
+    const e = new Error('Hardware ID no válido para este sistema.'); e.status = 400; throw e;
+  }
+
+  const machineName = String(raw.machineName || raw.machine_name || '').trim().slice(0, 120);
+  const appVersion = String(raw.appVersion || raw.app_version || '').trim().slice(0, 40);
+
+  let token;
+  if (opts.requireToken) {
+    token = String(raw.token || '').trim();
+    if (!token || token.length < 16 || token.length > 4096) {
+      const e = new Error('El campo "token" es obligatorio.'); e.status = 400; throw e;
+    }
+  }
+
+  return { licenseKey, hwid, machineName, appVersion, token };
+}
 
 /**
  * Valida y normaliza los datos de una solicitud de activación.
@@ -102,4 +141,12 @@ function sendOk(res, data) {
   res.status(200).json({ ok: true, ...data });
 }
 
-module.exports = { validateActivationInput, validateAdminAuth, applySecurityHeaders, sendError, sendOk };
+module.exports = {
+  validateActivationInput,
+  validateLicenseClientInput,
+  validateAdminAuth,
+  applySecurityHeaders,
+  sendError,
+  sendOk,
+  LICENSE_KEY_REGEX
+};

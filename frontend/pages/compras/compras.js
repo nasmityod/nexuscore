@@ -60,7 +60,7 @@
       if (alertasEl) {
         if (alertasPendientes.length > 0) {
           alertasEl.style.display = 'block';
-          alertasEl.innerHTML = '⚠️ <strong>' + alertasPendientes.length + ' orden(es) pendiente(s) sin recibir por más de 7 días:</strong> ' +
+          alertasEl.innerHTML = '<strong>' + alertasPendientes.length + ' orden(es) pendiente(s) sin recibir por más de 7 días:</strong> ' +
             alertasPendientes.map(function (c) { return '<strong>' + esc(c.numero_compra) + '</strong> (' + (c.dias_abierta || 0) + 'd)'; }).join(', ');
         } else {
           alertasEl.style.display = 'none';
@@ -105,17 +105,20 @@
 
     tbody.innerHTML = lista.map(function (c) {
       var estadoClass = 'estado-' + (c.estado || 'pendiente');
-      var estadoLabel = { pendiente:'⏳ Pendiente', recibida:'✅ Recibida', cancelada:'❌ Cancelada' }[c.estado] || c.estado;
+      var estadoLabel = { pendiente:'Pendiente', recibida:'Recibida', cancelada:'Cancelada' }[c.estado] || c.estado;
       var accionBtn = '';
       if (c.estado === 'pendiente') {
-        accionBtn = '<button class="btn-secondary" style="height:44px;font-size:.8rem" onclick="ComprasPage.recibirCompra(' + c.id + ')">📦 Marcar Recibida</button>' +
-          ' <button style="height:44px;font-size:.8rem;background:transparent;border:1px solid rgba(239,68,68,.4);color:var(--accent-danger);border-radius:var(--radius-sm);padding:0 .75rem;cursor:pointer" onclick="ComprasPage.cancelarCompra(' + c.id + ')">✕ Cancelar</button>';
+        accionBtn = '<button class="btn-secondary" style="height:44px;font-size:.8rem" onclick="ComprasPage.recibirCompra(' + c.id + ')">Marcar Recibida</button>' +
+          ' <button style="height:44px;font-size:.8rem;background:transparent;border:1px solid rgba(239,68,68,.4);color:var(--accent-danger);border-radius:var(--radius-sm);padding:0 .75rem;cursor:pointer" onclick="ComprasPage.cancelarCompra(' + c.id + ')">Cancelar</button>';
       }
       var diasCell = c.estado === 'pendiente' && c.dias_abierta != null
         ? '<span style="color:' + (c.dias_abierta > 7 ? 'var(--accent-danger)' : 'var(--accent-warning)') + ';font-weight:600">' + c.dias_abierta + 'd</span>'
         : '—';
+      var pagoCell = c.tipo_pago === 'credito'
+        ? '<span class="badge badge-warning">Crédito ' + (Number(c.dias_credito) || 0) + 'd</span>'
+        : '<span class="badge badge-muted">Contado</span>';
       return '<tr>' +
-        '<td><strong>' + esc(c.numero_compra || '#' + c.id) + '</strong></td>' +
+        '<td><strong>' + esc(c.numero_compra || '#' + c.id) + '</strong><div style="margin-top:.25rem">' + pagoCell + '</div></td>' +
         '<td>' + formatFecha(c.fecha_compra) + '</td>' +
         '<td>' + esc(c.proveedor || 'Compra directa') + '</td>' +
         '<td style="text-align:right;font-weight:600;color:var(--accent-success)">$' + fUsd(c.total_usd) + '</td>' +
@@ -137,6 +140,10 @@
     if (notas) notas.value = '';
     var proveedor = document.getElementById('compra-proveedor');
     if (proveedor) proveedor.value = '';
+    var tipoPago = document.getElementById('compra-tipo-pago');
+    if (tipoPago) tipoPago.value = 'contado';
+    var camposDias = document.getElementById('campo-dias-credito');
+    if (camposDias) camposDias.style.display = 'none';
   }
 
   function cerrarModal() {
@@ -247,29 +254,44 @@
   function confirmarCompra() {
     if (!state.carrito.length) { toast('Agrega al menos un producto', 'warning'); return; }
 
-    var proveedorId = document.getElementById('compra-proveedor') ? document.getElementById('compra-proveedor').value : '';
-    var notas       = document.getElementById('compra-notas') ? document.getElementById('compra-notas').value : '';
+    var proveedorId  = document.getElementById('compra-proveedor') ? document.getElementById('compra-proveedor').value : '';
+    var notas        = document.getElementById('compra-notas') ? document.getElementById('compra-notas').value : '';
+    var tipoPago     = document.getElementById('compra-tipo-pago') ? document.getElementById('compra-tipo-pago').value : 'contado';
+    var diasCredito  = document.getElementById('compra-dias-credito') ? Number(document.getElementById('compra-dias-credito').value) || 30 : 30;
+
+    if (tipoPago === 'credito' && !proveedorId) {
+      toast('Para registrar una compra a crédito debes seleccionar un proveedor', 'warning');
+      return;
+    }
 
     var items = state.carrito.map(function (i) {
       return { producto_id: i.id, cantidad: i.cantidad, costo_unitario_usd: i.costo_usd };
     });
 
     var btnConfirm = document.getElementById('btn-confirmar-compra');
-    if (btnConfirm) { btnConfirm.disabled = true; btnConfirm.textContent = '⏳ Registrando...'; }
+    if (btnConfirm) { btnConfirm.disabled = true; btnConfirm.textContent = 'Registrando...'; }
 
     apiFetch('/api/compras', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ proveedor_id: proveedorId || null, notas: notas, items: items })
+      body: JSON.stringify({
+        proveedor_id: proveedorId || null,
+        notas: notas,
+        items: items,
+        tipo_pago: tipoPago,
+        dias_credito: tipoPago === 'credito' ? diasCredito : 0
+      })
     }).then(function (r) {
       return r.ok ? r.json() : r.json().then(function (d) { throw new Error(d.error || 'Error al registrar'); });
     }).then(function (data) {
-      toast('✅ Compra registrada: ' + (data.compra && data.compra.numero_compra || ''), 'success');
+      var msg = 'Compra registrada: ' + (data.compra && data.compra.numero_compra || '');
+      if (tipoPago === 'credito') msg += ' · Se creará CxP al recibir mercancía';
+      toast(msg, 'success');
       cerrarModal();
       cargarTodo();
     }).catch(function (e) {
       toast(e.message || 'No se pudo registrar la compra', 'error');
-      if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = '✓ Registrar Compra'; }
+      if (btnConfirm) { btnConfirm.disabled = false; btnConfirm.textContent = 'Registrar Compra'; }
     });
   }
 
@@ -280,7 +302,7 @@
       .then(function (r) {
         return r.ok ? r.json() : r.json().then(function (d) { throw new Error(d.error || 'Error'); });
       }).then(function () {
-        toast('✅ Mercancía recibida. El stock fue actualizado.', 'success');
+        toast('Mercancía recibida. El stock fue actualizado.', 'success');
         cargarTodo();
       }).catch(function (e) {
         toast(e.message || 'No se pudo marcar como recibida', 'error');
@@ -323,6 +345,13 @@
           }, 200);
         });
       }
+
+      // Toggle días de crédito según tipo de pago
+      var tipoPagoEl = host.querySelector('#compra-tipo-pago');
+      if (tipoPagoEl) tipoPagoEl.addEventListener('change', function () {
+        var campo = host.querySelector('#campo-dias-credito');
+        if (campo) campo.style.display = tipoPagoEl.value === 'credito' ? 'block' : 'none';
+      });
 
       // Filtros
       var filtroEstadoEl = host.querySelector('#compras-filtro-estado');

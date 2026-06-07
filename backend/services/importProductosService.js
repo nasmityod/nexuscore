@@ -244,13 +244,12 @@ async function importarProductosDesdeExcel(db, fileBuffer) {
   let tasasImport = null;
   if (mappedFields.includes('costo_bcv') || mappedFields.includes('precio_objetivo_usd') || mappedFields.includes('precio_obj_bcv')) {
     try {
-      const tasasRows = await db.any(
-        `SELECT clave, valor FROM configuracion WHERE clave IN ('tasa_bcv', 'tasa_usd')`
-      );
-      const tm = {};
-      tasasRows.forEach((r) => { tm[r.clave] = parseFloat(String(r.valor).replace(',', '.')); });
-      if (tm.tasa_bcv > 0 && tm.tasa_usd > 0) {
-        tasasImport = { bcv: tm.tasa_bcv, usd: tm.tasa_usd };
+      // AUD: resolverTasasOperativas en lugar de leer configuracion.tasa_usd cruda. En
+      // solo_bcv unifica tasa_usd = tasa_bcv, evitando que la conversión de costo_bcv /
+      // precio_obj_bcv en la importación use una tasa de mercado residual.
+      const tasasOp = await PreciosService.resolverTasasOperativas(db);
+      if (tasasOp.tasa_bcv > 0 && tasasOp.tasa_usd > 0) {
+        tasasImport = { bcv: tasasOp.tasa_bcv, usd: tasasOp.tasa_usd };
       }
     } catch (_e) { /* Sin tasas: conversión no disponible, se reportará por fila */ }
   }
@@ -716,9 +715,9 @@ async function generarPlantillaImportacion() {
     ['stock_minimo', 'No', 'Alerta cuando el stock baje de este número. Por defecto: 1.'],
     ['costo_usd', 'SÍ ★ (o costo_bcv)', 'Costo en dólares físicos. Usa PUNTO decimal: 2.5 (no 2,5).'],
     ['margen_ganancia_pct', 'SÍ ★ (o precio obj.)', 'Porcentaje de ganancia sobre el costo. Ej: 30 → el sistema vende a costo × 1.30.'],
-    ['🆕 costo_bcv', 'No (alternativa a costo_usd)', 'Si compraste el producto pagando en $BCV, escribe el costo aquí. El sistema lo convierte a USD usando las tasas del día. NO usar junto a costo_usd.'],
-    ['🆕 precio_objetivo_usd', 'No (alternativa a margen%)', 'Precio de venta que quieres cobrar en $USD físico. El sistema calcula el margen% automáticamente. NO usar junto a margen_ganancia_pct.'],
-    ['🆕 precio_obj_bcv', 'No (Modo 3 — exacto $BCV)', 'Precio objetivo en ref. $BCV. El sistema genera precio_manual_usd a 4 decimales con la cadena BCV exacta; el POS cobrará exactamente ese monto ref. $BCV. Prioridad máxima sobre ganancia_pct_calculada. Ejemplo: 15.50'],
+    ['costo_bcv', 'No (alternativa a costo_usd)', 'Si compraste el producto pagando en $BCV, escribe el costo aquí. El sistema lo convierte a USD usando las tasas del día. NO usar junto a costo_usd.'],
+    ['precio_objetivo_usd', 'No (alternativa a margen%)', 'Precio de venta que quieres cobrar en $USD físico. El sistema calcula el margen% automáticamente. NO usar junto a margen_ganancia_pct.'],
+    ['precio_obj_bcv', 'No (Modo 3 — exacto $BCV)', 'Precio objetivo en ref. $BCV. El sistema genera precio_manual_usd a 4 decimales con la cadena BCV exacta; el POS cobrará exactamente ese monto ref. $BCV. Prioridad máxima sobre ganancia_pct_calculada. Ejemplo: 15.50'],
     ['precio_manual_usd', 'No', 'Precio de venta fijo en USD (4 decimales). Si se establece, el POS usa este valor en lugar del calculado con el margen. Se puede generar automáticamente usando precio_obj_bcv.'],
     ['unidad_medida', 'No', 'Ej: unidad, kg, litro, caja, par. Por defecto: unidad.'],
     ['aplica_iva', 'No', 'si / no (también: true/false, 1/0). Por defecto: no.'],
@@ -733,14 +732,14 @@ async function generarPlantillaImportacion() {
     ['Modo 4 — Costo en BCV', '', 'Llena "costo_bcv" (en lugar de costo_usd) → se convierte a USD automáticamente usando las tasas del día.'],
     [],
     ['REGLAS IMPORTANTES', '', ''],
-    ['⚠️', '', 'No llenes "costo_usd" y "costo_bcv" en la misma fila. Si los dos tienen valor, se usa costo_usd.'],
-    ['⚠️', '', 'Si llenas "precio_obj_bcv", tiene prioridad máxima sobre "ganancia_pct_calculada" y "margen_ganancia_pct". Si "precio_obj_bcv" está vacío, "ganancia_pct_calculada" tiene prioridad sobre "margen_ganancia_pct".'],
-    ['⚠️', '', 'Si el precio objetivo resulta menor al costo, el producto se importa igual pero aparece una advertencia.'],
-    ['✓', '', 'El archivo debe tener extensión .xlsx. El orden de las columnas no importa.'],
-    ['✓', '', 'La fila de encabezados puede estar en cualquiera de las primeras 10 filas del archivo.'],
-    ['✓', '', 'Para valores numéricos usa punto decimal: 2.5 (no 2,5).'],
-    ['✓', '', 'Categorías nuevas se crean automáticamente. SKU vacío → el sistema genera NC-XXXXXXXX.'],
-    ['✓', '', 'Filas con error se omiten con aviso; el resto se importa sin interrupciones.'],
+    ['AVISO', '', 'No llenes "costo_usd" y "costo_bcv" en la misma fila. Si los dos tienen valor, se usa costo_usd.'],
+    ['AVISO', '', 'Si llenas "precio_obj_bcv", tiene prioridad máxima sobre "ganancia_pct_calculada" y "margen_ganancia_pct". Si "precio_obj_bcv" está vacío, "ganancia_pct_calculada" tiene prioridad sobre "margen_ganancia_pct".'],
+    ['AVISO', '', 'Si el precio objetivo resulta menor al costo, el producto se importa igual pero aparece una advertencia.'],
+    ['Nota', '', 'El archivo debe tener extensión .xlsx. El orden de las columnas no importa.'],
+    ['Nota', '', 'La fila de encabezados puede estar en cualquiera de las primeras 10 filas del archivo.'],
+    ['Nota', '', 'Para valores numéricos usa punto decimal: 2.5 (no 2,5).'],
+    ['Nota', '', 'Categorías nuevas se crean automáticamente. SKU vacío → el sistema genera NC-XXXXXXXX.'],
+    ['Nota', '', 'Filas con error se omiten con aviso; el resto se importa sin interrupciones.'],
   ];
 
   const HDR_INFO = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1B2A' } };

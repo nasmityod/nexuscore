@@ -65,9 +65,15 @@ router.get('/ventas-periodo', asyncHandler(async (req, res) => {
     const totalBcv = row.total_bcv != null
       ? parseFloat(row.total_bcv)
       : totalUsd;
+    const ticketUsd = parseFloat(row.ticket_promedio || 0);
+    const ticketBcv = row.ticket_promedio_bcv != null
+      ? parseFloat(row.ticket_promedio_bcv)
+      : ticketUsd;
     return Object.assign({}, row, {
       total_usd: totalUsd,
-      total_bcv: Math.round(totalBcv * 100) / 100
+      total_bcv: Math.round(totalBcv * 100) / 100,
+      ticket_promedio: ticketUsd,
+      ticket_promedio_bcv: Math.round(ticketBcv * 100) / 100
     });
   }));
 }));

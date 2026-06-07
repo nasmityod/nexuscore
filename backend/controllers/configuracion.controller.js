@@ -329,6 +329,22 @@ async function postTasaBcvAutoSync(req, res) {
 }
 
 /**
+ * POST /api/configuracion/tasa-bcv-auto/feriados/sincronizar
+ * Trae el calendario de feriados del servidor (año actual + siguiente) sin tocar la tasa.
+ * Solo admins (tasas_edit). Requiere NEXUS_BCV_API_KEY (scope holidays:read).
+ */
+async function postTasaBcvAutoFeriadosSync(req, res) {
+  const r = await BcvTasaAutoService.sincronizarFeriadosManual(db);
+  if (r && r.resultado && r.resultado.omitido && r.resultado.motivo === 'sin_api_key') {
+    throw httpError(
+      409,
+      'La sincronización de feriados requiere configurar la clave de la API BCV en el servidor (NEXUS_BCV_API_KEY).'
+    );
+  }
+  res.json({ ok: true, resultado: r });
+}
+
+/**
  * Fuerza la aplicación inmediata de la tasa pendiente sin esperar a la medianoche
  * del día fecha valor. Solo disponible para admins (tasas_edit).
  * Útil cuando la tasa semilla inicial es obsoleta y ya existe un pendiente.
@@ -339,6 +355,46 @@ async function postTasaBcvAutoForzarAplicar(req, res) {
   });
   const estado = await BcvTasaAutoService.leerEstado(db);
   res.json({ ok: true, aplicacion, estado });
+}
+
+/* ─── PATCH /api/configuracion/descuento-cobro-divisa ─────────────────────────
+   Guarda el toggle + porcentaje del descuento al cobrar en divisa.
+   Requiere config_write. Solo relevante en modo multimoneda.
+   Body: { activo: boolean, pct: number (0–100) }
+   ─────────────────────────────────────────────────────────────────────────── */
+async function patchDescuentoCobroDivisa(req, res) {
+  const body = req.body || {};
+
+  if (typeof body.activo !== 'boolean') {
+    throw httpError(400, 'Se requiere activo (boolean)');
+  }
+  const pct = parseFloat(String(body.pct ?? '0').replace(',', '.'));
+  if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+    throw httpError(400, 'pct debe ser un número entre 0 y 100');
+  }
+  // step 0.5 — redondear a 1 decimal (0.5 mínimo)
+  const pctRed = Math.round(pct * 2) / 2;
+
+  const usuarioId = req.user?.id != null ? Number(req.user.id) : null;
+
+  await db.tx(async (t) => {
+    await t.none(
+      `INSERT INTO configuracion (clave, valor, categoria, actualizado_en, actualizado_por)
+       VALUES ('descuento_cobro_divisa_activo', $1, 'ventas', NOW(), $2)
+       ON CONFLICT (clave) DO UPDATE
+       SET valor = EXCLUDED.valor, actualizado_en = NOW(), actualizado_por = EXCLUDED.actualizado_por`,
+      [body.activo ? 'true' : 'false', usuarioId]
+    );
+    await t.none(
+      `INSERT INTO configuracion (clave, valor, categoria, actualizado_en, actualizado_por)
+       VALUES ('descuento_cobro_divisa_pct', $1, 'ventas', NOW(), $2)
+       ON CONFLICT (clave) DO UPDATE
+       SET valor = EXCLUDED.valor, actualizado_en = NOW(), actualizado_por = EXCLUDED.actualizado_por`,
+      [String(pctRed), usuarioId]
+    );
+  });
+
+  res.json({ ok: true, activo: body.activo, pct: pctRed });
 }
 
 module.exports = {
@@ -353,5 +409,7 @@ module.exports = {
   getTasaBcvAuto:    asyncHandler(getTasaBcvAuto),
   patchTasaBcvAuto:  asyncHandler(patchTasaBcvAuto),
   postTasaBcvAutoSync: asyncHandler(postTasaBcvAutoSync),
-  postTasaBcvAutoForzarAplicar: asyncHandler(postTasaBcvAutoForzarAplicar)
+  postTasaBcvAutoFeriadosSync: asyncHandler(postTasaBcvAutoFeriadosSync),
+  postTasaBcvAutoForzarAplicar: asyncHandler(postTasaBcvAutoForzarAplicar),
+  patchDescuentoCobroDivisa: asyncHandler(patchDescuentoCobroDivisa)
 };

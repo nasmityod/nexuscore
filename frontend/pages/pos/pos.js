@@ -372,7 +372,8 @@
     return o;
   }
 
-  var STORAGE_POS_PDF_COBRO = 'nexus_pos_abrir_pdf_cobro';
+  var STORAGE_POS_PDF_COBRO  = 'nexus_pos_abrir_pdf_cobro';
+  var STORAGE_POS_NOTA_COBRO = 'nexus_pos_abrir_nota_cobro';
 
   function readAbrirPdfCobro() {
     try {
@@ -385,6 +386,20 @@
   function writeAbrirPdfCobro(on) {
     try {
       localStorage.setItem(STORAGE_POS_PDF_COBRO, on ? 'true' : 'false');
+    } catch (e) {}
+  }
+
+  function readAbrirNotaCobro() {
+    try {
+      return localStorage.getItem(STORAGE_POS_NOTA_COBRO) === 'true';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function writeAbrirNotaCobro(on) {
+    try {
+      localStorage.setItem(STORAGE_POS_NOTA_COBRO, on ? 'true' : 'false');
     } catch (e) {}
   }
 
@@ -746,6 +761,91 @@
         .catch(function () {
           impuestoIvaGlobalPct = 0;
         });
+    }
+
+    /**
+     * Config descuento cobro en divisa, cacheada por modal de cobro.
+     * Se actualiza cada vez que se abre el modal (junto a cashea config).
+     * NEXUS-DUAL: lógica espejo de PreciosService.resolverDescuentoCobroDivisaConfig.
+     */
+    var descuentoCobroDivisaConfig = { activo: false, pct: 0 };
+
+    function loadDescuentoCobroDivisaConfig() {
+      return apiFetch(getApiBase() + '/api/configuracion', { cache: 'no-store' })
+        .then(function (res) { return res.ok ? res.json() : {}; })
+        .then(function (cfg) {
+          var activo = cfg.descuento_cobro_divisa_activo === 'true';
+          var pct = Math.round((parseFloat(String(cfg.descuento_cobro_divisa_pct || '0').replace(',', '.')) || 0) * 100) / 100;
+          descuentoCobroDivisaConfig = {
+            activo: activo && !Number.isNaN(pct) && pct > 0,
+            pct: Number.isNaN(pct) || pct < 0 ? 0 : Math.min(100, pct)
+          };
+        })
+        .catch(function () {
+          descuentoCobroDivisaConfig = { activo: false, pct: 0 };
+        });
+    }
+
+    /**
+     * ¿Aplica descuento divisa en este momento del cobro?
+     * Condiciones: modo multimoneda + config activa + pct > 0 + TODOS los pagos son
+     * efectivo_usd o zelle (100 % divisa, sin mixto).
+     *
+     * @param {Array} [pagos] array de pagos actuales (cobroPaymentsArray()). Si se omite lo calcula.
+     * @returns {boolean}
+     */
+    function cobroAplicaDescuentoDivisa(pagos) {
+      if (posModoMoneda() === 'solo_bcv') return false;
+      if (!descuentoCobroDivisaConfig.activo || !(descuentoCobroDivisaConfig.pct > 0)) return false;
+      var arr = pagos || cobroPaymentsArray();
+      if (!arr.length) return false;
+      var DIVISA_SET = { efectivo_usd: true, zelle: true };
+      return arr.every(function (p) {
+        return p && DIVISA_SET[String(p.metodo || '').toLowerCase()];
+      });
+    }
+
+    /**
+     * USD a cobrar cuando aplica descuento divisa.
+     * Formula: round4(totalUsdBcvRef × (1 − pct / 100)).
+     * Devuelve totalUsd sin descuento cuando la regla no aplica.
+     *
+     * @param {object} [totals] resultado de cartTotals(). Si se omite lo calcula.
+     * @param {Array}  [pagos]  resultado de cobroPaymentsArray(). Si se omite lo calcula.
+     * @returns {number}
+     */
+    function totalUsdCobroEfectivo(totals, pagos) {
+      var t = totals || cartTotals();
+      if (!cobroAplicaDescuentoDivisa(pagos)) return t.totalUsd;
+      var ref = t.totalUsdBcvRef;
+      var pct = descuentoCobroDivisaConfig.pct;
+      // NEXUS-DUAL: usa PreciosServiceClient.resolverTotalUsdCobro si disponible.
+      if (window.PreciosServiceClient && typeof window.PreciosServiceClient.resolverTotalUsdCobro === 'function') {
+        try { return window.PreciosServiceClient.resolverTotalUsdCobro(ref, pct); } catch (_e) {}
+      }
+      return Math.round(ref * (1 - pct / 100) * 10000) / 10000;
+    }
+
+    /** ¿Hay montos en métodos distintos de efectivo_usd / zelle? (cobro mixto). */
+    function cobroHayMontosNoDivisa() {
+      for (var i = 0; i < COBRO_TABLA_ORDEN.length; i += 1) {
+        var m = COBRO_TABLA_ORDEN[i];
+        if (m === 'efectivo_usd' || m === 'zelle') continue;
+        if (Number(cobroState.rowAmounts[m]) > 0) return true;
+      }
+      return false;
+    }
+
+    /**
+     * Banner rojo en USD: descuento divisa activo, fila activa efectivo_usd / zelle
+     * y sin otros métodos con monto (regla 100 % divisa).
+     */
+    function cobroBannerRojoMuestraUsd() {
+      if (posModoMoneda() === 'solo_bcv') return false;
+      if (!descuentoCobroDivisaConfig.activo || !(descuentoCobroDivisaConfig.pct > 0)) return false;
+      var mid = cobroState.activeMetodo;
+      if (mid !== 'efectivo_usd' && mid !== 'zelle') return false;
+      return !cobroHayMontosNoDivisa();
     }
 
     /** Total Bs a tasa Calle desde total USD (misma lógica que backend totalBsDesdeUsdTasaCalle). */
@@ -1933,7 +2033,7 @@
       if (cobroModal && cobroModal.classList.contains('is-open')) {
         renderCobroTabla();
         if (!metodoCobroVisible(cobroState.activeMetodo)) {
-          setCobroActiveMetodo(primerMetodoCobroVisible());
+          setCobroActiveMetodo(metodoCobroPorDefecto());
         }
         refreshCobroMontosYFooter();
         renderCobroStatus();
@@ -2153,6 +2253,11 @@
         state.pendingIdempotencyKey = generateIdempotencyKey();
       }
 
+      // Cuando aplica descuento divisa, enviamos total_usd = totalUsdCobro (ref. BCV descontado),
+      // no el total a tasa calle. El servidor valida contra ese mismo valor.
+      var pagosPostVenta = state.payments || [];
+      var totalUsdParaEnviar = totalUsdCobroEfectivo(totalsPost, pagosPostVenta);
+
       var body = {
         idempotency_key: state.pendingIdempotencyKey,
         items: state.cart.map(function (l) {
@@ -2169,7 +2274,7 @@
         metodo_pago:
           state.payments.length === 1 ? state.payments[0].metodo : 'mixto',
         pagos: state.payments.map(mapPagoVentaPayload),
-        total_usd: round4(totalsPost.totalUsd),
+        total_usd: round4(totalUsdParaEnviar),
         total_bs: Math.round(totalsPost.totalBsBcv * 100) / 100,
         sesion_caja_id:
           state.sesionCajaId != null && state.sesionCajaId > 0
@@ -2236,6 +2341,23 @@
       }
     }
 
+    async function openNotaEntregaPdf(apiBase, ventaId) {
+      if (!ventaId) return;
+      var pdfRes = await apiFetch(apiBase + '/api/pdf/nota/' + ventaId);
+      if (!pdfRes.ok) {
+        throw new Error('No se pudo generar la nota de entrega (HTTP ' + pdfRes.status + ')');
+      }
+      var buf = await pdfRes.arrayBuffer();
+      if (window.nexusCore && typeof window.nexusCore.openPdfBuffer === 'function') {
+        await window.nexusCore.openPdfBuffer(buf);
+      } else {
+        var blob = new Blob([buf], { type: 'application/pdf' });
+        var u = URL.createObjectURL(blob);
+        window.open(u, '_blank');
+        setTimeout(function () { URL.revokeObjectURL(u); }, 120000);
+      }
+    }
+
     /* ─── MODAL DE COBRO (tabla + teclado) ─────────────────────────── */
     var cobroModal = document.getElementById('pos-cobro-modal');
     var cobroTablaBody = document.getElementById('cobro-tabla-pagos-body');
@@ -2267,6 +2389,14 @@
       cobroOptPdf.checked = readAbrirPdfCobro();
       cobroOptPdf.addEventListener('change', function () {
         writeAbrirPdfCobro(cobroOptPdf.checked);
+      });
+    }
+
+    var cobroOptNota = document.getElementById('pos-cobro-opt-nota');
+    if (cobroOptNota) {
+      cobroOptNota.checked = readAbrirNotaCobro();
+      cobroOptNota.addEventListener('change', function () {
+        writeAbrirNotaCobro(cobroOptNota.checked);
       });
     }
 
@@ -2599,6 +2729,45 @@
       cobroSetCasheaLimiteAviso(null);
     }
 
+    /** Efectivo USD y Zelle son mutuamente excluyentes (cobro 100 % en un solo método divisa). */
+    function cobroClearOtraDivisaMercado(mid) {
+      if (mid === 'efectivo_usd') cobroState.rowAmounts.zelle = 0;
+      else if (mid === 'zelle') cobroState.rowAmounts.efectivo_usd = 0;
+    }
+
+    /**
+     * Prellena «Su pago» en efectivo_usd / zelle con totalUsdCobro (descuento divisa si aplica).
+     * @param {string} mid
+     * @param {boolean} [force] Si true, reemplaza monto aunque la fila ya tuviera valor.
+     */
+    function cobroAutofillDivisaUsd(mid, force) {
+      if (mid !== 'efectivo_usd' && mid !== 'zelle') return;
+      if (!force && Number(cobroState.rowAmounts[mid]) > 0) return;
+      // El total descontado solo es válido en cobro 100 % USD/Zelle. Si el cajero ya ingresó
+      // monto en otra forma de pago (cobro mixto), no autocompletamos: el descuento no aplica
+      // y el cajero teclea el monto en divisa manualmente.
+      var hayOtrosMontos = COBRO_TABLA_ORDEN.some(function (m) {
+        return m !== mid && Number(cobroState.rowAmounts[m]) > 0;
+      });
+      if (hayOtrosMontos) return;
+      var totalsAfFill = cartTotals();
+      var pagosSim = [{ metodo: mid, monto: 1, moneda: 'USD' }];
+      var autoValUsd = round4(totalUsdCobroEfectivo(totalsAfFill, pagosSim));
+      if (!(autoValUsd > 0)) return;
+      cobroState.rowAmounts[mid] = autoValUsd;
+      cobroSyncSuPagoInputs();
+    }
+
+    /** Residual USD en cobro 100 % divisa (null si la regla no aplica). */
+    function cobroResidualDivisaUsd() {
+      var pagosDiv = cobroPaymentsArray();
+      if (!cobroAplicaDescuentoDivisa(pagosDiv)) return null;
+      var totsDiv = cartTotals();
+      var totalCobroDiv = totalUsdCobroEfectivo(totsDiv, pagosDiv);
+      var sumUsdDiv = round4(paidUsdEquivCalle(pagosDiv));
+      return round4(sumUsdDiv - totalCobroDiv);
+    }
+
     var cobroCasheaCreditoTimer = null;
     if (cobroCasheaCreditoInp) {
       cobroCasheaCreditoInp.addEventListener('input', function () {
@@ -2786,6 +2955,7 @@
       var prev = cobroState.activeMetodo;
       if (mid === 'cashea') {
         cobroClearOtrasSinCashea();
+        cobroSyncSuPagoInputs();
         cobroState.activeMetodo = mid;
         if (prev !== 'cashea') {
           void calcularDesgloseCashea();
@@ -2804,6 +2974,17 @@
           }
         }
         cobroState.activeMetodo = mid;
+        if (mid === 'efectivo_usd' || mid === 'zelle') {
+          // El descuento al cobrar en divisa NO debe condicionar la edición de las filas:
+          // es emergente (solo aplica cuando el cobro resulta 100 % USD/Zelle). Aquí solo
+          // mantenemos la exclusividad histórica entre las dos formas de efectivo en divisa
+          // (Efectivo USD ↔ Zelle); jamás se vacían las formas en Bs, para no romper el cobro
+          // mixto. La detección del 100 % divisa la hace cobroAplicaDescuentoDivisa(pagos).
+          cobroClearOtraDivisaMercado(mid);
+        }
+        // Métodos en Bs: NO se vacían las filas en divisa, de modo que el cajero pueda
+        // construir un cobro mixto (p. ej. Zelle + Efectivo Bs) llenando varios campos.
+        cobroSyncSuPagoInputs();
       }
 
       // Auto-relleno: si el cajero selecciona Crédito (USD_BCV) y el campo
@@ -2815,6 +2996,11 @@
           cobroState.rowAmounts.credito = autoVal;
           cobroSyncSuPagoInputs();
         }
+      }
+
+      // Auto-relleno: efectivo_usd / zelle → prellenar con totalUsdCobro (descontado si aplica regla divisa).
+      if (mid === 'efectivo_usd' || mid === 'zelle') {
+        cobroAutofillDivisaUsd(mid, false);
       }
 
       var v = Number(cobroState.rowAmounts[mid]) || 0;
@@ -3073,12 +3259,29 @@
           'TOTAL $' + formatRefUsdBcv(totals.totalUsdBcvRef) + ' BCV';
       if (cobroBannerTotalBs)
         cobroBannerTotalBs.textContent = 'Bs.\u00A0' + formatBs(totals.totalBsBcv);
-      if (cobroBannerTotalUsd)
-        cobroBannerTotalUsd.textContent = 'USD $' + formatUsd(totals.totalUsd);
+
+      // USD banner: muestra totalUsdCobro cuando aplica descuento divisa.
+      var pagosActuales = cobroPaymentsArray();
+      var aplicaDivisa = cobroAplicaDescuentoDivisa(pagosActuales);
+      var usdMostrar = aplicaDivisa
+        ? totalUsdCobroEfectivo(totals, pagosActuales)
+        : totals.totalUsd;
+      if (cobroBannerTotalUsd) {
+        if (aplicaDivisa) {
+          var pctDiv = descuentoCobroDivisaConfig.pct;
+          var montoDesc = round4(totals.totalUsdBcvRef - usdMostrar);
+          cobroBannerTotalUsd.textContent =
+            'USD $' + formatUsd(usdMostrar) +
+            ' (−' + pctDiv.toFixed(1) + '% div., −$' + formatUsd(montoDesc) + ')';
+        } else {
+          cobroBannerTotalUsd.textContent = 'USD $' + formatUsd(totals.totalUsd);
+        }
+      }
+
       if (cobroBannerDescPct) cobroBannerDescPct.textContent = g.toFixed(2) + '%';
       if (cobroBannerDescUsd)
         cobroBannerDescUsd.textContent = descUsd > 0 ? '−$' + formatUsd(descUsd) : '$0,00';
-      // Banner rojo: en Cashea lo operativo hoy es la cuota inicial en Bs, no el ticket completo.
+      // Banner rojo: Cashea → cuota inicial Bs; descuento divisa + USD/Zelle → monto USD descontado.
       var bsOperativoCobro = totals.totalBsBcv;
       if (
         cobroState.activeMetodo === 'cashea' &&
@@ -3088,7 +3291,18 @@
         var iniOp = bsBcvCuotaInicialCobroCashea(cobroState.casheaDesglose, totals);
         if (iniOp > 0) bsOperativoCobro = iniOp;
       }
-      if (cobroBannerTotalPago) cobroBannerTotalPago.textContent = formatBs(bsOperativoCobro);
+      var muestraUsdBannerRojo = cobroBannerRojoMuestraUsd();
+      if (cobroBannerTotalPago) {
+        if (muestraUsdBannerRojo) {
+          var midUsdBanner = cobroState.activeMetodo;
+          var usdOperativoCobro = totalUsdCobroEfectivo(totals, [
+            { metodo: midUsdBanner, monto: 1, moneda: 'USD' }
+          ]);
+          cobroBannerTotalPago.textContent = '$' + formatUsd(usdOperativoCobro);
+        } else {
+          cobroBannerTotalPago.textContent = formatBs(bsOperativoCobro);
+        }
+      }
       var esCasheaUi =
         cobroState.activeMetodo === 'cashea' &&
         cobroState.casheaCfg &&
@@ -3106,9 +3320,13 @@
         }
       }
       if (cobroBannerRedLabel) {
-        cobroBannerRedLabel.textContent = esCasheaCobroHoy
-          ? 'Cobrar hoy (cuota inicial)'
-          : 'Total a cobrar (BCV)';
+        if (esCasheaCobroHoy) {
+          cobroBannerRedLabel.textContent = 'Cobrar hoy (cuota inicial)';
+        } else if (muestraUsdBannerRojo) {
+          cobroBannerRedLabel.textContent = 'Total a cobrar (USD)';
+        } else {
+          cobroBannerRedLabel.textContent = 'Total a cobrar (BCV)';
+        }
       }
       if (cobroBannerGreenLabel) cobroBannerGreenLabel.hidden = !esCasheaUi;
     }
@@ -3136,6 +3354,18 @@
         if (metodoCobroVisible(COBRO_TABLA_ORDEN[i])) return COBRO_TABLA_ORDEN[i];
       }
       return COBRO_TABLA_ORDEN[0];
+    }
+
+    /**
+     * Método de cobro por defecto al abrir el modal o al re-seleccionar tras cambiar de modo.
+     * En solo_bcv el flujo natural es en bolívares: se prefiere efectivo_bs (si está visible).
+     * En multimoneda se conserva el primer método visible de la tabla (caja clásica).
+     */
+    function metodoCobroPorDefecto() {
+      if (posModoMoneda() === 'solo_bcv' && metodoCobroVisible('efectivo_bs')) {
+        return 'efectivo_bs';
+      }
+      return primerMetodoCobroVisible();
     }
 
     function renderCobroTabla() {
@@ -3225,16 +3455,51 @@
     var pendingClienteVentaContinue = null;
     var clienteModalSearchTimer = null;
 
+    function clienteIniciales(nombre) {
+      var parts = String(nombre || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (parts.length === 0) return '?';
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    function setClienteVentaStep(step) {
+      var steps = document.querySelectorAll('[data-pos-cliente-step]');
+      steps.forEach(function (el) {
+        el.classList.toggle('is-active', el.getAttribute('data-pos-cliente-step') === step);
+      });
+    }
+
+    function showClienteVentaPanel(panelId) {
+      var ids = ['pos-cliente-venta-menu', 'pos-cliente-buscar-panel', 'pos-cliente-nuevo-panel'];
+      var step = 'menu';
+      if (panelId === 'pos-cliente-buscar-panel') step = 'buscar';
+      else if (panelId === 'pos-cliente-nuevo-panel') step = 'nuevo';
+      ids.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.toggle('is-visible', id === panelId);
+      });
+      setClienteVentaStep(step);
+    }
+
     function renderClientePanel() {
+      var panelEl = host.querySelector('[data-pos-cliente-panel]');
       var nameEl = host.querySelector('[data-pos-cliente-nombre]');
       var subEl = host.querySelector('[data-pos-cliente-sub]');
+      var badgeEl = host.querySelector('[data-pos-cliente-badge]');
       if (!nameEl || !subEl) return;
       if (state.clienteId != null && state.clienteId > 0 && state.clienteNombre) {
         nameEl.textContent = state.clienteNombre;
         subEl.textContent = 'Cliente registrado · clic para cambiar';
+        if (panelEl) panelEl.classList.add('is-registrado');
+        if (badgeEl) badgeEl.textContent = clienteIniciales(state.clienteNombre);
       } else {
         nameEl.textContent = 'Consumidor final';
         subEl.textContent = 'Mostrador · clic para cambiar';
+        if (panelEl) panelEl.classList.remove('is-registrado');
+        if (badgeEl) badgeEl.textContent = 'CF';
       }
     }
 
@@ -3245,17 +3510,12 @@
     }
 
     function resetClienteVentaModalPanels() {
-      var menu = document.getElementById('pos-cliente-venta-menu');
-      var bus = document.getElementById('pos-cliente-buscar-panel');
-      var nue = document.getElementById('pos-cliente-nuevo-panel');
       var inp = document.getElementById('pos-cliente-buscar-input');
       var res = document.getElementById('pos-cliente-buscar-results');
       var nNom = document.getElementById('pos-cliente-nuevo-nombre');
       var nDoc = document.getElementById('pos-cliente-nuevo-doc');
       var nTel = document.getElementById('pos-cliente-nuevo-tel');
-      if (menu) menu.style.display = '';
-      if (bus) bus.style.display = 'none';
-      if (nue) nue.style.display = 'none';
+      showClienteVentaPanel('pos-cliente-venta-menu');
       if (inp) inp.value = '';
       if (res) res.innerHTML = '';
       if (nNom) nNom.value = '';
@@ -3280,10 +3540,7 @@
       if (typeof cb === 'function') cb();
     }
 
-    function openClienteVentaModal(onContinue) {
-      pendingClienteVentaContinue = typeof onContinue === 'function' ? onContinue : null;
-      resetClienteVentaModalPanels();
-      var m = document.getElementById('pos-cliente-venta-modal');
+    function syncClienteNuevoPermisoUi() {
       var canEdit =
         window.NexusAuth &&
         typeof window.NexusAuth.can === 'function' &&
@@ -3292,8 +3549,16 @@
       var hint = document.getElementById('pos-cliente-nuevo-perm-hint');
       var guardar = document.getElementById('pos-cliente-nuevo-guardar');
       if (btnNuevo) btnNuevo.style.display = canEdit ? '' : 'none';
-      if (hint) hint.style.display = canEdit ? 'none' : '';
+      if (hint) hint.hidden = !!canEdit;
       if (guardar) guardar.disabled = !canEdit;
+      return canEdit;
+    }
+
+    function openClienteVentaModal(onContinue) {
+      pendingClienteVentaContinue = typeof onContinue === 'function' ? onContinue : null;
+      resetClienteVentaModalPanels();
+      var m = document.getElementById('pos-cliente-venta-modal');
+      syncClienteNuevoPermisoUi();
       if (m) m.classList.add('is-open');
     }
 
@@ -3303,9 +3568,11 @@
       var qq = String(q || '').trim();
       if (qq.length < 2) {
         resEl.innerHTML =
-          '<li class="muted" style="cursor:default;padding:0.65rem 0.75rem">Escribe al menos 2 caracteres</li>';
+          '<li class="is-empty" tabindex="-1">Escribe al menos 2 caracteres para buscar</li>';
         return;
       }
+      resEl.innerHTML =
+        '<li class="is-empty" tabindex="-1">Buscando…</li>';
       apiFetch('/api/clientes?limit=15&q=' + encodeURIComponent(qq))
         .then(function (r) {
           return r.ok ? r.json() : [];
@@ -3313,22 +3580,40 @@
         .then(function (rows) {
           if (!Array.isArray(rows) || rows.length === 0) {
             resEl.innerHTML =
-              '<li class="muted" style="cursor:default;padding:0.65rem 0.75rem">Sin resultados</li>';
+              '<li class="is-empty" tabindex="-1">Ningún cliente coincide con «' +
+              escapeHtml(qq) +
+              '»</li>';
             return;
           }
           resEl.innerHTML = rows
             .map(function (row) {
-              var meta = [row.cedula_rif, row.telefono].filter(Boolean).join(' · ');
+              var nom = row.nombre || '—';
+              var tags = [];
+              if (row.cedula_rif) {
+                tags.push(
+                  '<span class="pos-cliente-result-tag">' + escapeHtml(row.cedula_rif) + '</span>'
+                );
+              }
+              if (row.telefono) {
+                tags.push(
+                  '<span class="pos-cliente-result-tag">' + escapeHtml(row.telefono) + '</span>'
+                );
+              }
               return (
                 '<li role="button" tabindex="0" data-cli-id="' +
                 Number(row.id) +
                 '">' +
-                '<strong>' +
-                escapeHtml(row.nombre || '—') +
-                '</strong>' +
-                (meta
-                  ? '<div class="muted">' + escapeHtml(meta) + '</div>'
+                '<span class="pos-cliente-result-avatar" aria-hidden="true">' +
+                escapeHtml(clienteIniciales(nom)) +
+                '</span>' +
+                '<span class="pos-cliente-result-body">' +
+                '<span class="pos-cliente-result-name">' +
+                escapeHtml(nom) +
+                '</span>' +
+                (tags.length
+                  ? '<span class="pos-cliente-result-meta">' + tags.join('') + '</span>'
                   : '') +
+                '</span>' +
                 '</li>'
               );
             })
@@ -3336,7 +3621,7 @@
         })
         .catch(function () {
           resEl.innerHTML =
-            '<li class="muted" style="cursor:default;color:var(--accent-danger);padding:0.65rem 0.75rem">Error al buscar</li>';
+            '<li class="is-error" tabindex="-1">Error al buscar clientes. Intenta de nuevo.</li>';
         });
     }
 
@@ -3361,8 +3646,7 @@
         finishClienteVentaChoice();
       });
       optBuscar.addEventListener('click', function () {
-        document.getElementById('pos-cliente-venta-menu').style.display = 'none';
-        document.getElementById('pos-cliente-buscar-panel').style.display = 'block';
+        showClienteVentaPanel('pos-cliente-buscar-panel');
         var inp = document.getElementById('pos-cliente-buscar-input');
         if (inp) {
           inp.focus();
@@ -3371,8 +3655,7 @@
       });
       document.getElementById('pos-cliente-buscar-volver').addEventListener('click', resetClienteVentaModalPanels);
       optNuevo.addEventListener('click', function () {
-        document.getElementById('pos-cliente-venta-menu').style.display = 'none';
-        document.getElementById('pos-cliente-nuevo-panel').style.display = 'block';
+        showClienteVentaPanel('pos-cliente-nuevo-panel');
         var n = document.getElementById('pos-cliente-nuevo-nombre');
         if (n) setTimeout(function () { n.focus(); }, 50);
       });
@@ -3394,15 +3677,26 @@
         resUl.addEventListener('click', function (ev) {
           var li = ev.target.closest('[data-cli-id]');
           if (!li) return;
-          var cid = Number(li.getAttribute('data-cli-id'));
-          var nom = '';
-          var st = li.querySelector('strong');
-          if (st) nom = String(st.textContent || '').trim();
-          if (!cid || cid < 1) return;
-          state.clienteId = cid;
-          state.clienteNombre = nom || 'Cliente #' + cid;
-          finishClienteVentaChoice();
+          selectClienteVentaSearchRow(li);
         });
+        resUl.addEventListener('keydown', function (ev) {
+          if (ev.key !== 'Enter' && ev.key !== ' ') return;
+          var li = ev.target.closest('[data-cli-id]');
+          if (!li) return;
+          ev.preventDefault();
+          selectClienteVentaSearchRow(li);
+        });
+      }
+
+      function selectClienteVentaSearchRow(li) {
+        var cid = Number(li.getAttribute('data-cli-id'));
+        var nom = '';
+        var st = li.querySelector('.pos-cliente-result-name');
+        if (st) nom = String(st.textContent || '').trim();
+        if (!cid || cid < 1) return;
+        state.clienteId = cid;
+        state.clienteNombre = nom || 'Cliente #' + cid;
+        finishClienteVentaChoice();
       }
 
       btnGuardarNuevo.addEventListener('click', function () {
@@ -3428,7 +3722,7 @@
         var btn = document.getElementById('pos-cliente-nuevo-guardar');
         if (btn) {
           btn.disabled = true;
-          btn.textContent = '⏳ Guardando…';
+          btn.textContent = 'Guardando…';
         }
         apiFetch('/api/clientes', {
           method: 'POST',
@@ -3453,7 +3747,7 @@
           })
           .finally(function () {
             if (btn) {
-              btn.disabled = false;
+              syncClienteNuevoPermisoUi();
               btn.textContent = 'Guardar y usar en esta venta';
             }
           });
@@ -3484,7 +3778,7 @@
       if (cobroCasheaNivelSel) cobroState.casheaNivel = cobroCasheaNivelSel.value || 'BRONCE';
       if (cobroCasheaCreditoInp) cobroCasheaCreditoInp.value = '';
       cobroSetCasheaLimiteAviso(null);
-      cobroState.activeMetodo = primerMetodoCobroVisible();
+      cobroState.activeMetodo = metodoCobroPorDefecto();
       cobroState.numpadBuffer = '0';
       renderCobroBanners();
       renderCobroTabla();
@@ -3492,17 +3786,30 @@
       refreshCobroMontosYFooter();
       renderCobroStatus();
       if (cobroOptPdf) cobroOptPdf.checked = readAbrirPdfCobro();
+      if (cobroOptNota) cobroOptNota.checked = readAbrirNotaCobro();
       if (cobroModal) cobroModal.classList.add('is-open');
-      void apiFetch(getApiBase() + '/api/cashea/config')
-        .then(function (res) {
-          return res.ok ? res.json() : {};
-        })
-        .then(function (cfg) {
-          cobroState.casheaCfg = cfg || {};
-          cobroUpdateCasheaPanelVisible();
-          renderCobroTabla();
-        })
-        .catch(function () {});
+      // Cargar config de Cashea y descuento divisa en paralelo (ambas al abrir el modal).
+      void Promise.all([
+        apiFetch(getApiBase() + '/api/cashea/config')
+          .then(function (res) { return res.ok ? res.json() : {}; })
+          .then(function (cfg) {
+            cobroState.casheaCfg = cfg || {};
+            cobroUpdateCasheaPanelVisible();
+            renderCobroTabla();
+          })
+          .catch(function () {}),
+        loadDescuentoCobroDivisaConfig()
+          .then(function () {
+            // El descuento al cobrar en divisa es emergente: se observa/calcula según los
+            // montos que teclee el cajero (cobro 100 % USD/Zelle). No se fuerza ni se vacía
+            // ninguna fila al abrir el modal; solo se refrescan banner y estado para reflejar
+            // la configuración recién cargada. Así los campos en Bs y Zelle quedan siempre
+            // editables y los cobros mixtos funcionan con el descuento activo.
+            renderCobroBanners();
+            refreshCobroMontosYFooter();
+            renderCobroStatus();
+          })
+      ]);
     }
 
     function openCobroModal() {
@@ -3588,6 +3895,16 @@
         if (Math.abs(resUsdC) <= EPS_USD_PAGOS) return 0;
       }
 
+      // Descuento divisa (100 % efectivo_usd / zelle): validar en USD; sin vuelto (un solo método).
+      var resUsdDiv = cobroResidualDivisaUsd();
+      if (resUsdDiv !== null) {
+        if (Math.abs(resUsdDiv) <= EPS_USD_PAGOS) return 0;
+        var bcvDiv = getTasas().bcv;
+        return bcvDiv > 0
+          ? Math.round(Math.abs(resUsdDiv) * bcvDiv * 100) / 100
+          : Math.abs(resUsdDiv);
+      }
+
       var raw = cobroUsdResidualRounded(); // Bs BCV
       if (Math.abs(raw) <= EPS_BS_PAGOS) return 0;
 
@@ -3650,6 +3967,21 @@
         }
         var totals0 = cartTotals();
         cobroStatusAmt.textContent = formatResumenTotalesBcv(totals0);
+        cobroBtnConfirmar.disabled = true;
+        return;
+      }
+
+      var resDivUsd = cobroResidualDivisaUsd();
+      if (resDivUsd !== null && Math.abs(resDivUsd) > EPS_USD_PAGOS) {
+        cobroStatusEl.classList.add('is-pending');
+        if (resDivUsd > EPS_USD_PAGOS) {
+          cobroStatusLbl.textContent = 'Falta por cobrar (USD)';
+          cobroStatusAmt.textContent = 'USD $' + formatUsd(resDivUsd);
+        } else {
+          cobroStatusLbl.textContent = 'Monto USD no cuadra con el total';
+          cobroStatusAmt.textContent =
+            'Exceso USD $' + formatUsd(Math.abs(resDivUsd)) + ' — revisa la fila activa';
+        }
         cobroBtnConfirmar.disabled = true;
         return;
       }
@@ -3774,6 +4106,16 @@
         }
 
         var totalsCk = cartTotals();
+        var resDivCk = cobroResidualDivisaUsd();
+        if (resDivCk !== null && Math.abs(resDivCk) > EPS_USD_PAGOS) {
+          showToast(
+            resDivCk > EPS_USD_PAGOS
+              ? 'Aún falta USD $' + formatUsd(resDivCk) + ' por cubrir.'
+              : 'El monto USD supera el total a cobrar con descuento divisa.',
+            'warning'
+          );
+          return;
+        }
         var remOpCk = cobroResidualUsdOperativo(); // ahora es Bs BCV
         if (remOpCk > EPS_BS_PAGOS) {
           showToast('Aún falta Bs ' + formatBs(remOpCk) + ' por cubrir.', 'warning');
@@ -3869,6 +4211,15 @@
             }
           } catch (pdfErr) {
             showToast(pdfErr.message || 'Error al generar el PDF', 'danger');
+          }
+
+          try {
+            var notaOpt = document.getElementById('pos-cobro-opt-nota');
+            if (notaOpt && notaOpt.checked && ventaId) {
+              await openNotaEntregaPdf(api, ventaId);
+            }
+          } catch (notaErr) {
+            showToast(notaErr.message || 'Error al generar la nota de entrega', 'danger');
           }
 
           showToast(

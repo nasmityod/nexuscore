@@ -35,8 +35,13 @@
           tabindex="0"
           title="Clic para elegir consumidor final o cliente registrado"
         >
-          <span class="pos-cliente-placeholder" data-pos-cliente-nombre>Consumidor final</span>
-          <span class="pos-cliente-sub" data-pos-cliente-sub>Mostrador · clic para cambiar</span>
+          <div class="pos-cliente-aside-row">
+            <span class="pos-cliente-aside-badge" data-pos-cliente-badge aria-hidden="true">CF</span>
+            <div class="pos-cliente-aside-text">
+              <span class="pos-cliente-placeholder" data-pos-cliente-nombre>Consumidor final</span>
+              <span class="pos-cliente-sub" data-pos-cliente-sub>Mostrador · clic para cambiar</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="pos-fblock">
@@ -137,54 +142,119 @@
   aria-labelledby="pos-cliente-venta-title"
 >
   <div class="pos-cobro-modal pos-cliente-venta-modal-inner">
-    <div class="pos-cobro-modal-header">
-      <h2 class="pos-cobro-modal-title" id="pos-cliente-venta-title">Cliente en esta venta</h2>
+    <div class="pos-cobro-modal-header pos-cliente-modal-header">
+      <div>
+        <h2 class="pos-cobro-modal-title" id="pos-cliente-venta-title">Cliente en esta venta</h2>
+        <p class="pos-cliente-modal-kicker">F1 · Identificación del comprador</p>
+      </div>
       <button type="button" class="pos-cobro-close" id="pos-cliente-venta-cerrar" aria-label="Cerrar">✕</button>
     </div>
-    <p class="pos-cliente-venta-intro text-muted">
-      En programas de facturación, la venta sin identificar al comprador suele llamarse
-      <strong>consumidor final</strong> o venta al <strong>mostrador</strong>. Si lo necesitas (crédito,
-      historial, datos en factura), asocia un cliente registrado o créalo aquí.
-    </p>
-    <div id="pos-cliente-venta-menu">
-      <div class="pos-cliente-venta-btns">
-        <button type="button" class="btn btn-primary btn-block" id="pos-cliente-opt-final">
-          Continuar como consumidor final (mostrador)
+
+    <nav class="pos-cliente-steps" id="pos-cliente-steps" aria-label="Paso del asistente">
+      <span class="pos-cliente-step is-active" data-pos-cliente-step="menu">Opciones</span>
+      <span class="pos-cliente-step-sep" aria-hidden="true">›</span>
+      <span class="pos-cliente-step" data-pos-cliente-step="buscar">Buscar</span>
+      <span class="pos-cliente-step-sep" aria-hidden="true">›</span>
+      <span class="pos-cliente-step" data-pos-cliente-step="nuevo">Registrar</span>
+    </nav>
+
+    <div id="pos-cliente-venta-menu" class="pos-cliente-panel is-visible">
+      <div class="pos-cliente-info-box">
+        <p class="pos-cliente-info-text">
+          La venta sin identificar al comprador es <strong>consumidor final</strong> (mostrador).
+          Asocia un cliente si necesitas crédito, historial o datos en la factura.
+        </p>
+      </div>
+      <div class="pos-cliente-opt-grid">
+        <button type="button" class="pos-cliente-opt-card pos-cliente-opt-card--primary" id="pos-cliente-opt-final">
+          <span class="pos-cliente-opt-kicker">Rápido · sin registro</span>
+          <span class="pos-cliente-opt-title">Consumidor final</span>
+          <span class="pos-cliente-opt-desc">Continuar la venta al mostrador sin asociar un cliente</span>
         </button>
-        <button type="button" class="btn btn-secondary btn-block" id="pos-cliente-opt-buscar">
-          Buscar cliente registrado
+        <button type="button" class="pos-cliente-opt-card" id="pos-cliente-opt-buscar">
+          <span class="pos-cliente-opt-kicker">Directorio</span>
+          <span class="pos-cliente-opt-title">Buscar cliente</span>
+          <span class="pos-cliente-opt-desc">Nombre, cédula o teléfono de un cliente ya registrado</span>
         </button>
-        <button type="button" class="btn btn-secondary btn-block" id="pos-cliente-opt-nuevo">
-          Registrar cliente nuevo
+        <button type="button" class="pos-cliente-opt-card" id="pos-cliente-opt-nuevo">
+          <span class="pos-cliente-opt-kicker">Alta rápida</span>
+          <span class="pos-cliente-opt-title">Registrar cliente nuevo</span>
+          <span class="pos-cliente-opt-desc">Crear ficha mínima y usarla en esta venta al guardar</span>
         </button>
       </div>
     </div>
-    <div id="pos-cliente-buscar-panel" style="display: none">
-      <button type="button" class="btn btn-ghost btn-sm" id="pos-cliente-buscar-volver">← Volver</button>
-      <label class="pos-mini-label" for="pos-cliente-buscar-input">Nombre, cédula o teléfono</label>
-      <input
-        type="search"
-        id="pos-cliente-buscar-input"
-        class="pos-scan-input pos-no-scan"
-        placeholder="Escribe para buscar…"
-        autocomplete="off"
-      />
+
+    <div id="pos-cliente-buscar-panel" class="pos-cliente-panel">
+      <div class="pos-cliente-panel-head">
+        <button type="button" class="pos-cliente-back" id="pos-cliente-buscar-volver">← Volver</button>
+        <div class="pos-cliente-panel-head-text">
+          <h3 class="pos-cliente-panel-title">Buscar cliente</h3>
+          <p class="pos-cliente-panel-sub">Escribe al menos 2 caracteres para filtrar el directorio</p>
+        </div>
+      </div>
+      <div class="pos-cliente-search-wrap">
+        <input
+          type="search"
+          id="pos-cliente-buscar-input"
+          class="pos-cliente-search-input pos-no-scan"
+          placeholder="Nombre, cédula o teléfono…"
+          autocomplete="off"
+        />
+      </div>
       <ul class="pos-cliente-buscar-list" id="pos-cliente-buscar-results" aria-live="polite"></ul>
     </div>
-    <div id="pos-cliente-nuevo-panel" style="display: none">
-      <button type="button" class="btn btn-ghost btn-sm" id="pos-cliente-nuevo-volver">← Volver</button>
-      <label class="pos-mini-label" for="pos-cliente-nuevo-nombre">Nombre <span style="color:var(--accent-danger)">*</span></label>
-      <input type="text" id="pos-cliente-nuevo-nombre" class="pos-scan-input pos-no-scan" maxlength="150" />
-      <label class="pos-mini-label" for="pos-cliente-nuevo-doc">Cédula / RIF</label>
-      <input type="text" id="pos-cliente-nuevo-doc" class="pos-scan-input pos-no-scan" maxlength="20" />
-      <label class="pos-mini-label" for="pos-cliente-nuevo-tel">Celular (11 dígitos VE)</label>
-      <input type="text" id="pos-cliente-nuevo-tel" class="pos-scan-input pos-no-scan" maxlength="11" inputmode="numeric" />
-      <p class="text-muted" id="pos-cliente-nuevo-perm-hint" style="display: none; font-size: 0.78rem">
+
+    <div id="pos-cliente-nuevo-panel" class="pos-cliente-panel">
+      <div class="pos-cliente-panel-head">
+        <button type="button" class="pos-cliente-back" id="pos-cliente-nuevo-volver">← Volver</button>
+        <div class="pos-cliente-panel-head-text">
+          <h3 class="pos-cliente-panel-title">Registrar cliente</h3>
+          <p class="pos-cliente-panel-sub">Datos mínimos para la venta · el resto puedes completarlo en Clientes</p>
+        </div>
+      </div>
+      <div class="pos-cliente-form">
+        <div class="pos-cliente-form-row pos-cliente-form-row--full">
+          <label class="form-label" for="pos-cliente-nuevo-nombre">Nombre completo <span class="pos-cliente-req">*</span></label>
+          <input
+            type="text"
+            id="pos-cliente-nuevo-nombre"
+            class="pos-cliente-field-input pos-no-scan"
+            maxlength="150"
+            placeholder="Ej. María López"
+          />
+        </div>
+        <div class="pos-cliente-form-grid">
+          <div class="pos-cliente-form-row">
+            <label class="form-label" for="pos-cliente-nuevo-doc">Cédula / RIF</label>
+            <input
+              type="text"
+              id="pos-cliente-nuevo-doc"
+              class="pos-cliente-field-input pos-cliente-field-input--mono pos-no-scan"
+              maxlength="20"
+              placeholder="V-12345678"
+            />
+          </div>
+          <div class="pos-cliente-form-row">
+            <label class="form-label" for="pos-cliente-nuevo-tel">Celular VE</label>
+            <input
+              type="text"
+              id="pos-cliente-nuevo-tel"
+              class="pos-cliente-field-input pos-cliente-field-input--mono pos-no-scan"
+              maxlength="11"
+              inputmode="numeric"
+              placeholder="04121234567"
+            />
+          </div>
+        </div>
+      </div>
+      <p class="pos-cliente-perm-hint" id="pos-cliente-nuevo-perm-hint" hidden>
         Tu usuario no tiene permiso para crear clientes. Usa «Buscar» o pide a un supervisor el alta en Clientes.
       </p>
-      <button type="button" class="btn btn-success btn-block" id="pos-cliente-nuevo-guardar" style="margin-top: 0.75rem">
-        Guardar y usar en esta venta
-      </button>
+      <div class="pos-cliente-form-actions">
+        <button type="button" class="btn btn-primary btn-block" id="pos-cliente-nuevo-guardar">
+          Guardar y usar en esta venta
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -356,6 +426,11 @@
     <label class="cobro-pdf-option">
       <input type="checkbox" id="pos-cobro-opt-pdf" />
       <span>Abrir comprobante PDF al cobrar (útil con impresora PDF o térmica)</span>
+    </label>
+
+    <label class="cobro-pdf-option">
+      <input type="checkbox" id="pos-cobro-opt-nota" />
+      <span>Abrir nota de entrega A4 al cobrar</span>
     </label>
 
     <button type="button" class="btn btn-success btn-xl cobro-confirm-btn" id="cobro-btn-confirmar" disabled>

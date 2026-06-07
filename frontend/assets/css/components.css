@@ -4,6 +4,7 @@
    .nexus-usd-only se ocultan globalmente cuando <body> tiene .nexus-solo-bcv.
    El body class lo administra components/navbar.js de forma reactiva. */
 body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
+body.nexus-solo-bcv .nexus-multimoneda-only { display: none !important; }
 
 /* ─── Sidebar ─────────────────────────────────────────────────────────── */
 .sidebar {
@@ -348,7 +349,7 @@ body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
 }
 
 .btn-primary:hover {
-  background: #d49200;
+  background: var(--accent-primary-dim);
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   border-color: transparent;
@@ -395,7 +396,7 @@ body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
 .btn-success {
   background: var(--accent-success);
   border-color: transparent;
-  color: #fff;
+  color: var(--text-on-color);
   box-shadow: var(--shadow-success);
 }
 
@@ -408,7 +409,7 @@ body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
 .btn-warning {
   background: var(--accent-warning);
   border-color: transparent;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .btn-warning:hover {
@@ -420,7 +421,7 @@ body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
 .btn-danger {
   background: var(--accent-danger);
   border-color: transparent;
-  color: #fff;
+  color: var(--text-on-color);
   box-shadow: var(--shadow-danger);
 }
 
@@ -472,7 +473,7 @@ body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
 /* ─── Cards ───────────────────────────────────────────────────────────── */
 .card {
   background: var(--bg-secondary);
-  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, transparent 60px);
+  background-image: linear-gradient(180deg, var(--card-highlight) 0%, transparent 60px);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-md);
   padding: 1rem 1.15rem;
@@ -591,33 +592,33 @@ body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
 }
 
 .badge--blue {
-  background: rgba(59, 130, 246, 0.12);
-  color: #93c5fd;
-  border-color: rgba(59, 130, 246, 0.2);
+  background: var(--badge-blue-bg);
+  color: var(--badge-blue-text);
+  border-color: var(--badge-blue-border);
 }
 
 .badge--green {
-  background: rgba(34, 197, 94, 0.12);
-  color: #4ade80;
-  border-color: rgba(34, 197, 94, 0.2);
+  background: var(--badge-green-bg);
+  color: var(--badge-green-text);
+  border-color: var(--badge-green-border);
 }
 
 .badge--yellow {
-  background: rgba(245, 158, 11, 0.12);
-  color: #fcd34d;
-  border-color: rgba(245, 158, 11, 0.2);
+  background: var(--badge-yellow-bg);
+  color: var(--badge-yellow-text);
+  border-color: var(--badge-yellow-border);
 }
 
 .badge--red {
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.2);
+  background: var(--badge-red-bg);
+  color: var(--badge-red-text);
+  border-color: var(--badge-red-border);
 }
 
 .badge--purple {
-  background: rgba(168, 85, 247, 0.12);
-  color: #c4b5fd;
-  border-color: rgba(168, 85, 247, 0.2);
+  background: var(--badge-purple-bg);
+  color: var(--badge-purple-text);
+  border-color: var(--badge-purple-border);
 }
 
 .badge--amber {
@@ -756,7 +757,7 @@ body.nexus-solo-bcv .nexus-usd-only { display: none !important; }
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--overlay-bg);
   backdrop-filter: blur(4px);
   z-index: 1000;
   align-items: center;

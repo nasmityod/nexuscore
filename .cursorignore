@@ -23,5 +23,3 @@ prisma/migrations/
 Thumbs.db
 *.log
 
-# Scripts de automatización o utilidades internas
-scripts/

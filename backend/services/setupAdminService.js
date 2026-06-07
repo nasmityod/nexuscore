@@ -36,6 +36,30 @@ async function obtenerEstadoSetupAdmin(db) {
 }
 
 /**
+ * AUD-SEC: estos endpoints de setup NO requieren JWT (corren antes del primer login). Para
+ * que un proceso local no pueda reconfigurar un sistema ya productivo, se valida que el
+ * asistente aún no haya terminado y que no exista una caja abierta. `setup_empresa_completado`
+ * (último paso de datos del wizard: empresa) es la señal de "instalación finalizada".
+ * @param {import('pg-promise').IDatabase} db
+ * @returns {Promise<boolean>}
+ */
+async function isSetupEmpresaCompletado(db) {
+  const row = await db.oneOrNone(
+    `SELECT valor FROM configuracion WHERE clave = $1 LIMIT 1`,
+    [CONFIG_SETUP_EMPRESA]
+  );
+  return !!(row && String(row.valor).trim().toLowerCase() === 'true');
+}
+
+/** @param {import('pg-promise').IDatabase|import('pg-promise').ITask<unknown>} dbOrT */
+async function hayCajaAbierta(dbOrT) {
+  const row = await dbOrT.oneOrNone(
+    `SELECT id FROM sesiones_caja WHERE estado = 'abierta' AND fecha_cierre IS NULL LIMIT 1`
+  );
+  return !!row;
+}
+
+/**
  * @param {unknown} body
  */
 function validarPayloadAdminInicial(body) {
@@ -201,6 +225,15 @@ async function guardarEmpresaInicial(db, payload) {
     throw new Error('El nombre de la empresa es obligatorio (mínimo 2 caracteres).');
   }
 
+  // AUD-SEC: no permitir reescritura de datos de empresa con una caja abierta (sistema en
+  // operación). El wizard inicial y la reactivación de licencia corren antes del login,
+  // sin caja abierta, de modo que este guard no rompe esos flujos.
+  if (await hayCajaAbierta(db)) {
+    const err = new Error('No se puede ejecutar la configuración inicial con una caja abierta.');
+    err.status = 409;
+    throw err;
+  }
+
   const camposEmpresa = {};
   camposEmpresa.empresa_nombre = nombre;
   if (p.empresa_rif != null && String(p.empresa_rif).trim()) {
@@ -262,6 +295,23 @@ async function guardarModoMonedaInicial(db, modo) {
   const m = String(modo ?? '').trim().toLowerCase();
   if (!ModoMonedaService.MODOS_VALIDOS.has(m)) {
     throw new Error('modo_moneda_operacion debe ser multimoneda o solo_bcv');
+  }
+
+  // AUD-SEC (CRÍTICO): cambiar el modo monetario reescribe tasa_usd en solo_bcv. Este endpoint
+  // sin JWT solo puede usarse durante el asistente inicial (antes de completar empresa) y nunca
+  // con una caja abierta. Tras la instalación, el modo se cambia por PATCH /api/configuracion/
+  // modo-moneda (requiere permiso tasas_edit + caja cerrada).
+  if (await isSetupEmpresaCompletado(db)) {
+    const err = new Error(
+      'El asistente de instalación ya se completó. Cambia el modo monetario desde Configuración → Moneda y Tasas.'
+    );
+    err.status = 409;
+    throw err;
+  }
+  if (await hayCajaAbierta(db)) {
+    const err = new Error('No se puede cambiar el modo monetario con una caja abierta. Cierra la caja primero.');
+    err.status = 409;
+    throw err;
   }
 
   await db.tx(async (t) => {

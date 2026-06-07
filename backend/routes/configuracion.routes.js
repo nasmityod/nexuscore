@@ -23,14 +23,39 @@ router.post(
   configuracionController.postTasaBcvAutoSync
 );
 router.post(
+  '/tasa-bcv-auto/feriados/sincronizar',
+  requirePermission('tasas_edit'),
+  configuracionController.postTasaBcvAutoFeriadosSync
+);
+router.post(
   '/tasa-bcv-auto/forzar-aplicar',
   requirePermission('tasas_edit'),
   configuracionController.postTasaBcvAutoForzarAplicar
 );
 
+router.patch('/descuento-cobro-divisa', requirePermission('config_write'), configuracionController.patchDescuentoCobroDivisa);
+
 router.post('/impresora/prueba', requirePermission('config_write'), async (req, res, next) => {
   try {
     const r = await ImpresionService.imprimirPrueba();
+    res.json(r);
+  } catch (err) { next(err); }
+});
+
+router.post('/impresora/ticket/:ventaId', requirePermission('pdf_ver'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.ventaId);
+    if (!id || id < 1) return res.status(400).json({ error: 'ID de venta inválido' });
+    const r = await ImpresionService.imprimirTicket(id);
+    res.json(r);
+  } catch (err) { next(err); }
+});
+
+router.post('/impresora/cierre', requirePermission('caja_operar'), express.json({ limit: '8kb' }), async (req, res, next) => {
+  try {
+    const sesionId = req.body && req.body.sesion_id ? Number(req.body.sesion_id) : null;
+    if (!sesionId || sesionId < 1) return res.status(400).json({ error: 'sesion_id requerido y debe ser un entero positivo' });
+    const r = await ImpresionService.imprimirCierre(sesionId);
     res.json(r);
   } catch (err) { next(err); }
 });

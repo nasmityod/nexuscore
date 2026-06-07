@@ -6,6 +6,7 @@ const { db }  = require('../config/database');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const licenciaService = require('../services/licenciaService');
 const { requirePermission } = require('../middleware/permissions.middleware');
+const { requireAuth } = require('../middleware/auth.middleware');
 
 function hwidsFromBody(body) {
   const { hwid, hwid_compat } = body || {};
@@ -40,7 +41,10 @@ router.get('/estado', asyncHandler(async (req, res) => {
  * Verifica la firma Ed25519 y persiste la clave en la BD.
  * Solo administradores pueden activar (cuando ya hay sesión iniciada).
  */
-router.post('/activar', requirePermission('usuarios_all'), asyncHandler(async (req, res) => {
+// AUD-SEC: este router se monta fuera de apiProtected, por lo que requireAuth debe ir
+// explícito ANTES de requirePermission (que asume req.user ya verificado). Sin él,
+// requirePermission siempre respondía 403 y el endpoint quedaba inutilizable para admins.
+router.post('/activar', requireAuth, requirePermission('usuarios_all'), asyncHandler(async (req, res) => {
   const { clave } = req.body || {};
   const hwids = hwidsFromBody(req.body);
   if (!clave || !String(clave).trim()) throw httpError(400, 'La clave de licencia es obligatoria');

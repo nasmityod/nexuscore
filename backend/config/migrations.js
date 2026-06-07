@@ -158,6 +158,11 @@ const SCHEMA_PATCH_035_CLAVE = 'schema_patch_035_nomenclatura_tasa_usd_sin_paral
 const SCHEMA_PATCH_036_CLAVE = 'schema_patch_036_setup_admin_legacy';
 const SCHEMA_PATCH_037_CLAVE = 'schema_patch_037_total_bs_bcv_modo_moneda';
 const SCHEMA_PATCH_038_CLAVE = 'schema_patch_038_cashea_pct_inicial_semilla_60';
+const SCHEMA_PATCH_039_CLAVE = 'schema_patch_039_cuentas_pagar';
+const SCHEMA_PATCH_040_CLAVE = 'schema_patch_040_cuentas_pagar_permiso_roles';
+const SCHEMA_PATCH_041_CLAVE = 'schema_patch_041_descuento_cobro_divisa';
+const SCHEMA_PATCH_042_CLAVE = 'schema_patch_042_configuracion_actualizado_por';
+const SCHEMA_PATCH_043_CLAVE = 'schema_patch_043_licencia_profesional';
 
 /**
  * Parches SQL idempotentes post-bootstrap (BD ya inicializada).
@@ -945,6 +950,51 @@ async function runPatch038CasheaPctInicialSemilla60(db) {
   );
 }
 
+async function runPatch039CuentasPagar(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_039_CLAVE,
+    '039_cuentas_pagar.sql',
+    'Parche 039: módulo Cuentas por Pagar (cuentas_pagar, pagos_proveedor, cols crédito en compras)'
+  );
+}
+
+async function runPatch040CuentasPagarPermisoRoles(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_040_CLAVE,
+    '040_cuentas_pagar_permiso_roles.sql',
+    'Parche 040: permiso cuentas_pagar_all en roles (almacenista/supervisor) + UNIQUE compra_id'
+  );
+}
+
+async function runPatch041DescuentoCobroDivisa(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_041_CLAVE,
+    '041_descuento_cobro_divisa.sql',
+    'Parche 041: configuración y auditoría de descuento al cobrar en USD/Zelle (modo multimoneda)'
+  );
+}
+
+async function runPatch042ConfiguracionActualizadoPor(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_042_CLAVE,
+    '042_configuracion_actualizado_por.sql',
+    'Parche 042: columna actualizado_por (FK usuarios) en tabla configuracion'
+  );
+}
+
+async function runPatch043LicenciaProfesional(db) {
+  return aplicarParcheIdempotente(
+    db,
+    SCHEMA_PATCH_043_CLAVE,
+    '043_licencia_profesional.sql',
+    'Parche 043: bitácora local de verificaciones del sistema profesional de licencias'
+  );
+}
+
 /**
  * Cleanup al arrancar el backend: cerrar sesiones de caja huérfanas
  * (más de 24h abiertas sin cierre explícito).
@@ -1086,6 +1136,11 @@ module.exports = {
   runPatch036SetupAdminLegacy,
   runPatch037TotalBsBcvModoMoneda,
   runPatch038CasheaPctInicialSemilla60,
+  runPatch039CuentasPagar,
+  runPatch040CuentasPagarPermisoRoles,
+  runPatch041DescuentoCobroDivisa,
+  runPatch042ConfiguracionActualizadoPor,
+  runPatch043LicenciaProfesional,
   cleanupSesionesHuerfanas,
   ensureSemillaAdminSiFalta
 };

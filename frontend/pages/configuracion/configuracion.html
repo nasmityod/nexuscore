@@ -33,6 +33,10 @@
       <span class="cfg-tab-label">Licencia</span>
       <span class="cfg-tab-desc">Estado del sistema</span>
     </button>
+    <button class="cfg-tab" data-tab="apariencia">
+      <span class="cfg-tab-label">Apariencia</span>
+      <span class="cfg-tab-desc">Tema visual</span>
+    </button>
   </nav>
 
   <div class="config-content">
@@ -98,10 +102,14 @@
       <details class="bcv-auto-details bcv-auto-feriados-wrap" id="bcv-auto-feriados-wrap">
         <summary>Calendario de feriados (avanzado)</summary>
         <p class="bcv-auto-feriados-hint">
-          Solo si necesitas corregir fechas del calendario Sudeban. Formato: lista de fechas
+          Los feriados se traen del servidor (año actual y el siguiente) cuando los actualizas allí.
+          Edita aquí solo si necesitas corregir fechas manualmente. Formato: lista de fechas
           <code>AAAA-MM-DD</code> separadas por comas en JSON.
         </p>
         <textarea id="cfg-bcv-feriados" class="input-g bcv-auto-feriados-ta" rows="3" spellcheck="false"></textarea>
+        <div class="bcv-auto-actions">
+          <button type="button" class="btn-secondary" id="btn-bcv-feriados-sync">Sincronizar feriados del servidor</button>
+        </div>
       </details>
       <div class="bcv-auto-actions">
         <button type="button" class="btn-secondary" id="btn-bcv-auto-sync">Consultar ahora</button>
@@ -113,6 +121,66 @@
       La <strong>tasa USD</strong> de la derecha siempre se actualiza <strong>manualmente</strong> con «Guardar Tasas».
     </p>
     <button class="btn-primary" id="btn-guardar-tasas">Guardar Tasas</button>
+
+    <!-- ─── Descuento al cobrar en divisa (solo multimoneda) ─── -->
+    <div class="config-seccion cfg-descuento-divisa-wrap" id="seccion-descuento-divisa">
+      <h3>Descuento al cobrar en USD / Zelle</h3>
+      <p class="cfg-seccion-lead">
+        Al activar, las ventas cobradas <strong>solo</strong> en Efectivo USD o Zelle usarán un total en dólares
+        igual al <strong>precio ref.&nbsp;$ BCV menos este porcentaje</strong>. El precio en bolívares y en la factura no cambia.
+      </p>
+      <div class="cfg-descuento-divisa-solo-bcv-note" id="cfg-descuento-divisa-solo-bcv-note" style="display:none">
+        <p class="cfg-seccion-lead cfg-info-note">
+          En modo <strong>Solo BCV</strong> usa el descuento global del POS o el descuento por línea.
+        </p>
+      </div>
+      <div id="cfg-descuento-divisa-controles">
+        <label class="bcv-auto-toggle">
+          <input type="checkbox" id="cfg-descuento-divisa-activo">
+          <span>Activar descuento al cobrar en USD/Zelle</span>
+        </label>
+        <div class="campo-grupo campo-grupo--flush cfg-descuento-divisa-pct-wrap" style="max-width:280px;margin-top:12px">
+          <label for="cfg-descuento-divisa-pct">Porcentaje de descuento (%)</label>
+          <input type="number" id="cfg-descuento-divisa-pct" class="input-g" min="0" max="100" step="0.5" placeholder="Ej: 20">
+        </div>
+        <!-- Calculador de impacto — preview de cómo afecta el % de descuento (solo multimoneda) -->
+        <div id="calculador-impacto-divisa" class="nexus-multimoneda-only calculador-impacto" style="display:none;">
+          <div class="calculador-impacto-titulo">
+            Impacto del descuento en tus márgenes:
+          </div>
+          <table class="calculador-impacto-tabla">
+            <thead>
+              <tr>
+                <th>Margen configurado</th>
+                <th>Cobrarías en USD</th>
+                <th>Ganancia real en billetes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="fila-impacto" data-margen="20">
+                <td>20%</td>
+                <td id="impacto-cobro-20">—</td>
+                <td id="impacto-ganancia-20">—</td>
+              </tr>
+              <tr class="fila-impacto" data-margen="30">
+                <td>30%</td>
+                <td id="impacto-cobro-30">—</td>
+                <td id="impacto-ganancia-30">—</td>
+              </tr>
+              <tr class="fila-impacto" data-margen="45">
+                <td>45%</td>
+                <td id="impacto-cobro-45">—</td>
+                <td id="impacto-ganancia-45">—</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="calculador-impacto-nota" id="calculador-nota-margen-compensado"></div>
+        </div>
+        <button type="button" class="btn-primary cfg-btn-guardar" id="btn-guardar-descuento-divisa" style="margin-top:12px">
+          Guardar descuento divisa
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ TAB: EMPRESA ═══ -->
@@ -146,7 +214,7 @@
         </div>
         <div class="campo-grupo campo-span2">
           <label>Leyenda en facturas</label>
-          <input type="text" id="cfg-factura-leyenda" class="input-g" placeholder="Ej: Este documento no tiene validez fiscal hasta ser timbrado.">
+          <input type="text" id="cfg-factura-leyenda" class="input-g" placeholder="">
         </div>
       </div>
       <button class="btn-primary cfg-btn-guardar" id="btn-guardar-empresa">Guardar datos de empresa</button>
@@ -279,6 +347,53 @@
         <p class="lic-gen-resultado-lead">Clave generada:</p>
         <code id="lic-gen-clave-output" class="lic-code"></code>
         <button class="btn-secondary cfg-btn-guardar" id="btn-copiar-gen-clave">Copiar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: APARIENCIA ═══ -->
+  <div class="cfg-panel" id="panel-apariencia">
+    <div class="config-seccion">
+      <h3>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+        </svg>
+        Apariencia
+      </h3>
+      <p class="bcv-auto-lead">Personaliza la apariencia visual de la aplicación.</p>
+      <div class="cfg-field-row">
+        <div class="cfg-field-info">
+          <label class="cfg-field-label">Tema de la interfaz</label>
+          <p class="cfg-field-hint">Cambia entre el modo oscuro y el modo claro.</p>
+        </div>
+        <div class="cfg-field-control">
+          <div class="cfg-tema-selector" id="cfg-tema-selector">
+            <button
+              class="cfg-tema-btn"
+              id="cfg-tema-dark"
+              data-tema="dark"
+              title="Modo oscuro"
+              aria-pressed="true"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1111.21 3a7 7 0 109.79 9.79z"/>
+              </svg>
+              <span>Oscuro</span>
+            </button>
+            <button
+              class="cfg-tema-btn"
+              id="cfg-tema-light"
+              data-tema="light"
+              title="Modo claro"
+              aria-pressed="false"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+              </svg>
+              <span>Claro</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

@@ -33,6 +33,11 @@ const {
   runPatch036SetupAdminLegacy,
   runPatch037TotalBsBcvModoMoneda,
   runPatch038CasheaPctInicialSemilla60,
+  runPatch039CuentasPagar,
+  runPatch040CuentasPagarPermisoRoles,
+  runPatch041DescuentoCobroDivisa,
+  runPatch042ConfiguracionActualizadoPor,
+  runPatch043LicenciaProfesional,
   cleanupSesionesHuerfanas,
   ensureSemillaAdminSiFalta
 } = require('./config/migrations');
@@ -54,10 +59,11 @@ const usuariosRoutes = require('./routes/usuarios.routes');
 const pdfRoutes = require('./routes/pdf.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const comprasRoutes = require('./routes/compras.routes');
-const casheaRoutes       = require('./routes/cashea.routes');
-const devolucionesRoutes = require('./routes/devoluciones.routes');
-const licenciaRoutes     = require('./routes/licencia.routes');
-const setupRoutes        = require('./routes/setup.routes');
+const casheaRoutes        = require('./routes/cashea.routes');
+const devolucionesRoutes  = require('./routes/devoluciones.routes');
+const licenciaRoutes      = require('./routes/licencia.routes');
+const setupRoutes         = require('./routes/setup.routes');
+const cuentasPagarRoutes  = require('./routes/cuentasPagar.routes');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -172,6 +178,7 @@ apiProtected.use('/configuracion', configuracionRoutes);
   apiProtected.use('/compras', comprasRoutes);
 apiProtected.use('/cashea', casheaRoutes);
 apiProtected.use('/devoluciones', devolucionesRoutes);
+apiProtected.use('/cuentas-pagar', cuentasPagarRoutes);
 
 app.use('/api', apiProtected);
 
@@ -345,6 +352,26 @@ async function start() {
     const patch038 = await runPatch038CasheaPctInicialSemilla60(db);
     if (patch038.ran) {
       logger.info('Parche 038 aplicado: pct_inicial_semilla 60% (nivel Semilla Lv1)');
+    }
+    const patch039 = await runPatch039CuentasPagar(db);
+    if (patch039.ran) {
+      logger.info('Parche 039 aplicado: módulo Cuentas por Pagar (cuentas_pagar + pagos_proveedor)');
+    }
+    const patch040 = await runPatch040CuentasPagarPermisoRoles(db);
+    if (patch040.ran) {
+      logger.info('Parche 040 aplicado: permiso cuentas_pagar_all en roles + índice único compra_id');
+    }
+    const patch041 = await runPatch041DescuentoCobroDivisa(db);
+    if (patch041.ran) {
+      logger.info('Parche 041 aplicado: descuento cobro divisa (config + columnas ventas)');
+    }
+    const patch043 = await runPatch043LicenciaProfesional(db);
+    if (patch043.ran) {
+      logger.info('Parche 043 aplicado: bitácora local de verificaciones de licencia');
+    }
+    const patch042 = await runPatch042ConfiguracionActualizadoPor(db);
+    if (patch042.ran) {
+      logger.info('Parche 042 aplicado: columna actualizado_por en tabla configuracion');
     }
 
     // ── Cleanup de sesiones huérfanas (cierres forzados, cortes de luz, kill -9) ──

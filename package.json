@@ -31,7 +31,6 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.5.0",
-    "html2canvas": "^1.4.1",
     "jsbarcode": "^3.12.3",
     "jsdom": "^20.0.3",
     "jsonwebtoken": "^9.0.2",

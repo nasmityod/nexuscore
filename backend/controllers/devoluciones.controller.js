@@ -7,6 +7,11 @@
 
 const { db } = require('../config/database');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
+const {
+  loadDevolucionesPreviasMap,
+  resolverTasaBcvVenta,
+  calcularTotalBsDevolucion
+} = require('../utils/devolucionesSaldo');
 
 /* ─── LISTAR ─────────────────────────────────────────────────────────────── */
 async function list(req, res) {
@@ -98,30 +103,48 @@ async function create(req, res) {
 
     // Verificar venta original
     const venta = await t.oneOrNone(
-      `SELECT id, cliente_id, estado, total_usd FROM ventas WHERE id = $1`,
+      `SELECT id, cliente_id, estado, total_usd, tasa_bcv_aplicada, tasa_cambio_aplicada,
+              total_ref_usd_bcv, fecha_venta
+       FROM ventas WHERE id = $1`,
       [Number(venta_id)]
     );
     if (!venta) throw httpError(404, 'Venta no encontrada');
     if (venta.estado === 'anulada') throw httpError(400, 'No se puede devolver una venta anulada');
 
+    const tasaBcvVenta = await resolverTasaBcvVenta(t, venta);
+    if (tasaBcvVenta > 0) venta.tasa_bcv_aplicada = tasaBcvVenta;
+
     // Bug-34: load sale line details to get authoritative prices and quantities
     const detallesVenta = await t.any(
-      `SELECT producto_id, cantidad, precio_unitario_usd
+      `SELECT producto_id, cantidad, precio_unitario_usd, subtotal_usd, descuento_porcentaje
        FROM detalles_ventas WHERE venta_id = $1`,
       [Number(venta_id)]
     );
     const ventaLineMap = new Map();
     detallesVenta.forEach((d) => {
       const pid = Number(d.producto_id);
-      ventaLineMap.set(pid, {
-        cantidadVendida: Number(d.cantidad),
-        precioUsd: Number(d.precio_unitario_usd)
-      });
+      const qty = Number(d.cantidad) || 0;
+      const precio = Number(d.precio_unitario_usd) || 0;
+      const prev = ventaLineMap.get(pid);
+      if (prev) {
+        prev.cantidadVendida += qty;
+      } else {
+        ventaLineMap.set(pid, { cantidadVendida: qty, precioUsd: precio });
+      }
     });
+
+    // Bloqueo por venta: evita carreras al validar saldo devolvable entre dos devoluciones simultáneas.
+    await t.one(
+      `SELECT pg_advisory_xact_lock(hashtext($1))`,
+      [`devoluciones_venta_${Number(venta_id)}`]
+    );
+
+    const devPrevMap = await loadDevolucionesPreviasMap(t, Number(venta_id));
 
     // Validar y normalizar líneas
     let totalUsd = 0;
     const lineasNorm = [];
+    const acumEnPeticion = new Map();
     for (const l of lineas) {
       const productoId = Number(l.producto_id);
       const cantidad   = Number(l.cantidad);
@@ -139,22 +162,44 @@ async function create(req, res) {
       if (!ventaLine) {
         throw httpError(400, `El producto "${prod.nombre}" no está en la venta #${venta_id}`);
       }
-      if (cantidad > ventaLine.cantidadVendida) {
+      const yaDevuelto = devPrevMap.get(productoId) || 0;
+      const maxDevolvable = Math.max(
+        0,
+        Math.round((ventaLine.cantidadVendida - yaDevuelto) * 1000) / 1000
+      );
+      if (maxDevolvable <= 0) {
         throw httpError(
           400,
-          `No se puede devolver ${cantidad} unidades de "${prod.nombre}": solo se vendieron ${ventaLine.cantidadVendida}`
+          `El producto "${prod.nombre}" ya fue devuelto por completo en esta venta`
         );
       }
-      const precioUsd = ventaLine.precioUsd;
-      const subtotal  = parseFloat((precioUsd * cantidad).toFixed(4));
-      totalUsd += subtotal;
-      lineasNorm.push({
-        producto_id: productoId,
-        producto_nombre: prod.nombre,
-        cantidad,
-        precio_unitario_usd: precioUsd,
-        subtotal_usd: subtotal
-      });
+      const acumLinea = (acumEnPeticion.get(productoId) || 0) + cantidad;
+      if (acumLinea > maxDevolvable) {
+        throw httpError(
+          400,
+          `No se puede devolver ${acumLinea} unidades de "${prod.nombre}" en esta operación: quedan ${maxDevolvable} por devolver (vendidas ${ventaLine.cantidadVendida}, ya devueltas ${yaDevuelto})`
+        );
+      }
+      acumEnPeticion.set(productoId, acumLinea);
+
+      const existenteNorm = lineasNorm.find((x) => x.producto_id === productoId);
+      if (existenteNorm) {
+        existenteNorm.cantidad = acumLinea;
+        existenteNorm.subtotal_usd = parseFloat((ventaLine.precioUsd * acumLinea).toFixed(4));
+        totalUsd += parseFloat((ventaLine.precioUsd * cantidad).toFixed(4));
+        // Stock ya se actualizará abajo con esta cantidad parcial de la línea duplicada
+      } else {
+        const precioUsd = ventaLine.precioUsd;
+        const subtotal  = parseFloat((precioUsd * cantidad).toFixed(4));
+        totalUsd += subtotal;
+        lineasNorm.push({
+          producto_id: productoId,
+          producto_nombre: prod.nombre,
+          cantidad,
+          precio_unitario_usd: precioUsd,
+          subtotal_usd: subtotal
+        });
+      }
 
       // Bug-32/36: lock the row, capture previous stock, update, then audit
       const prevRow = await t.one(
@@ -188,6 +233,7 @@ async function create(req, res) {
     }
 
     totalUsd = parseFloat(totalUsd.toFixed(4));
+    const totalBs = calcularTotalBsDevolucion(lineasNorm, venta, detallesVenta);
 
     // Bug-33: sequential number with advisory lock already held above
     const year   = new Date().getFullYear();
@@ -205,7 +251,7 @@ async function create(req, res) {
       INSERT INTO devoluciones
         (numero_devolucion, venta_id, cliente_id, cajero_id, tipo, motivo, estado,
          total_usd, total_bs, metodo_reembolso, lineas, notas)
-      VALUES ($1,$2,$3,$4,$5,$6,'completada',$7,0,$8,$9::jsonb,$10)
+      VALUES ($1,$2,$3,$4,$5,$6,'completada',$7,$8,$9,$10::jsonb,$11)
       RETURNING *
     `, [
       numDev,
@@ -215,6 +261,7 @@ async function create(req, res) {
       tipo,
       motivo || null,
       totalUsd,
+      totalBs,
       metodo_reembolso || null,
       JSON.stringify(lineasNorm),
       notas || null

@@ -31,8 +31,8 @@ body {
   overflow-x: hidden !important;
   background-color: var(--bg-primary);
   background-image:
-    radial-gradient(ellipse 80% 50% at 15% -10%, rgba(240, 165, 0, 0.04) 0%, transparent 70%),
-    radial-gradient(ellipse 60% 40% at 85% 110%, rgba(59, 130, 246, 0.03) 0%, transparent 70%);
+    radial-gradient(ellipse 80% 50% at 15% -10%, var(--body-gradient-amber) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 85% 110%, var(--body-gradient-info)  0%, transparent 70%);
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
@@ -286,4 +286,15 @@ input[type='number']::-webkit-inner-spin-button {
   .page-title {
     font-size: var(--text-lg);
   }
+}
+
+/* ── Scrollbar en modo claro ────────────────────────────────── */
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }

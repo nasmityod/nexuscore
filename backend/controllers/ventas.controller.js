@@ -6,6 +6,10 @@ const CasheaService = require('../services/casheaService');
 const ModoMonedaService = require('../services/modoMonedaService');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { registrarAuditoria, clientIp } = require('../middleware/audit.middleware');
+const {
+  loadDevolucionesPreviasMap,
+  buildSaldoPorDetalle
+} = require('../utils/devolucionesSaldo');
 
 /**
  * Métodos de cobro en divisa de mercado (USD físico / digital). En modo solo_bcv no
@@ -302,7 +306,11 @@ async function getById(req, res) {
   }
   if (!Array.isArray(pagos)) pagos = [];
 
-  res.json({ ...venta, pagos, detalles });
+  const devPrevMap = await loadDevolucionesPreviasMap(db, id);
+  const { saldos: devoluciones_saldo, hayPendiente: devolucion_pendiente } =
+    buildSaldoPorDetalle(detalles, devPrevMap);
+
+  res.json({ ...venta, pagos, detalles, devoluciones_saldo, devolucion_pendiente });
 }
 
 async function create(req, res) {
@@ -580,8 +588,61 @@ async function create(req, res) {
       }
     }
 
-    /* ── 3) Totales USD/Bs vs lo declarado por el POS (detección de manipulación) ── */
-    if (Math.abs(total_usd - total_usd_cliente_declarado) > EPS_USD_PRECIOS) {
+    /* ── 3) Descuento divisa: calcular total a cobrar en USD si aplica ─────────────
+       Regla: solo multimoneda + config activa + pct > 0 + pago 100 % efectivo_usd/zelle.
+       En ese caso el total cobrado en USD difiere del total_usd a tasa calle:
+         totalUsdCobro = total_ref_usd_bcv × (1 − pctDivisa / 100)
+       El resto del sistema (Bs BCV, factura, líneas) NO cambia.                     ── */
+    const total_ref_usd_bcv = round4(refUsdBcvCabServidor);
+    const pagosArr = Array.isArray(pagos) ? pagos : [];
+
+    let descuentoDivisaPct = 0;
+    let descuentoDivisaMontoUsd = null;
+    let totalUsdEfectivoCobro = total_usd; // default: sin descuento divisa
+
+    if (!esSoloBcvVenta && pagosArr.length > 0) {
+      const METODOS_DIVISA_COBRO = new Set(['efectivo_usd', 'zelle']);
+      /* Solo cuentan los pagos con monto > 0: el descuento divisa aplica únicamente cuando el
+         cobro real (lo que efectivamente entra a caja) es 100 % USD/Zelle. Esto evita que una
+         fila en cero de otro método (ruido o cliente manipulado) habilite o anule el descuento
+         de forma incorrecta, y reproduce la regla emergente del POS (cobroPaymentsArray filtra
+         montos <= 0 antes de enviar). */
+      const pagosConMonto = pagosArr.filter((p) => p && Number(p.monto) > 0);
+      const esPago100Divisa =
+        pagosConMonto.length > 0 &&
+        pagosConMonto.every(
+          (p) => METODOS_DIVISA_COBRO.has(String(p.metodo || '').toLowerCase())
+        );
+
+      if (esPago100Divisa) {
+        let divisaCfg;
+        try {
+          divisaCfg = await PreciosService.resolverDescuentoCobroDivisaConfig(t);
+        } catch (_e) {
+          divisaCfg = { activo: false, pct: 0 };
+        }
+
+        if (divisaCfg.activo && divisaCfg.pct > 0) {
+          // Verificar que el % no supera el tope de descuento máximo permitido para el rol
+          // (misma política que el descuento global de POS).
+          if (divisaCfg.pct > descuentoMaxPermitido) {
+            throw httpError(
+              400,
+              `Descuento divisa (${divisaCfg.pct}%) supera el máximo permitido para su rol (${descuentoMaxPermitido}%)`
+            );
+          }
+          const cobro = PreciosService.resolverTotalUsdCobro(total_ref_usd_bcv, divisaCfg.pct);
+          totalUsdEfectivoCobro = cobro;
+          descuentoDivisaPct = divisaCfg.pct;
+          descuentoDivisaMontoUsd = round4(total_ref_usd_bcv - cobro);
+        }
+      }
+    }
+
+    /* ── 3b) Totales USD/Bs vs lo declarado por el POS (detección de manipulación) ── */
+    // Cuando aplica descuento divisa, el POS envía totalUsdCobro en lugar del USD calle.
+    const totalUsdEsperadoServidor = totalUsdEfectivoCobro;
+    if (Math.abs(totalUsdEsperadoServidor - total_usd_cliente_declarado) > EPS_USD_PRECIOS) {
       throw httpError(400, 'Inconsistencia de Precios');
     }
 
@@ -597,19 +658,27 @@ async function create(req, res) {
 
     const total_bs = total_bs_bcv_operativo;
 
-    /* ── 4) Cuadre de pagos en equivalente USD a tasa Calle ── */
+    /* ── 4) Cuadre de pagos ─────────────────────────────────────────────────────────
+       Descuento divisa activo (100 % USD/Zelle): validar directamente en USD (sin
+       conversión a tasa calle, los pagos ya son USD físico). La referencia es
+       totalUsdEfectivoCobro (= totalUsdCobro descontado).
+       Sin descuento divisa: flujo original (sumaPagosEquivUsdCalle vs total_usd). ── */
     let sumaPagosUsd;
     try {
-      sumaPagosUsd = PreciosService.sumaPagosEquivUsdCalle(pagos, tasa_usd_calle, tasa_bcv);
+      sumaPagosUsd = PreciosService.sumaPagosEquivUsdCalle(pagosArr, tasa_usd_calle, tasa_bcv);
     } catch (e) {
       throw httpError(400, e.message || 'Error al validar pagos');
     }
-    const pagosArr = Array.isArray(pagos) ? pagos : [];
-    if (total_usd > 0 && pagosArr.length === 0) {
+    if (totalUsdEfectivoCobro > 0 && pagosArr.length === 0) {
       throw httpError(400, 'Debe indicar al menos un pago para completar la venta');
     }
-    const residualPagosUsd = round4(round4(sumaPagosUsd) - round4(total_usd));
+    const residualPagosUsd = round4(round4(sumaPagosUsd) - round4(totalUsdEfectivoCobro));
     if (Math.abs(residualPagosUsd) > EPS_USD_PAGOS) {
+      /* Descuento divisa (100 % USD/Zelle): el ticket Bs sigue en ref. BCV completa; solo el
+         cobro USD está descontado. No usar cadena BCV como fallback (siempre fallaría). */
+      if (descuentoDivisaPct > 0) {
+        throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
+      }
       const bsPayments = pagosArr.filter(
         (p) => p && String(p.moneda || '').toUpperCase() === 'BS'
       );
@@ -640,22 +709,19 @@ async function create(req, res) {
       } else if (mixtoUsdBs) {
         const sumUsdDirect = round2(usdPayments.reduce((s, p) => s + (Number(p.monto) || 0), 0));
         const sumBsDirect  = round2(bsPayments.reduce((s, p) => s + (Number(p.monto) || 0), 0));
-        // Reconstruir el total en Bs BCV: la parte USD se convierte a Bs a tasa calle,
-        // la parte Bs se usa directamente (ya está en Bs BCV operativo).
         const totalBsReconstruido = round2(sumUsdDirect * tasa_usd_calle + sumBsDirect);
         if (Math.abs(totalBsReconstruido - total_bs_bcv_operativo) > EPS_BS_CADENA) {
           throw httpError(400, 'Los pagos no cuadran con el total de la venta (USD equivalente)');
         }
       } else if (total_bs_bcv_operativo != null) {
         // Crédito USD_BCV, Cashea u otros: validar en cadena Bs BCV (como el POS).
-        // Evita rechazar ventas 100 % crédito por ~céntimos en conversión ref×BCV→USD calle.
         let sumBsCadena;
         try {
           sumBsCadena = PreciosService.sumaPagosEquivBsBcvOperativo(
             pagosArr,
             tasa_usd_calle,
             tasa_bcv,
-            { totalVentaUsd: total_usd, totalBsBcvOperativo: total_bs_bcv_operativo }
+            { totalVentaUsd: totalUsdEfectivoCobro, totalBsBcvOperativo: total_bs_bcv_operativo }
           );
         } catch (e) {
           throw httpError(400, e.message || 'Error al validar pagos');
@@ -671,8 +737,6 @@ async function create(req, res) {
     const tasa_cambio_aplicada = round4(tasa_usd_calle);
     const tasa_bcv_aplicada = round4(tasa_bcv);
 
-    const total_ref_usd_bcv = round4(refUsdBcvCabServidor);
-
     const ventaRow = await t.one(
       `INSERT INTO ventas (
         numero_venta, sesion_caja_id, cliente_id, usuario_id,
@@ -681,6 +745,7 @@ async function create(req, res) {
         tasa_cambio_aplicada,
         tasa_bcv_aplicada,
         total_ref_usd_bcv,
+        descuento_divisa_pct, descuento_divisa_monto_usd,
         metodo_pago, pagos, estado, notas, idempotency_key
       ) VALUES (
         $1, $2, $3, $4,
@@ -689,7 +754,8 @@ async function create(req, res) {
         $14,
         $15,
         $16,
-        $17, $18::jsonb, 'completada', $19, $20
+        $17, $18,
+        $19, $20::jsonb, 'completada', $21, $22
       ) RETURNING *`,
       [
         numero_venta,
@@ -701,13 +767,15 @@ async function create(req, res) {
         round4(descuento_monto_usd),
         iva_porcentaje,
         iva_monto_usd,
-        total_usd,
+        totalUsdEfectivoCobro,       // total_usd: lo que se cobró realmente en USD
         total_bs,
         total_bs_bcv_operativo,
         total_bs_cliente_declarado,
         tasa_cambio_aplicada,
         tasa_bcv_aplicada,
         total_ref_usd_bcv,
+        descuentoDivisaPct > 0 ? descuentoDivisaPct : null,
+        descuentoDivisaMontoUsd,
         metodo_pago,
         JSON.stringify(pagosArr),
         notas,
@@ -1077,6 +1145,21 @@ async function createSuspendida(req, res) {
   const usd = Number(tasaMercadoRaw);
   if (!Number.isFinite(usd) || usd <= 0) throw httpError(400, 'tasa_momento / tasas.usd inválida');
 
+  /* ── AUD: tasas server-authoritative al suspender ──────────────────────────────────
+     En solo_bcv NO existe tasa de mercado: ignoramos la tasa "calle" enviada por el
+     cliente y persistimos la tasa operativa del servidor (tasa_usd = tasa_bcv). Así, al
+     reanudar la venta, los precios no se recalculan con una tasa divergente residual.
+     En multimoneda se conserva la tasa de mercado del momento (comportamiento original). */
+  let usdOperativo = usd;
+  let bcvOperativo = Number.isFinite(bcv) && bcv > 0 ? bcv : null;
+  try {
+    const tasasOp = await PreciosService.resolverTasasOperativas(db);
+    if (ModoMonedaService.esSoloBcv(tasasOp.modo_moneda_operacion)) {
+      usdOperativo = tasasOp.tasa_usd; // = tasa_bcv en solo_bcv
+      bcvOperativo = tasasOp.tasa_bcv;
+    }
+  } catch (_e) { /* sin tasas configuradas: conservar lo enviado por el cliente */ }
+
   let subtotal_usd = body.subtotal_usd != null ? Number(body.subtotal_usd) : null;
   if (subtotal_usd == null || Number.isNaN(subtotal_usd)) {
     subtotal_usd = round4(lines.reduce((acc, l) => acc + Number(l.subtotal_usd || 0), 0));
@@ -1084,7 +1167,7 @@ async function createSuspendida(req, res) {
 
   const payload = {
     version: 1,
-    tasas: { bcv: Number.isFinite(bcv) && bcv > 0 ? bcv : null, usd },
+    tasas: { bcv: bcvOperativo, usd: usdOperativo },
     lines,
     payments,
     globalDiscPct
@@ -1102,7 +1185,7 @@ async function createSuspendida(req, res) {
       JSON.stringify(payload),
       cliente_id,
       subtotal_usd,
-      PreciosService.redondearTasa4(usd)
+      PreciosService.redondearTasa4(usdOperativo)
     ]
   );
 

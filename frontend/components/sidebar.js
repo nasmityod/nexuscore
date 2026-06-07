@@ -71,6 +71,7 @@
     proveedores: svg('M3 21h18M5 21V7l8-4 8 4v14M9 21v-6h6v6'),
     caja: svg('M4 8h16v10H4zM8 8V6a4 4 0 118 0v2'),
     compras: svg('M6 2L3 6v14h18V6l-3-4zM3 6h18M12 11v6m-3-3h6'),
+    cuentas_pagar: svg('M9 14l2 2 4-4M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z'),
     reportes: svg('M4 19V5M4 19h16M8 17V9m4 8V7m4 10v-4'),
     configuracion: svg('M12 15a3 3 0 100-6 3 3 0 000 6zM2 12h3m17 0h-3M12 2v3m0 17v-3'),
     usuarios:      svg('M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75'),
@@ -115,7 +116,7 @@
     // final de su grupo o en "Otros" si no aparece en GROUPS.
     const GROUPS = [
       { label: 'Operación',    ids: ['dashboard', 'pos', 'caja'] },
-      { label: 'Catálogo',     ids: ['inventario', 'compras', 'proveedores'] },
+      { label: 'Catálogo',     ids: ['inventario', 'compras', 'cuentas_pagar', 'proveedores'] },
       { label: 'Comercial',    ids: ['ventas', 'clientes', 'cartera', 'cashea'] },
       { label: 'Análisis', ids: ['reportes'] },
       { label: 'Sistema',      ids: ['usuarios', 'configuracion'] }
@@ -131,6 +132,7 @@
       proveedores: 'proveedores_all',
       caja: 'caja_operar',
       compras: 'compras_all',
+      cuentas_pagar: 'cuentas_pagar_all',
       reportes: 'reportes_all',
       configuracion: 'config_read',
       usuarios:      'usuarios_all',

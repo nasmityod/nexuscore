@@ -64,6 +64,10 @@
         <span>Total volumen ($ BCV ref.)</span>
         <strong id="sistema-usd" class="caja-val--success">$0,0</strong>
       </div>
+      <div class="resumen-item" id="sistema-usd-fisico-wrap" style="display:none">
+        <span>USD físico cobrado (efectivo + Zelle)</span>
+        <strong id="sistema-usd-fisico" class="caja-val--accent">$0,00</strong>
+      </div>
       <div class="resumen-item">
         <span>Total cobrado en Bs</span>
         <strong id="sistema-bs" class="caja-val--success">Bs. 0.00</strong>
@@ -95,6 +99,8 @@
       </table>
     </div>
 
+    <p class="caja-nota-usd-fisico" id="caja-nota-usd-fisico" style="display:none" aria-live="polite"></p>
+
     <div class="caja-mt">
       <h4 class="caja-subtitulo">Desglose por método de pago</h4>
       <p class="caja-nota-pago-mixto" id="caja-nota-pago-mixto" style="display:none" aria-live="polite"></p>
@@ -103,7 +109,7 @@
           <tr>
             <th>Método</th>
             <th class="num" title="Ventas distintas que incluyeron este método. Con pago mixto, la misma venta puede contarse en varias filas.">Ventas con método</th>
-            <th class="num">Total $ BCV</th>
+            <th class="num">Total $ BCV ref.</th>
           </tr>
         </thead>
         <tbody id="tabla-metodos">
@@ -147,7 +153,9 @@
     <h2 class="cierre-paso-titulo">PASO 2 — Cuenta el dinero físico</h2>
     <h3 class="caja-conteo-titulo">¿Cuánto dinero tienes físicamente?</h3>
     <p class="cierre-paso-sub">
-      Cuenta solo el efectivo y pagos que recibiste en mano hoy. No incluyas el monto financiado por Cashea.
+      Cuenta el <strong>USD físico</strong> que tienes en billetes y en Zelle — no el precio de etiqueta en $ BCV ref. del Paso 1.
+      Si cobraste con descuento en divisa, aquí va el monto real que recibiste del cliente.
+      No incluyas el monto financiado por Cashea.
     </p>
 
     <div class="cierre-grupo-moneda nexus-usd-only">

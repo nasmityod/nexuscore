@@ -90,6 +90,58 @@
     return String(solo) + ' + ' + mixtaTxt;
   }
 
+  var METODOS_USD_FISICO = ['efectivo_usd', 'zelle'];
+
+  function esMetodoUsdFisico(metodo) {
+    return METODOS_USD_FISICO.indexOf(String(metodo || '').toLowerCase()) >= 0;
+  }
+
+  function sumPorMetodosUsdFisico(totalesPorMetodo, campo) {
+    var key = campo === 'ref' ? 'total_ref_usd_bcv' : 'total_usd';
+    return (totalesPorMetodo || []).reduce(function (s, m) {
+      if (!m || !esMetodoUsdFisico(m.metodo)) return s;
+      var v = m[key];
+      return s + (v !== undefined && v !== null ? n(v) : 0);
+    }, 0);
+  }
+
+  function renderSublineaUsdCobrado(m) {
+    if (!esMetodoUsdFisico(m.metodo)) return '';
+    var usdCobrado = n(m.total_usd);
+    if (usdCobrado <= 0) return '';
+    return (
+      '<small class="caja-metodo-usd-cobrado" title="Billetes o Zelle que recibiste del cliente">' +
+      'USD cobrado: $' + fUsd(usdCobrado) +
+      '</small>'
+    );
+  }
+
+  function textoNotaUsdFisicoCierre(refUsd, usdFisico, aperturaUsd) {
+    var ref = n(refUsd);
+    var fis = n(usdFisico);
+    if (fis <= 0) return '';
+    var ini = n(aperturaUsd);
+    var sufIni =
+      ini > 0
+        ? ' Si abriste caja con billetes USD, súmalos aparte en el campo de efectivo del Paso 2.'
+        : '';
+    var dif = ref - fis;
+    if (dif > 0.05) {
+      return (
+        'Cobraste ventas en efectivo USD o Zelle. ' +
+        'Arriba el volumen está en $ BCV ref. ($' + fRefUsdBcv(ref) + '); ' +
+        'en el Paso 2 debes contar $' + fUsd(fis) + ' de ventas (ver «USD cobrado» en el desglose).' +
+        sufIni +
+        ' La diferencia ($' + fUsd(dif) + ') es normal al cobrar en dólares (descuento en divisa o brecha multimoneda), no un error de caja.'
+      );
+    }
+    return (
+      'Tuviste cobros en USD físico (efectivo o Zelle). ' +
+      'En el Paso 2 cuenta $' + fUsd(fis) + ' de ventas — el mismo monto del desglose.' +
+      sufIni
+    );
+  }
+
   function textoNotaPagoMixto(cantidad, totalVentas) {
     var nMix = Number(cantidad) || 0;
     if (nMix <= 0) return '';
@@ -300,6 +352,30 @@
         ? n(rd.ticket_promedio_ref_usd_bcv)
         : n(rd.ticket_promedio);
     set('#sistema-usd', '$' + fRefUsdBcv(volRef));
+    var tpmEarly = d.totalesPorMetodo || [];
+    var usdFisicoVentas = sumPorMetodosUsdFisico(tpmEarly, 'usd');
+    var refUsdMetodosFisicos = sumPorMetodosUsdFisico(tpmEarly, 'ref');
+    var wrapUsdFisico = host.querySelector('#sistema-usd-fisico-wrap');
+    if (wrapUsdFisico) {
+      if (usdFisicoVentas > 0 && cajaModoMoneda() !== 'solo_bcv') {
+        wrapUsdFisico.style.display = '';
+        set('#sistema-usd-fisico', '$' + fUsd(usdFisicoVentas));
+      } else {
+        wrapUsdFisico.style.display = 'none';
+      }
+    }
+    var notaUsdFisico = host.querySelector('#caja-nota-usd-fisico');
+    if (notaUsdFisico) {
+      var aperturaUsd = n(d.sesion && d.sesion.monto_inicial_usd);
+      var notaUsdTxt = textoNotaUsdFisicoCierre(refUsdMetodosFisicos, usdFisicoVentas, aperturaUsd);
+      if (notaUsdTxt && cajaModoMoneda() !== 'solo_bcv') {
+        notaUsdFisico.style.display = '';
+        notaUsdFisico.textContent = notaUsdTxt;
+      } else {
+        notaUsdFisico.style.display = 'none';
+        notaUsdFisico.textContent = '';
+      }
+    }
     set('#sistema-bs', 'Bs. ' + fBs(rd.total_bs_vendido));
     set('#sistema-anuladas', rd.ventas_anuladas || 0);
     set('#sistema-ticket', '$' + fRefUsdBcv(ticketRef));
@@ -444,6 +520,7 @@
                 fRefUsdBcv(refMetodo) +
                 extraCashea +
                 (totalBs > 0 ? ' <small class="caja-metodo-sub">/ Bs. ' + fBs(totalBs) + '</small>' : '') +
+                renderSublineaUsdCobrado(m) +
               '</td>' +
               '</tr>';
           }).join('')
@@ -452,16 +529,34 @@
 
     // Mostrar montos esperados junto a cada campo de conteo
     var me = d.montosEsperados || {};
-    function setHint(id, val, prefix) {
+    var aperturaUsdHint = n(d.sesion && d.sesion.monto_inicial_usd);
+    function setHintBs(id, val, prefix) {
       var hint = host.querySelector('[data-hint="' + id + '"]');
-      if (hint) hint.textContent = 'Sistema espera: ' + prefix + (prefix === '$' ? fUsd(val) : fBs(val));
+      if (hint) hint.textContent = 'Sistema espera: ' + prefix + fBs(val);
     }
-    setHint('conteo-usd',    me.efectivo_usd,    '$');
-    setHint('conteo-zelle',  me.zelle_usd,       '$');
-    setHint('conteo-bs',     me.efectivo_bs,     'Bs. ');
-    setHint('conteo-transf', me.transferencia_bs,'Bs. ');
-    setHint('conteo-pm',     me.pago_movil_bs,   'Bs. ');
-    setHint('conteo-punto',  me.punto_bs,        'Bs. ');
+    function setHintUsdEfectivo(val) {
+      var hint = host.querySelector('[data-hint="conteo-usd"]');
+      if (!hint) return;
+      var total = n(val);
+      var ventas = Math.max(0, total - aperturaUsdHint);
+      if (aperturaUsdHint > 0) {
+        hint.textContent =
+          'En caja: $' + fUsd(total) +
+          ' (inicial $' + fUsd(aperturaUsdHint) + ' + ventas $' + fUsd(ventas) + ')';
+      } else {
+        hint.textContent = 'USD cobrado en caja: $' + fUsd(total);
+      }
+    }
+    function setHintUsdZelle(val) {
+      var hint = host.querySelector('[data-hint="conteo-zelle"]');
+      if (hint) hint.textContent = 'USD cobrado en caja: $' + fUsd(val);
+    }
+    setHintUsdEfectivo(me.efectivo_usd);
+    setHintUsdZelle(me.zelle_usd);
+    setHintBs('conteo-bs',     me.efectivo_bs,     'Bs. ');
+    setHintBs('conteo-transf', me.transferencia_bs,'Bs. ');
+    setHintBs('conteo-pm',     me.pago_movil_bs,   'Bs. ');
+    setHintBs('conteo-punto',  me.punto_bs,        'Bs. ');
 
     var hintCasSys = host.querySelector('#hint-cashea-cierre-sistema');
     if (hintCasSys) {

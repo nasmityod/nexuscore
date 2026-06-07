@@ -41,7 +41,7 @@ async function main() {
 
   const svg = fs
     .readFileSync(svgPath, 'utf8')
-    .replace(/currentColor/g, '#00d4ff');
+    .replace(/currentColor/g, '#f0a500');
 
   const png512 = await renderLogoPng(sharp, svg, 512);
   fs.writeFileSync(pngPath, png512);

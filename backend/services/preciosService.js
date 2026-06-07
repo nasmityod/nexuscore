@@ -939,13 +939,129 @@ class PreciosService {
     return ((precio / costo) - 1) * 100;
   }
 
+  /**
+   * Lee la configuración de descuento al cobrar en divisa (USD/Zelle).
+   * Devuelve { activo: bool, pct: number } idempotente y seguro ante claves ausentes.
+   *
+   * NEXUS-DUAL: contraparte en frontend/pages/pos/pos.js (lectura inline).
+   *
+   * @param {object} dbOrT pg-promise db o transacción
+   * @returns {Promise<{ activo: boolean, pct: number }>}
+   */
+  static async resolverDescuentoCobroDivisaConfig(dbOrT) {
+    const rows = await dbOrT.any(
+      `SELECT clave, valor FROM configuracion
+       WHERE clave IN ('descuento_cobro_divisa_activo', 'descuento_cobro_divisa_pct')`
+    );
+    const map = {};
+    rows.forEach((r) => { map[r.clave] = r.valor; });
+
+    const rawActivo = map.descuento_cobro_divisa_activo;
+    const activo =
+      rawActivo === 'true' || rawActivo === true || rawActivo === '1' || rawActivo === 1;
+
+    const rawPct = map.descuento_cobro_divisa_pct;
+    const pct = rawPct != null ? Math.round(parseFloat(String(rawPct).replace(',', '.')) * 100) / 100 : 0;
+
+    return {
+      activo: activo && !Number.isNaN(pct) && pct > 0,
+      pct: Number.isNaN(pct) || pct < 0 ? 0 : Math.min(100, pct)
+    };
+  }
+
+  /**
+   * Total USD a cobrar aplicando descuento divisa sobre la ref. $ BCV.
+   * Fórmula: round4(totalUsdBcvRef × (1 − pct / 100)).
+   * Solo debe llamarse cuando la regla aplica (multimoneda + activo + pct > 0 + pago 100 % USD/Zelle).
+   * NEXUS-DUAL: contraparte en frontend/services/preciosClient.js → resolverTotalUsdCobro.
+   *
+   * @param {number} totalUsdBcvRef Ref. $ BCV del ticket (after descuento global POS e IVA si aplica)
+   * @param {number} pct Porcentaje de descuento divisa (0–100)
+   * @returns {number} total a cobrar en USD físico
+   */
+  static resolverTotalUsdCobro(totalUsdBcvRef, pct) {
+    const ref = Number(totalUsdBcvRef);
+    const p = Number(pct);
+    if (!Number.isFinite(ref) || ref < 0) throw new Error('resolverTotalUsdCobro: totalUsdBcvRef inválido');
+    if (!Number.isFinite(p) || p < 0 || p > 100) throw new Error('resolverTotalUsdCobro: pct fuera de rango');
+    return Math.round(ref * (1 - p / 100) * 10000) / 10000;
+  }
+
+  /**
+   * % de margen para que el cobro USD/Zelle con descuento divisa iguale el objetivo.
+   * NEXUS-DUAL: contraparte en frontend/services/preciosClient.js → calcularMargenDesdeUsdCobroObjetivo.
+   *
+   * @param {number} usdObjetivo
+   * @param {number} costoUsd
+   * @param {number} tasaBcv
+   * @param {number} tasaUsd
+   * @param {number} descPct
+   * @returns {number|null}
+   */
+  static calcularMargenDesdeUsdCobroObjetivo(usdObjetivo, costoUsd, tasaBcv, tasaUsd, descPct) {
+    const bcv = PreciosService.redondearTasa4(tasaBcv);
+    const usd = PreciosService.redondearTasa4(tasaUsd);
+    const obj = Number(usdObjetivo);
+    const costo =
+      Math.round(Number(costoUsd) * Math.pow(10, COSTO_DECIMALES)) /
+      Math.pow(10, COSTO_DECIMALES);
+    const p = Number(descPct);
+
+    if (!obj || obj <= 0 || !Number.isFinite(obj)) return null;
+    if (!costo || costo <= 0 || !Number.isFinite(costo)) return null;
+    if (!bcv || bcv <= 0 || Number.isNaN(bcv)) return null;
+    if (!usd || usd <= 0 || Number.isNaN(usd)) return null;
+    if (!p || p <= 0 || p >= 100 || !Number.isFinite(p)) return null;
+
+    const cobroDeGananciaCent = (gCent) => {
+      const g = gCent / 100;
+      const pr = PreciosService.calcularPrecios(costo, g, bcv, usd);
+      return PreciosService.resolverTotalUsdCobro(pr.precio_usd_bcv, p);
+    };
+
+    const minCobro = cobroDeGananciaCent(0);
+    if (minCobro > obj) return null;
+
+    let hi = 1;
+    let guard = 0;
+    while (cobroDeGananciaCent(hi) < obj && hi < 50000000 && guard < 40) {
+      hi *= 2;
+      guard += 1;
+    }
+    if (cobroDeGananciaCent(hi) < obj) return null;
+
+    let lo = 0;
+    let right = hi;
+    while (lo < right) {
+      const mid = Math.floor((lo + right) / 2);
+      if (cobroDeGananciaCent(mid) < obj) lo = mid + 1;
+      else right = mid;
+    }
+    const iCeil = lo;
+    const iFloor = Math.max(0, iCeil - 1);
+    const cobroCeil = cobroDeGananciaCent(iCeil);
+    const cobroFloor = cobroDeGananciaCent(iFloor);
+    const diffCeil = Math.abs(cobroCeil - obj);
+    const diffFloor = Math.abs(cobroFloor - obj);
+    const pickCent = diffFloor <= diffCeil ? iFloor : iCeil;
+    const margenPct = pickCent / 100;
+    if (margenPct < 0) return null;
+    return Math.round(margenPct * 100) / 100;
+  }
+
   static async calcularPreciosConTasasActuales(db, costo_usd, ganancia_pct) {
-    const { bcv, tasa_usd } = await PreciosService.obtenerTasasActuales(db);
-    return PreciosService.calcularPrecios(costo_usd, ganancia_pct, bcv, tasa_usd);
+    // AUD: usar resolverTasasOperativas (ÚNICO punto de tasas operativas). En solo_bcv
+    // unifica tasa_usd = tasa_bcv para que el precio de catálogo por margen NO se contamine
+    // con una tasa de mercado residual. Antes usaba obtenerTasasActuales (tasa_usd cruda),
+    // generando un "split brain" con el camino de precio manual de productos.controller.js.
+    const { tasa_bcv, tasa_usd } = await PreciosService.resolverTasasOperativas(db);
+    return PreciosService.calcularPrecios(costo_usd, ganancia_pct, tasa_bcv, tasa_usd);
   }
 
   static async previewCambioTasa(db, nueva_tasa_bcv, nueva_tasa_usd) {
-    const actuales = await PreciosService.obtenerTasasActuales(db);
+    // AUD: baseline "precios antes" debe respetar el modo operativo (en solo_bcv unifica
+    // tasa_usd = tasa_bcv) para no comparar contra una tasa de mercado residual.
+    const actuales = await PreciosService.resolverTasasOperativas(db);
 
     const bcvNueva = PreciosService.redondearTasa4(nueva_tasa_bcv);
     const usdNueva = PreciosService.redondearTasa4(nueva_tasa_usd);

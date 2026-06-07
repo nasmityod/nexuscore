@@ -6,7 +6,7 @@
     filtro: 'todos', busqueda: '', tasas: { bcv: 0, usd: 0 },
     paginaActual: 1, porPagina: 50,
     editandoId: null,
-    modoPrecios: 'margen',        // 'margen' | 'bcv' | 'usd'
+    modoPrecios: 'margen',        // 'margen' | 'bcv' | 'usd' | 'usd_objetivo'
     modoMonedaCosto: 'usd_fisico', // 'usd_fisico' | 'bcv'
     // Precio manual USD a 4 decimales calculado cuando modoPrecios==='bcv'.
     // Null en cualquier otro modo. Guardado en precio_manual_usd del producto.
@@ -206,6 +206,184 @@
     }
   }
 
+  function getModoMonedaLocal() {
+    if (window.PreciosServiceClient && typeof window.PreciosServiceClient.getModoMonedaLocal === 'function') {
+      return window.PreciosServiceClient.getModoMonedaLocal();
+    }
+    return invModoMoneda();
+  }
+
+  /** Lee claves de configuración cacheadas en localStorage (sin fetch). */
+  function getConfigLocal(clave) {
+    try {
+      var directa = localStorage.getItem('nexus_cfg_' + clave);
+      if (directa != null) return directa;
+      var blob = localStorage.getItem('nexus_configuracion');
+      if (blob) {
+        var cfg = JSON.parse(blob);
+        if (cfg && cfg[clave] != null) return String(cfg[clave]);
+      }
+    } catch (_e) { /* ignore */ }
+    return null;
+  }
+
+  function cacheConfigLocal(cfg) {
+    if (!cfg || typeof cfg !== 'object') return;
+    try {
+      localStorage.setItem('nexus_configuracion', JSON.stringify(cfg));
+      if (cfg.descuento_cobro_divisa_activo != null) {
+        localStorage.setItem('nexus_cfg_descuento_cobro_divisa_activo', String(cfg.descuento_cobro_divisa_activo));
+      }
+      if (cfg.descuento_cobro_divisa_pct != null) {
+        localStorage.setItem('nexus_cfg_descuento_cobro_divisa_pct', String(cfg.descuento_cobro_divisa_pct));
+      }
+    } catch (_e) { /* ignore */ }
+  }
+
+  function hydrateDescuentoDivisaConfigLocal() {
+    return apiFetch('/api/configuracion', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .then(function (cfg) {
+        cacheConfigLocal(cfg || {});
+        var h = window.InventarioPage && window.InventarioPage._host;
+        if (h) {
+          actualizarVisibilidadModoUsdObjetivo(h);
+          renderPreviewDivisa(h);
+        }
+      })
+      .catch(function () { /* preview usará defaults inactivos */ });
+  }
+
+  /**
+   * Preview informativo: cobro USD/Zelle con descuento divisa y ganancia real en billetes.
+   * Solo multimoneda; no modifica el guardado del producto.
+   */
+  function renderPreviewDivisa(host) {
+    if (!host) return;
+    var bloque = host.querySelector('#bloque-preview-divisa');
+    if (!bloque) return;
+
+    if (getModoMonedaLocal() === 'solo_bcv') {
+      bloque.style.display = 'none';
+      return;
+    }
+
+    var costoUsd = getCostoUsdEfectivo(host);
+    var margenPct = getNumCampo(host, '#prod-ganancia');
+    if (isNaN(margenPct)) margenPct = 0;
+
+    if (!costoUsd || costoUsd <= 0 || isNaN(margenPct)) {
+      bloque.style.display = 'none';
+      return;
+    }
+
+    if (!window.PreciosServiceClient ||
+        !window.PreciosServiceClient.calcularPrecios ||
+        !window.PreciosServiceClient.resolverTasasOperativas) {
+      bloque.style.display = 'none';
+      return;
+    }
+
+    var tAct = tasasEfectivas();
+    var tasasOp = window.PreciosServiceClient.resolverTasasOperativas(tAct);
+    var precios;
+    try {
+      precios = window.PreciosServiceClient.calcularPrecios(
+        costoUsd,
+        margenPct,
+        tasasOp.tasa_bcv,
+        tasasOp.tasa_usd
+      );
+    } catch (_eCalc) {
+      bloque.style.display = 'none';
+      return;
+    }
+
+    var descActivo = getConfigLocal('descuento_cobro_divisa_activo') === 'true';
+    var descPct = parseFloat(String(getConfigLocal('descuento_cobro_divisa_pct') || '0').replace(',', '.')) || 0;
+
+    bloque.style.display = 'block';
+
+    var elPct         = host.querySelector('#preview-divisa-pct');
+    var elRefBcv      = host.querySelector('#preview-divisa-ref-bcv');
+    var elCobroUsd    = host.querySelector('#preview-divisa-cobro-usd');
+    var elGanancia    = host.querySelector('#preview-divisa-ganancia-real');
+    var elMargenCfg   = host.querySelector('#preview-divisa-margen-config');
+    var elAlerta      = host.querySelector('#preview-divisa-alerta');
+    var elAlertaDelta = host.querySelector('#preview-alerta-delta');
+    var elInactivo    = host.querySelector('#preview-divisa-inactivo');
+    var elBadge       = host.querySelector('#preview-divisa-badge');
+
+    function setGananciaColor(el, pct) {
+      if (!el) return;
+      el.classList.remove('preview-divisa-valor--bajo', 'preview-divisa-valor--medio', 'preview-divisa-valor--ok');
+      if (pct < 10) el.classList.add('preview-divisa-valor--bajo');
+      else if (pct < 20) el.classList.add('preview-divisa-valor--medio');
+      else el.classList.add('preview-divisa-valor--ok');
+    }
+
+    if (descActivo && descPct > 0) {
+      var cobroUsdRaw = window.PreciosServiceClient.resolverTotalUsdCobro
+        ? window.PreciosServiceClient.resolverTotalUsdCobro(precios.precio_usd_bcv, descPct)
+        : precios.precio_usd_bcv * (1 - descPct / 100);
+      var cobroUsd = Math.round(cobroUsdRaw * 100) / 100;
+      var gananciaReal = ((cobroUsd - costoUsd) / costoUsd) * 100;
+      var mostrarAlerta = gananciaReal < margenPct * 0.75;
+
+      if (elPct)       elPct.textContent       = descPct + '% de descuento';
+      if (elRefBcv)    elRefBcv.textContent    = '$' + fUsdBcv(precios.precio_usd_bcv);
+      if (elCobroUsd)  elCobroUsd.textContent  = '$' + fUsd(cobroUsd);
+      if (elGanancia)  elGanancia.textContent  = gananciaReal.toFixed(1) + '%';
+      if (elMargenCfg) elMargenCfg.textContent = margenPct.toFixed(1) + '%';
+      if (elBadge)     elBadge.textContent     = 'Divisa activa ' + descPct + '%';
+      setGananciaColor(elGanancia, gananciaReal);
+
+      if (elAlerta) {
+        if (mostrarAlerta) {
+          if (elAlertaDelta) elAlertaDelta.textContent = (margenPct - gananciaReal).toFixed(1);
+          elAlerta.style.display = 'block';
+        } else {
+          elAlerta.style.display = 'none';
+        }
+      }
+      if (elInactivo) elInactivo.style.display = 'none';
+
+    } else {
+      if (elPct)       elPct.textContent       = 'Inactivo';
+      if (elRefBcv)    elRefBcv.textContent    = '$' + fUsdBcv(precios.precio_usd_bcv);
+      if (elCobroUsd)  elCobroUsd.textContent  = '$' + fUsdBcv(precios.precio_usd_bcv) + ' (= Ref. BCV)';
+      if (elGanancia)  elGanancia.textContent  = margenPct.toFixed(1) + '%';
+      if (elMargenCfg) elMargenCfg.textContent = margenPct.toFixed(1) + '%';
+      if (elBadge)     elBadge.textContent     = 'Sin descuento divisa';
+      setGananciaColor(elGanancia, margenPct);
+      if (elAlerta)    elAlerta.style.display  = 'none';
+      if (elInactivo)  elInactivo.style.display = 'block';
+    }
+  }
+
+  /**
+   * Muestra u oculta el modo "USD a recibir" según multimoneda + descuento divisa activo.
+   * @param {Element} host
+   */
+  function actualizarVisibilidadModoUsdObjetivo(host) {
+    if (!host) return;
+    var btnModo = host.querySelector('#btn-modo-usd-objetivo');
+    if (!btnModo) return;
+
+    var esMultimoneda = getModoMonedaLocal() === 'multimoneda';
+    var divisaActiva  = getConfigLocal('descuento_cobro_divisa_activo') === 'true';
+    var descPct       = parseFloat(String(getConfigLocal('descuento_cobro_divisa_pct') || '0').replace(',', '.')) || 0;
+
+    if (esMultimoneda && divisaActiva && descPct > 0) {
+      btnModo.style.display = '';
+    } else {
+      btnModo.style.display = 'none';
+      if (state.modoPrecios === 'usd_objetivo') {
+        cambiarModoPrecio(host, 'margen');
+      }
+    }
+  }
+
   /**
    * En solo_bcv oculta el tab de costo "USD físico" y el modo de precio "$USD · Precio final".
    * No elimina elementos del DOM: reaparecen al volver a multimoneda.
@@ -222,8 +400,11 @@
     // guardar en un modo invisible ni confundir al volver a multimoneda.
     if (esSolo) {
       if (state.modoMonedaCosto === 'usd_fisico') cambiarModoMonedaCosto(host, 'bcv');
-      if (state.modoPrecios === 'usd') cambiarModoPrecio(host, 'margen');
+      if (state.modoPrecios === 'usd' || state.modoPrecios === 'usd_objetivo') {
+        cambiarModoPrecio(host, 'margen');
+      }
     }
+    actualizarVisibilidadModoUsdObjetivo(host);
   }
 
   function calcPrecios(costo, margen, tasas) {
@@ -446,6 +627,7 @@
 
     modal.style.display = 'flex';
     aplicarVisibilidadModoInventario(host);
+    actualizarVisibilidadModoUsdObjetivo(host);
 
     if (productoId) {
       toggleGrupoStock(host, true);
@@ -461,6 +643,8 @@
           setValue(host, '#prod-ganancia', decimalParaInput(p.margen_ganancia_pct, 2, '30'));
           setValue(host, '#prod-usd-bcv-objetivo', '');
           setValue(host, '#prod-usd-objetivo', '');
+          setValue(host, '#input-usd-objetivo', '');
+          ocultarFeedbackModoUsdCobroObj(host);
           state.precioManualUsdCalculado = null;
           state.precioManualUsdPersistido = null;
           ocultarAvisoPrecioObjetivo(host);
@@ -513,7 +697,8 @@
 
   function limpiarWizard(host) {
     ['#prod-nombre','#prod-barras','#prod-codigo-interno','#prod-stock','#prod-stock-min',
-     '#prod-costo','#prod-ganancia','#prod-usd-bcv-objetivo','#prod-usd-objetivo','#prod-bs-objetivo']
+     '#prod-costo','#prod-ganancia','#prod-usd-bcv-objetivo','#prod-usd-objetivo','#prod-bs-objetivo',
+     '#input-usd-objetivo']
       .forEach(function (sel) { setValue(host, sel, ''); });
     state.precioManualUsdCalculado = null;
     state.precioManualUsdPersistido = null;
@@ -521,6 +706,7 @@
     state.costoBcvDisplayAlAbrir = null;
     ocultarAvisoPrecioObjetivo(host);
     ocultarHintGananciaBcv(host);
+    ocultarFeedbackModoUsdCobroObj(host);
     // Resetear modos a sus valores por defecto. En solo_bcv el costo arranca en $BCV.
     cambiarModoMonedaCosto(host, invModoMoneda() === 'solo_bcv' ? 'bcv' : 'usd_fisico');
     cambiarModoPrecio(host, 'margen');
@@ -664,9 +850,11 @@
     var panelMargen = host.querySelector('#panel-modo-margen');
     var panelBcv    = host.querySelector('#panel-modo-bcv');
     var panelUsd    = host.querySelector('#panel-modo-usd-obj');
+    var panelUsdCobro = host.querySelector('#panel-modo-usd-cobro-obj');
     if (panelMargen) panelMargen.style.display = modo === 'margen' ? '' : 'none';
     if (panelBcv)    panelBcv.style.display    = modo === 'bcv'    ? '' : 'none';
     if (panelUsd)    panelUsd.style.display    = modo === 'usd'    ? '' : 'none';
+    if (panelUsdCobro) panelUsdCobro.style.display = modo === 'usd_objetivo' ? '' : 'none';
     if (modo !== 'bcv') {
       setValue(host, '#prod-usd-bcv-objetivo', '');
       ocultarHintGananciaBcv(host);
@@ -695,7 +883,12 @@
       }
     }
     if (modo !== 'usd') setValue(host, '#prod-usd-objetivo', '');
+    if (modo !== 'usd_objetivo') {
+      setValue(host, '#input-usd-objetivo', '');
+      ocultarFeedbackModoUsdCobroObj(host);
+    }
     ocultarAvisoPrecioObjetivo(host);
+    actualizarVisibilidadModoUsdObjetivo(host);
     recalcularPreciosVista(host);
   }
 
@@ -727,7 +920,11 @@
     var resEl  = host.querySelector('#precios-resultado');
     if (!resEl) return;
 
-    if (costoUsd <= 0) { resEl.style.display = 'none'; return; }
+    if (costoUsd <= 0) {
+      resEl.style.display = 'none';
+      renderPreviewDivisa(host);
+      return;
+    }
     resEl.style.display = '';
 
     var tAct = tasasEfectivas();
@@ -777,7 +974,11 @@
     } else {
       precios = calcPrecios(costoUsd, margen, tAct);
     }
-    if (!precios) { resEl.style.display = 'none'; return; }
+    if (!precios) {
+      resEl.style.display = 'none';
+      renderPreviewDivisa(host);
+      return;
+    }
 
     function setResEl(sel, txt) { var el = resEl.querySelector(sel); if (el) el.textContent = txt; }
     var costoBcvRef = getCostoBcvRefParaVista(host, costoUsd, tAct);
@@ -832,6 +1033,8 @@
         ocultarAvisoPrecioObjetivo(host);
       }
     }
+
+    renderPreviewDivisa(host);
   }
 
   // ─── Precio objetivo inverso ──────────────────────────────────────────────
@@ -849,6 +1052,32 @@
     av.className = esError ? 'text-danger' : 'text-warning';
     av.style.color = '';
     av.style.border = '1px solid ' + (esError ? 'rgba(239,68,68,.4)' : 'rgba(245,158,11,.4)');
+  }
+
+  function ocultarFeedbackModoUsdCobroObj(host) {
+    var el = host.querySelector('#feedback-modo-usd-objetivo');
+    if (!el) return;
+    el.textContent = '';
+    el.style.display = 'none';
+    el.className = 'inv-feedback-usd-cobro-obj';
+  }
+
+  /**
+   * Feedback bajo el campo USD a recibir (modo usd_objetivo).
+   * @param {Element} host
+   * @param {string} mensaje
+   * @param {'ok'|'error'|'warn'|''} tipo
+   */
+  function mostrarFeedbackModoUsdCobroObj(host, mensaje, tipo) {
+    var el = host.querySelector('#feedback-modo-usd-objetivo');
+    if (!el) return;
+    if (!mensaje) {
+      ocultarFeedbackModoUsdCobroObj(host);
+      return;
+    }
+    el.textContent = mensaje;
+    el.style.display = '';
+    el.className = 'inv-feedback-usd-cobro-obj inv-feedback-usd-cobro-obj--' + (tipo || 'warn');
   }
 
   /**
@@ -947,6 +1176,86 @@
     recalcularPreciosVista(host);
   }
 
+  /** Maneja el input del campo USD a recibir (cobro divisa con descuento activo). */
+  function onInputUsdCobroObjetivo(host) {
+    var valCobro = getNumCampo(host, '#input-usd-objetivo');
+    ocultarAvisoPrecioObjetivo(host);
+
+    if (!valCobro || valCobro <= 0 || !Number.isFinite(valCobro)) {
+      ocultarFeedbackModoUsdCobroObj(host);
+      return;
+    }
+
+    var costo = getCostoUsdEfectivo(host);
+    if (!costo || costo <= 0) {
+      mostrarFeedbackModoUsdCobroObj(host, 'Ingresa el costo primero', 'warn');
+      return;
+    }
+
+    if (getModoMonedaLocal() === 'solo_bcv') {
+      ocultarFeedbackModoUsdCobroObj(host);
+      return;
+    }
+
+    var descPct = parseFloat(String(getConfigLocal('descuento_cobro_divisa_pct') || '0').replace(',', '.')) || 0;
+    if (getConfigLocal('descuento_cobro_divisa_activo') !== 'true' || descPct <= 0) {
+      mostrarFeedbackModoUsdCobroObj(host, 'El descuento divisa no está activo', 'warn');
+      return;
+    }
+
+    if (!window.PreciosServiceClient ||
+        !window.PreciosServiceClient.calcularMargenDesdeUsdCobroObjetivo ||
+        !window.PreciosServiceClient.resolverTasasOperativas) {
+      mostrarFeedbackModoUsdCobroObj(host, 'Motor de precios no disponible', 'error');
+      return;
+    }
+
+    var tAct = tasasEfectivas();
+    var tasasOp = window.PreciosServiceClient.resolverTasasOperativas(tAct);
+    var margenCalculado = window.PreciosServiceClient.calcularMargenDesdeUsdCobroObjetivo(
+      valCobro,
+      costo,
+      tasasOp.tasa_bcv,
+      tasasOp.tasa_usd,
+      descPct
+    );
+
+    if (margenCalculado === null) {
+      if (valCobro < costo) {
+        mostrarFeedbackModoUsdCobroObj(
+          host,
+          'El monto objetivo es menor que el costo. Revisa los valores.',
+          'error'
+        );
+      } else {
+        mostrarFeedbackModoUsdCobroObj(
+          host,
+          'Valor inválido — revisa el costo y el porcentaje de descuento',
+          'warn'
+        );
+      }
+      return;
+    }
+
+    if (margenCalculado < 0) {
+      mostrarFeedbackModoUsdCobroObj(
+        host,
+        'El monto objetivo es menor que el costo. Revisa los valores.',
+        'error'
+      );
+      return;
+    }
+
+    setValue(host, '#prod-ganancia', decimalParaInput(margenCalculado, 2, '0'));
+    recalcularPreciosVista(host);
+
+    mostrarFeedbackModoUsdCobroObj(
+      host,
+      'Margen ajustado a ' + margenCalculado.toFixed(2) + '% para cobrar $' + valCobro.toFixed(2) + ' en USD/Zelle',
+      'ok'
+    );
+  }
+
   function onInputBcvObjetivo(host) {
     var valBcv = getNumCampo(host, '#prod-usd-bcv-objetivo');
     if (!valBcv || valBcv <= 0 || !Number.isFinite(valBcv)) {
@@ -1024,11 +1333,49 @@
         toast((errSaveUsd && errSaveUsd.message) ? errSaveUsd.message : 'No se pudo calcular el precio USD objetivo', 'error');
         return;
       }
+    } else if (state.modoPrecios === 'usd_objetivo') {
+      if (getModoMonedaLocal() === 'solo_bcv') {
+        toast('El modo USD a recibir no aplica en solo BCV', 'error');
+        return;
+      }
+      var valCobroSave = getNumCampo(host, '#input-usd-objetivo');
+      if (!valCobroSave || valCobroSave <= 0) {
+        toast('Ingresa cuánto quieres cobrar en USD/Zelle', 'error');
+        enfocarCampoProducto(host, '#input-usd-objetivo');
+        return;
+      }
+      var descPctSave = parseFloat(String(getConfigLocal('descuento_cobro_divisa_pct') || '0').replace(',', '.')) || 0;
+      if (getConfigLocal('descuento_cobro_divisa_activo') !== 'true' || descPctSave <= 0) {
+        toast('El descuento divisa no está activo', 'error');
+        return;
+      }
+      if (!window.PreciosServiceClient ||
+          !window.PreciosServiceClient.calcularMargenDesdeUsdCobroObjetivo) {
+        toast('Motor de precios no disponible', 'error');
+        return;
+      }
+      var tCobroSave = tasasEfectivas();
+      var tasasOpSave = window.PreciosServiceClient.resolverTasasOperativas(tCobroSave);
+      var margenCobroSave = window.PreciosServiceClient.calcularMargenDesdeUsdCobroObjetivo(
+        valCobroSave,
+        costoUsd,
+        tasasOpSave.tasa_bcv,
+        tasasOpSave.tasa_usd,
+        descPctSave
+      );
+      if (margenCobroSave === null || margenCobroSave < 0) {
+        toast('No se pudo calcular el margen para ese cobro USD/Zelle', 'error');
+        return;
+      }
+      margen = margenCobroSave;
     }
 
     if (isNaN(margen) || margen < 0) {
       toast('El porcentaje de ganancia no puede ser negativo', 'error');
-      enfocarCampoProducto(host, state.modoPrecios === 'usd' ? '#prod-usd-objetivo' : '#prod-ganancia');
+      var focoNeg = '#prod-ganancia';
+      if (state.modoPrecios === 'usd') focoNeg = '#prod-usd-objetivo';
+      else if (state.modoPrecios === 'usd_objetivo') focoNeg = '#input-usd-objetivo';
+      enfocarCampoProducto(host, focoNeg);
       return;
     }
 
@@ -1437,7 +1784,7 @@
       var self = this;
       host._pageDestroy = function () { self._pageDestroy(); };
 
-      Promise.all([cargarTasas(), cargarCategorias()])
+      Promise.all([cargarTasas(), cargarCategorias(), hydrateDescuentoDivisaConfigLocal()])
         .then(function () { cargarProductos(host); });
 
       // Búsqueda
@@ -1520,6 +1867,7 @@
         // Si hay un modo activo de precio objetivo, recalcular también
         if (state.modoPrecios === 'bcv') onInputBcvObjetivo(host);
         if (state.modoPrecios === 'usd') onInputUsdObjetivo(host);
+        if (state.modoPrecios === 'usd_objetivo') onInputUsdCobroObjetivo(host);
       });
 
       var elGanancia = host.querySelector('#prod-ganancia');
@@ -1546,6 +1894,15 @@
         elUsdObj.addEventListener('input', function () {
           clearTimeout(debUsd);
           debUsd = setTimeout(function () { onInputUsdObjetivo(host); }, 350);
+        });
+      }
+
+      var elUsdCobroObj = host.querySelector('#input-usd-objetivo');
+      if (elUsdCobroObj) {
+        var debUsdCobro;
+        elUsdCobroObj.addEventListener('input', function () {
+          clearTimeout(debUsdCobro);
+          debUsdCobro = setTimeout(function () { onInputUsdCobroObjetivo(host); }, 350);
         });
       }
 

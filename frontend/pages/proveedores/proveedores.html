@@ -1,70 +1,185 @@
-<section class="page-content proveedores-page" data-prov-root>
-<div class="page-header">
+<section class="page-content proveedores-page" data-prov-root aria-labelledby="prov-title">
+
+  <div class="page-header">
     <div>
-      <h1 class="page-title">Proveedores</h1>
-      <p class="page-subtitle">Contactos y condiciones de compra</p>
+      <h1 id="prov-title" class="page-title">Proveedores</h1>
+      <p class="page-subtitle">Directorio de contactos, condiciones de compra y cuentas por pagar</p>
     </div>
     <div class="page-header-actions">
-      <button type="button" class="btn" data-prov-reload>Actualizar</button>
-      <button type="button" class="btn btn-primary" data-prov-new>Nuevo proveedor</button>
+      <button type="button" class="btn btn-secondary" data-prov-reload title="Actualizar lista">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+        Actualizar
+      </button>
+      <button type="button" class="btn btn-primary" data-prov-new>
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Nuevo proveedor
+      </button>
     </div>
   </div>
 
-  <div class="inv-toolbar">
+  <!-- KPIs -->
+  <div class="kpi-grid prov-kpis">
+    <div class="kpi-card">
+      <div class="kpi-label">Total registrados</div>
+      <div class="kpi-value" data-prov-kpi-total>0</div>
+    </div>
+    <div class="kpi-card kpi-card--green">
+      <div class="kpi-label">Activos</div>
+      <div class="kpi-value kpi-value--success" data-prov-kpi-activos>0</div>
+    </div>
+    <div class="kpi-card kpi-card--red">
+      <div class="kpi-label">Inactivos</div>
+      <div class="kpi-value kpi-value--danger" data-prov-kpi-inactivos>0</div>
+    </div>
+  </div>
+
+  <!-- Búsqueda y filtros -->
+  <div class="toolbar prov-toolbar">
     <input
       type="search"
-      class="form-input"
-      style="min-width:12rem;flex:1;max-width:20rem"
+      class="input-g prov-search"
       data-prov-q
-      placeholder="Buscar nombre, RIF, contacto…"
+      placeholder="Buscar por nombre, RIF, contacto o teléfono…"
       aria-label="Buscar proveedores"
     />
-  </div>
-
-  <div class="card" style="margin-bottom:1rem" data-prov-form-wrap hidden>
-    <h3 style="margin-top:0;font-size:1rem" data-prov-form-title>Editar proveedor</h3>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(11rem,1fr));gap:0.65rem">
-      <label class="inv-muted" style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.8rem">
-        Nombre *
-        <input class="inv-cell-input" data-prov-nombre required />
-      </label>
-      <label class="inv-muted" style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.8rem">
-        RIF
-        <input class="inv-cell-input" data-prov-rif />
-      </label>
-      <label class="inv-muted" style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.8rem">
-        Contacto
-        <input class="inv-cell-input" data-prov-contacto />
-      </label>
-      <label class="inv-muted" style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.8rem">
-        Celular (11 dígitos VE)
-        <input class="inv-cell-input" data-prov-tel maxlength="11" inputmode="numeric" />
-      </label>
-      <label class="inv-muted" style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.8rem">
-        Email
-        <input type="email" class="inv-cell-input" data-prov-email />
-      </label>
-    </div>
-    <div style="margin-top:0.65rem;display:flex;flex-wrap:wrap;gap:0.5rem">
-      <button type="button" class="btn btn-primary" data-prov-save>Guardar</button>
-      <button type="button" class="btn btn-secondary" data-prov-cancel>Cancelar</button>
+    <div class="prov-filtros" role="group" aria-label="Filtrar por estado">
+      <button type="button" class="btn-filtro active" data-prov-filtro="todos">Todos</button>
+      <button type="button" class="btn-filtro" data-prov-filtro="activos">Activos</button>
+      <button type="button" class="btn-filtro" data-prov-filtro="inactivos">Inactivos</button>
     </div>
   </div>
 
-  <div class="inv-table-wrap">
-    <table class="inv-table">
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>RIF</th>
-          <th>Contacto</th>
-          <th>Teléfono</th>
-          <th>Activo</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody data-prov-tbody></tbody>
-    </table>
+  <!-- Tabla principal -->
+  <div class="card prov-table-card">
+    <div class="prov-empty" data-prov-empty hidden>
+      <svg class="prov-empty-icon" viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+      <h3 class="prov-empty-titulo">Sin proveedores en esta vista</h3>
+      <p class="prov-empty-sub" data-prov-empty-msg>Registra a tus proveedores para vincular compras, inventario y cuentas por pagar.</p>
+      <button type="button" class="btn btn-primary" data-prov-empty-new>Agregar proveedor</button>
+    </div>
+
+    <div class="data-table-wrap" data-prov-table-wrap>
+      <table class="data-table prov-table">
+        <thead>
+          <tr>
+            <th>Proveedor</th>
+            <th class="num">RIF</th>
+            <th>Contacto</th>
+            <th class="num">Teléfono</th>
+            <th>Condición pago</th>
+            <th class="center">Estado</th>
+            <th class="center">Acciones</th>
+          </tr>
+        </thead>
+        <tbody data-prov-tbody>
+          <tr><td colspan="7" class="prov-loading-cell">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prov-table-footer">
+      <span class="prov-status" data-prov-status></span>
+    </div>
   </div>
-  <p class="inv-muted" style="margin-top:0.5rem;font-size:0.8rem" data-prov-status></p>
+
+  <!-- Modal: Nuevo / Editar proveedor -->
+  <div class="modal-overlay" id="modal-proveedor" role="dialog" aria-modal="true" aria-labelledby="modal-prov-titulo" aria-hidden="true">
+    <div class="modal-box prov-modal">
+      <div class="modal-header">
+        <h2 id="modal-prov-titulo">Nuevo proveedor</h2>
+        <button type="button" class="modal-close" data-prov-modal-close aria-label="Cerrar">✕</button>
+      </div>
+      <input type="hidden" data-prov-id />
+      <div class="prov-form-grid">
+      <div class="campo-grupo prov-span2">
+        <label class="form-label" for="prov-nombre">Nombre comercial *</label>
+        <input type="text" id="prov-nombre" class="input-g" data-prov-nombre placeholder="Ej: Distribuidora El Trigal" required />
+      </div>
+      <div class="campo-grupo">
+        <label class="form-label" for="prov-rif">RIF</label>
+        <input type="text" id="prov-rif" class="input-g" data-prov-rif placeholder="J-12345678-9" />
+      </div>
+      <div class="campo-grupo">
+        <label class="form-label" for="prov-contacto">Persona de contacto</label>
+        <input type="text" id="prov-contacto" class="input-g" data-prov-contacto placeholder="Nombre del encargado" />
+      </div>
+      <div class="campo-grupo">
+        <label class="form-label" for="prov-tel">Celular (11 dígitos VE)</label>
+        <input type="text" id="prov-tel" class="input-g" data-prov-tel maxlength="11" inputmode="numeric" autocomplete="tel-national" />
+      </div>
+      <div class="campo-grupo">
+        <label class="form-label" for="prov-email">Correo electrónico</label>
+        <input type="email" id="prov-email" class="input-g" data-prov-email placeholder="contacto@empresa.com" />
+      </div>
+      <div class="campo-grupo prov-span2">
+        <label class="form-label" for="prov-direccion">Dirección</label>
+        <input type="text" id="prov-direccion" class="input-g" data-prov-direccion placeholder="Ciudad, zona industrial…" />
+      </div>
+      <div class="campo-grupo">
+        <label class="form-label" for="prov-condicion">Condición de pago</label>
+        <select id="prov-condicion" class="input-g" data-prov-condicion>
+          <option value="">— Sin definir —</option>
+          <option value="contado">Contado</option>
+          <option value="credito_7">Crédito 7 días</option>
+          <option value="credito_15">Crédito 15 días</option>
+          <option value="credito_30">Crédito 30 días</option>
+          <option value="credito_45">Crédito 45 días</option>
+          <option value="credito_60">Crédito 60 días</option>
+          <option value="credito_custom">Crédito — días personalizados</option>
+        </select>
+      </div>
+      <div class="campo-grupo" data-prov-condicion-custom-wrap hidden>
+        <label class="form-label" for="prov-condicion-dias">Días de crédito</label>
+        <input
+          type="number"
+          id="prov-condicion-dias"
+          class="input-g prov-input-dias"
+          data-prov-condicion-dias
+          min="1"
+          max="365"
+          step="1"
+          inputmode="numeric"
+          placeholder="Ej: 21"
+        />
+      </div>
+      <div class="campo-grupo">
+        <label class="form-label" for="prov-moneda">Moneda de trabajo</label>
+        <select id="prov-moneda" class="input-g" data-prov-moneda>
+          <option value="USD">USD (dólares)</option>
+          <option value="VES">VES (bolívares)</option>
+        </select>
+      </div>
+      <div class="campo-grupo prov-span2">
+        <label class="form-label" for="prov-notas">Notas internas</label>
+        <input type="text" id="prov-notas" class="input-g" data-prov-notas placeholder="Horario de entrega, descuentos, observaciones…" />
+      </div>
+      </div>
+      <div class="modal-acciones">
+        <button type="button" class="btn-secondary" data-prov-modal-cancel>Cancelar</button>
+        <button type="button" class="btn-primary" data-prov-save>Guardar proveedor</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Confirmar desactivación -->
+  <div class="modal-overlay" id="modal-prov-confirm" role="dialog" aria-modal="true" aria-labelledby="modal-prov-confirm-titulo" aria-hidden="true">
+    <div class="modal-box prov-modal-confirm">
+      <div class="modal-header">
+        <h2 id="modal-prov-confirm-titulo">Desactivar proveedor</h2>
+        <button type="button" class="modal-close" data-prov-confirm-close aria-label="Cerrar">✕</button>
+      </div>
+      <p class="prov-confirm-texto" data-prov-confirm-texto></p>
+      <p class="prov-confirm-nota">El proveedor no se elimina del historial de compras; solo deja de aparecer en nuevas operaciones.</p>
+      <div class="modal-acciones">
+        <button type="button" class="btn-secondary" data-prov-confirm-cancel>Cancelar</button>
+        <button type="button" class="btn-danger prov-btn-confirm-danger" data-prov-confirm-ok>Desactivar</button>
+      </div>
+    </div>
+  </div>
+
 </section>

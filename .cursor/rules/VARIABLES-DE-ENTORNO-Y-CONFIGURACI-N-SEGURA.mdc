@@ -23,6 +23,15 @@ ELECTRON DOTENV:
   PROHIBIDO cargar dotenv desde archivos del backend directamente si ya lo hace main.js;
   verificar el orden de carga para evitar variables undefined en arranque del backend embebido.
 
+API BCV PRIVADA (tasa + feriados):
+- **NEXUS_BCV_API_URL** (opcional): base del servidor BCV (default `https://dayzove.lat`, solo HTTPS, sin barra final).
+- **NEXUS_BCV_API_KEY** (opcional, sensible): clave `bcv_…` para endpoints protegidos
+ (tasa enriquecida `GET /bcv/v1/rate` con `effective_date` exacto, y feriados `GET /bcv/v1/holidays`).
+ Sin clave: la tasa usa el contrato público `/bcv-api` y los feriados el calendario local.
+ La lee únicamente `backend/services/bcvApiClient.js` desde `process.env`.
+ PROHIBIDO hardcodearla, loggearla o devolverla al frontend (no incluir en respuestas de estado).
+ Documentada en `.env.example` bajo «Tasa BCV automática + feriados».
+
 RESPALDOS PERIÓDICOS (optional):
 - **NEXUS_BACKUP_INTERVAL_MINUTES** (entero, opcional): intervalo fijo en minutos entre respaldos automáticos (`pg_dump`).
   **0** desactiva únicamente el programa periódico; no afecta respaldo al cerrar caja o al salir de la app.

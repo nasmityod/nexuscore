@@ -293,12 +293,37 @@ class ExcelService {
     return wb;
   }
 
+  /** USD físico cobrado y ref. $ BCV (etiqueta) con fallback pre-migración 029/041. */
+  static _usdCobradoYRefBcv(row) {
+    const cobradoFisico = parseFloat(row.total_usd ?? 0);
+    const refBcv = parseFloat(row.total_ref_usd_bcv ?? row.total_bcv ?? row.total_usd ?? 0);
+    return { cobradoFisico, refBcv };
+  }
+
+  static _appendNotaColumnasUsd(ws, numCols) {
+    const notaText =
+      '* USD cobrado (físico): billetes/Zelle que entraron a caja. ' +
+      '$ BCV ref.: precio de etiqueta usado en factura y dashboard. ' +
+      'Difieren cuando aplica descuento divisa (multimoneda).';
+    const notaRowNum = ws.rowCount + 1;
+    ws.addRow([]);
+    const notaCell = ws.getRow(notaRowNum).getCell(1);
+    notaCell.value = notaText;
+    ws.mergeCells(notaRowNum, 1, notaRowNum, numCols);
+    notaCell.font = { italic: true, size: 9, color: { argb: 'FF555555' } };
+    notaCell.alignment = { wrapText: true, vertical: 'top' };
+    ws.getRow(notaRowNum).height = 36;
+  }
+
   static async exportarReporteVentas(db, diasAtras) {
     if (!ExcelJS) throw new Error('La exportación a Excel no está disponible.');
 
     const dias = clampDias(diasAtras, 30);
     const rows = await db.any(`
-      SELECT v.numero_venta, v.fecha_venta, v.total_usd::numeric, v.total_bs::numeric,
+      SELECT v.numero_venta, v.fecha_venta,
+             v.total_usd::numeric,
+             COALESCE(v.total_ref_usd_bcv, v.total_usd)::numeric AS total_ref_usd_bcv,
+             v.total_bs::numeric,
              v.metodo_pago, v.estado,
              u.nombre_completo AS cajero,
              COALESCE(c.nombre, 'Cliente general') AS cliente
@@ -323,19 +348,24 @@ class ExcelService {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet(sheetTitle);
 
-    ws.addRow(['Nro. Venta', 'Fecha', 'Cliente', 'Cajero', 'Método Pago', 'Total USD', 'Total Bs', 'Estado']);
+    ws.addRow([
+      'Nro. Venta', 'Fecha', 'Cliente', 'Cajero', 'Método Pago',
+      'USD cobrado (físico)', '$ BCV ref. (etiqueta)', 'Total Bs', 'Estado'
+    ]);
     ws.getRow(1).font = { bold: true };
     ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1B2A' } };
     ws.getRow(1).eachCell(c => { c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; });
 
     rows.forEach(r => {
+      const { cobradoFisico, refBcv } = ExcelService._usdCobradoYRefBcv(r);
       ws.addRow([
         r.numero_venta,
         new Date(r.fecha_venta),
         r.cliente,
         r.cajero,
         r.metodo_pago,
-        parseFloat(r.total_usd),
+        cobradoFisico,
+        refBcv,
         parseFloat(r.total_bs),
         r.estado
       ]);
@@ -343,12 +373,15 @@ class ExcelService {
 
     ws.columns = [
       { width: 16 }, { width: 18 }, { width: 24 }, { width: 20 },
-      { width: 18 }, { width: 14 }, { width: 18 }, { width: 12 }
+      { width: 18 }, { width: 20 }, { width: 20 }, { width: 18 }, { width: 12 }
     ];
 
     ws.getColumn(2).numFmt = 'DD/MM/YYYY HH:MM';
     ws.getColumn(6).numFmt = '#,##0.00';
     ws.getColumn(7).numFmt = '#,##0.00';
+    ws.getColumn(8).numFmt = '#,##0.00';
+
+    ExcelService._appendNotaColumnasUsd(ws, 9);
 
     return wb;
   }
@@ -442,15 +475,24 @@ class ExcelService {
     const rows = await ReportesService.ventasPorCajero(db, diasAtras);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet(`Ventas por cajero ${dias}d`);
-    ws.addRow(['#', 'Cajero', 'Ventas', 'Total USD', 'Ticket prom. USD']);
+    ws.addRow([
+      '#', 'Cajero', 'Ventas',
+      'USD cobrado (físico)', '$ BCV ref. (etiqueta)', 'Ticket prom. USD'
+    ]);
     ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1B2A' } };
     ws.getRow(1).eachCell((c) => { c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; });
     rows.forEach((r, i) => {
-      ws.addRow([i + 1, r.cajero, r.num_ventas, parseFloat(r.total_usd), parseFloat(r.ticket_promedio)]);
+      const { cobradoFisico, refBcv } = ExcelService._usdCobradoYRefBcv(r);
+      ws.addRow([i + 1, r.cajero, r.num_ventas, cobradoFisico, refBcv, parseFloat(r.ticket_promedio)]);
     });
-    ws.columns = [{ width: 5 }, { width: 28 }, { width: 10 }, { width: 14 }, { width: 16 }];
+    ws.columns = [
+      { width: 5 }, { width: 28 }, { width: 10 },
+      { width: 20 }, { width: 20 }, { width: 16 }
+    ];
     ws.getColumn(4).numFmt = '#,##0.00';
     ws.getColumn(5).numFmt = '#,##0.00';
+    ws.getColumn(6).numFmt = '#,##0.00';
+    ExcelService._appendNotaColumnasUsd(ws, 6);
     return wb;
   }
 

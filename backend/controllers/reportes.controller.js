@@ -444,7 +444,7 @@ async function cierreTermicoPdf(req, res) {
     totalBs: num(row.total_bs),
     esperadoEfectivoUsd: num(row.esperado_efectivo_usd),
     esperadoEfectivoBs: num(row.esperado_efectivo_bs),
-    pie: 'Documento interno. No fiscal. Sin ventas anuladas. Confirme efectivo físico en caja.'
+    pie: ''
   });
 
   res.setHeader('Content-Type', 'application/pdf');

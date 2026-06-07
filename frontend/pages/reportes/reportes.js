@@ -65,6 +65,22 @@
   /** Monto en referencia $ BCV — formato principal del sistema. */
   function fBcv(v) { return '$ ' + n(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' BCV'; }
 
+  /** Ref. $ BCV de una fila de ventas (prioriza total_bcv persistido; no confundir con total_usd cobrado). */
+  function refBcvDeFila(row) {
+    if (!row) return 0;
+    if (row.total_bcv != null && row.total_bcv !== '') return n(row.total_bcv);
+    if (row.total_ref_usd_bcv != null && row.total_ref_usd_bcv !== '') return n(row.total_ref_usd_bcv);
+    return n(row.total_usd);
+  }
+
+  function ticketBcvDeFila(row) {
+    if (!row) return 0;
+    if (row.ticket_promedio_bcv != null && row.ticket_promedio_bcv !== '') return n(row.ticket_promedio_bcv);
+    var nv = Number(row.num_ventas) || 0;
+    if (nv > 0) return refBcvDeFila(row) / nv;
+    return n(row.ticket_promedio);
+  }
+
   /** Monto principal ref. BCV + secundario USD calle (formato es-VE). */
   function htmlMontoBcvUsd(valBcv, valUsd, cls) {
     var bcv = n(valBcv);
@@ -201,7 +217,7 @@
           return '<p class="rpt-msg-centro">Formato de datos inesperado del servidor.</p>';
         }
         if (!data.length) return '<p class="rpt-msg-centro">No hay ventas hoy todavía. ¡Empieza a vender!</p>';
-        var total = data.reduce(function (s, v) { return s + n(v.total_usd); }, 0);
+        var total = data.reduce(function (s, v) { return s + refBcvDeFila(v); }, 0);
         return '<div class="rpt-total-line">Total del día: <strong class="text-success">' + fBcv(total) + '</strong> en <strong>' + data.length + '</strong> ventas</div>' +
           '<div class="rpt-table-wrap"><table class="reporte-tabla"><thead><tr>' +
           '<th>Nro.</th><th>Hora</th><th>Cliente</th><th>Cajero</th><th>Método</th><th class="num">Total $ BCV</th><th class="num">Total Bs</th>' +
@@ -212,7 +228,7 @@
               '<td>' + esc(v.cliente || 'General') + '</td>' +
               '<td>' + esc(v.cajero || '—') + '</td>' +
               '<td>' + formatMetodo(v.metodo_pago) + '</td>' +
-              '<td class="num text-success rpt-bold">' + fBcv(v.total_usd) + '</td>' +
+              '<td class="num text-success rpt-bold">' + fBcv(refBcvDeFila(v)) + '</td>' +
               '<td class="num">Bs. ' + fBs(v.total_bs) + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       }
@@ -227,10 +243,10 @@
           return '<p class="rpt-msg-centro">Formato de datos inesperado del servidor.</p>';
         }
         if (!data.length) return '<p class="rpt-msg-centro">Sin datos en este período.</p>';
-        var total = data.reduce(function (s, r) { return s + n(r.total_usd); }, 0);
+        var total = data.reduce(function (s, r) { return s + refBcvDeFila(r); }, 0);
         var totalAnterior = 0;
         if (Array.isArray(anterior)) {
-          totalAnterior = anterior.slice(0, anterior.length - data.length).reduce(function (s, r) { return s + n(r.total_usd); }, 0);
+          totalAnterior = anterior.slice(0, anterior.length - data.length).reduce(function (s, r) { return s + refBcvDeFila(r); }, 0);
         }
         return '<div class="rpt-header-flex">' +
           '<span>Total del período: <strong class="text-success">' + fBcv(total) + '</strong></span>' +
@@ -242,9 +258,9 @@
           data.map(function (r) {
             return '<tr><td><strong>' + formatFecha(r.fecha) + '</strong></td>' +
               '<td class="num">' + (r.num_ventas || 0) + '</td>' +
-              '<td class="num text-success rpt-bold">' + fBcv(r.total_usd) + '</td>' +
+              '<td class="num text-success rpt-bold">' + fBcv(refBcvDeFila(r)) + '</td>' +
               '<td class="num">Bs. ' + fBs(r.total_bs) + '</td>' +
-              '<td class="num">' + fBcv(r.ticket_promedio) + '</td></tr>';
+              '<td class="num">' + fBcv(ticketBcvDeFila(r)) + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       }
     },
@@ -258,10 +274,10 @@
           return '<p class="rpt-msg-centro">Formato de datos inesperado del servidor.</p>';
         }
         if (!data.length) return '<p class="rpt-msg-centro">Sin datos en este período.</p>';
-        var total = data.reduce(function (s, r) { return s + n(r.total_usd); }, 0);
+        var total = data.reduce(function (s, r) { return s + refBcvDeFila(r); }, 0);
         var totalAnterior = 0;
         if (Array.isArray(anterior)) {
-          totalAnterior = anterior.slice(0, anterior.length - data.length).reduce(function (s, r) { return s + n(r.total_usd); }, 0);
+          totalAnterior = anterior.slice(0, anterior.length - data.length).reduce(function (s, r) { return s + refBcvDeFila(r); }, 0);
         }
         return '<div class="rpt-header-flex">' +
           '<span>Total del período: <strong class="text-success">' + fBcv(total) + '</strong></span>' +
@@ -273,9 +289,9 @@
           data.map(function (r) {
             return '<tr><td><strong>' + formatFecha(r.fecha) + '</strong></td>' +
               '<td class="num">' + (r.num_ventas || 0) + '</td>' +
-              '<td class="num text-success rpt-bold">' + fBcv(r.total_usd) + '</td>' +
+              '<td class="num text-success rpt-bold">' + fBcv(refBcvDeFila(r)) + '</td>' +
               '<td class="num">Bs. ' + fBs(r.total_bs) + '</td>' +
-              '<td class="num">' + fBcv(r.ticket_promedio) + '</td></tr>';
+              '<td class="num">' + fBcv(ticketBcvDeFila(r)) + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       }
     },
@@ -453,7 +469,7 @@
           return '<p class="rpt-msg-centro">Formato de datos inesperado del servidor.</p>';
         }
         if (!data.length) return '<p class="rpt-msg-centro">Sin datos suficientes.</p>';
-        var totalUsd = data.reduce(function (s, c) { return s + n(c.total_usd); }, 0);
+        var totalUsd = data.reduce(function (s, c) { return s + refBcvDeFila(c); }, 0);
         var totalGanancia = data.reduce(function (s, c) { return s + n(c.ganancia_usd); }, 0);
         return '<div class="rpt-summary-cards">' +
           '<div class="rpt-stat-mini"><div class="rpt-stat-mini-label">Total vendido</div><div class="rpt-stat-mini-value text-info">' + fBcv(totalUsd) + '</div></div>' +
@@ -467,10 +483,10 @@
             return '<tr><td>' + (i + 1) + '</td>' +
               '<td><strong>' + esc(c.cajero) + '</strong></td>' +
               '<td class="num">' + (c.num_ventas || 0) + '</td>' +
-              '<td class="num text-info rpt-bold">' + fBcv(c.total_usd) + '</td>' +
+              '<td class="num text-info rpt-bold">' + fBcv(refBcvDeFila(c)) + '</td>' +
               '<td class="num text-success rpt-bold">' + fBcv(c.ganancia_usd) + '</td>' +
               '<td class="num rpt-bold ' + margenCls + '">' + n(c.margen_pct).toFixed(2) + '%</td>' +
-              '<td class="num">' + fBcv(c.ticket_promedio) + '</td></tr>';
+              '<td class="num">' + fBcv(ticketBcvDeFila(c)) + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       }
     },
@@ -494,7 +510,7 @@
             (rangoTxt ? ' (' + esc(rangoTxt) + ')' : '') +
             '.<br><small class="rpt-sub-text">Amplía las fechas arriba y pulsa «Ver ventas del rango».</small></p>';
         }
-        var total = filas.reduce(function (s, v) { return s + n(v.total_usd); }, 0);
+        var total = filas.reduce(function (s, v) { return s + refBcvDeFila(v); }, 0);
         return (rangoTxt
           ? '<p class="rpt-period-txt">Período: <strong>' + esc(rangoTxt) + '</strong></p>'
           : '') +
@@ -508,7 +524,7 @@
               '<td>' + esc(v.cliente || 'General') + '</td>' +
               '<td>' + esc(v.cajero || '—') + '</td>' +
               '<td>' + formatMetodo(v.metodo_pago) + '</td>' +
-              '<td class="num text-success rpt-bold">' + fBcv(v.total_usd) + '</td>' +
+              '<td class="num text-success rpt-bold">' + fBcv(refBcvDeFila(v)) + '</td>' +
               '<td class="num">Bs. ' + fBs(v.total_bs) + '</td></tr>';
           }).join('') + '</tbody></table></div>';
       }

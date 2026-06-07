@@ -71,9 +71,22 @@
           <option value="">Sin proveedor (compra directa)</option>
         </select>
       </div>
+      <div class="campo-grupo" style="display:flex;gap:12px;align-items:flex-end">
+        <div style="flex:1">
+          <label>Tipo de pago</label>
+          <select id="compra-tipo-pago" class="input-g">
+            <option value="contado">Contado</option>
+            <option value="credito">A crédito (genera CxP)</option>
+          </select>
+        </div>
+        <div id="campo-dias-credito" style="flex:0 0 130px;display:none">
+          <label>Días de crédito</label>
+          <input type="number" id="compra-dias-credito" class="input-g" value="30" min="1" max="365" placeholder="30">
+        </div>
+      </div>
       <div class="campo-grupo">
         <label>Notas (opcional)</label>
-        <input type="text" id="compra-notas" class="input-g" placeholder="Ej: Factura #123, pago de contado...">
+        <input type="text" id="compra-notas" class="input-g" placeholder="Ej: Factura #123, proveedor XYZ...">
       </div>
     </div>
 

@@ -213,6 +213,7 @@
           if (dispUsd) dispUsd.textContent = local.usd > 0 ? local.usd.toFixed(4) : '—';
           _tasasDisplayListas = local.bcv > 0 && local.usd > 0;
         }
+        renderCalculadorImpactoDivisa();
       })
       .then(function () {
         return cargarEstadoBcvAuto();
@@ -348,12 +349,23 @@
     detalles.push(
       'Programa: 1 consulta al día (~' + (st.consulta_diaria_hora || '17:30') + ') · vigencia a medianoche'
     );
-    if (st.calendario_anio) {
-      var cnt = st.feriados_cantidad != null
-        ? st.feriados_cantidad
-        : (st.feriados && st.feriados.length) || 0;
-      detalles.push('Feriados ' + String(st.calendario_anio) + ' cargados: ' + String(cnt) + ' fechas');
+    if (st.api_url) {
+      var modoApi = st.api_modo === 'privada'
+        ? 'privado (con clave)'
+        : 'público (sin clave)';
+      detalles.push('Servidor BCV: ' + st.api_url + ' · modo ' + modoApi);
     }
+    var cntFer = st.feriados_cantidad != null
+      ? st.feriados_cantidad
+      : (st.feriados && st.feriados.length) || 0;
+    var fuenteFer = st.feriados_fuente === 'api'
+      ? 'servidor'
+      : (st.feriados_fuente === 'manual' ? 'edición manual' : 'calendario local');
+    var lineaFer = 'Feriados cargados: ' + String(cntFer) + ' fechas (' + fuenteFer + ')';
+    if (st.feriados_sync_ts) {
+      lineaFer += ' · última sincronización: ' + formatearFechaVe(st.feriados_sync_ts);
+    }
+    detalles.push(lineaFer);
     if (st.ultimo_error) detalles.push('Error: ' + String(st.ultimo_error));
 
     if (lista) {
@@ -558,6 +570,44 @@
       });
   }
 
+  function sincronizarFeriadosAhora() {
+    if (window.NexusAuth && typeof window.NexusAuth.can === 'function' && !window.NexusAuth.can('tasas_edit')) {
+      toast('Solo el administrador puede sincronizar los feriados', 'warning');
+      return;
+    }
+    var btn = document.getElementById('btn-bcv-feriados-sync');
+    var etiqueta = 'Sincronizar feriados del servidor';
+    if (btn) { btn.disabled = true; btn.textContent = 'Sincronizando...'; }
+    apiFetch('/api/configuracion/tasa-bcv-auto/feriados/sincronizar', { method: 'POST' })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) throw new Error(d.error || 'Error');
+          return d;
+        });
+      })
+      .then(function (resp) {
+        var est = resp.resultado && resp.resultado.estado ? resp.resultado.estado : null;
+        var rf = resp.resultado && resp.resultado.resultado ? resp.resultado.resultado : null;
+        if (rf && rf.sin_cambios) {
+          toast('El calendario ya estaba al día con el servidor', 'info');
+        } else if (rf && rf.total != null) {
+          toast('Feriados sincronizados: ' + rf.total + ' fechas', 'success');
+        } else {
+          toast('Feriados sincronizados', 'success');
+        }
+        if (est) sincronizarFormularioBcvAuto(est);
+        else cargarEstadoBcvAuto();
+      })
+      .catch(function (e) {
+        toast(e.message || 'No se pudieron sincronizar los feriados', 'error');
+        cargarEstadoBcvAuto();
+      })
+      .finally(function () {
+        if (btn) { btn.disabled = false; btn.textContent = etiqueta; }
+        aplicarUIPermisosBcvAuto(null);
+      });
+  }
+
   function aplicarUIPermisosBcvAuto(host) {
     var puedeCfg = puedeEscribirConfig();
     var puedeTasas = window.NexusAuth && typeof window.NexusAuth.can === 'function' &&
@@ -574,6 +624,9 @@
     var btnSync = (host && host.querySelector ? host : document).querySelector('#btn-bcv-auto-sync');
     if (!btnSync) btnSync = document.getElementById('btn-bcv-auto-sync');
     if (btnSync) btnSync.disabled = !puedeTasas;
+    var btnFerSync = (host && host.querySelector ? host : document).querySelector('#btn-bcv-feriados-sync');
+    if (!btnFerSync) btnFerSync = document.getElementById('btn-bcv-feriados-sync');
+    if (btnFerSync) btnFerSync.disabled = !puedeTasas;
     var btnForzar = (host && host.querySelector ? host : document).querySelector('#btn-bcv-auto-forzar');
     if (!btnForzar) btnForzar = document.getElementById('btn-bcv-auto-forzar');
     // Solo se oculta/muestra por sincronizarFormularioBcvAuto; aquí solo controlamos disabled
@@ -702,6 +755,223 @@
     if (notaUsd) notaUsd.style.display = esSolo ? 'none' : '';
     var hint = document.getElementById('cfg-modo-hint');
     if (hint) hint.textContent = textoHintModo(m);
+    // Visibilidad sección descuento divisa: solo relevante en multimoneda.
+    var controles = document.getElementById('cfg-descuento-divisa-controles');
+    var notaSolo = document.getElementById('cfg-descuento-divisa-solo-bcv-note');
+    if (controles) controles.style.display = esSolo ? 'none' : '';
+    if (notaSolo) notaSolo.style.display = esSolo ? '' : 'none';
+    renderCalculadorImpactoDivisa();
+  }
+
+  /* ─── Descuento al cobrar en divisa ────────────────────────────────────── */
+  function getModoMonedaLocal() {
+    if (window.PreciosServiceClient && typeof window.PreciosServiceClient.getModoMonedaLocal === 'function') {
+      return window.PreciosServiceClient.getModoMonedaLocal();
+    }
+    return modoMonedaActual === 'solo_bcv' ? 'solo_bcv' : 'multimoneda';
+  }
+
+  /** Lee descuento divisa desde el formulario (valores en vivo) o localStorage como respaldo. */
+  function leerDescuentoDivisaFormulario() {
+    var cbActivo = document.getElementById('cfg-descuento-divisa-activo');
+    var inpPct   = document.getElementById('cfg-descuento-divisa-pct');
+    var activo = cbActivo ? cbActivo.checked : false;
+    var pctRaw = inpPct ? parseFloat(String(inpPct.value).replace(',', '.')) : NaN;
+    if (Number.isNaN(pctRaw)) {
+      try {
+        var cached = localStorage.getItem('nexus_cfg_descuento_cobro_divisa_pct');
+        pctRaw = parseFloat(String(cached || '0').replace(',', '.')) || 0;
+      } catch (_e) {
+        pctRaw = 0;
+      }
+    }
+    if (!cbActivo) {
+      try {
+        activo = localStorage.getItem('nexus_cfg_descuento_cobro_divisa_activo') === 'true';
+      } catch (_e2) { /* ignore */ }
+    }
+    return { activo: activo, pct: pctRaw };
+  }
+
+  function tasasOperativasConfig() {
+    var local = window.NexusComponents && window.NexusComponents.loadTasasLocal
+      ? window.NexusComponents.loadTasasLocal()
+      : { bcv: 0, usd: 0 };
+    if (window.PreciosServiceClient && typeof window.PreciosServiceClient.resolverTasasOperativas === 'function') {
+      return window.PreciosServiceClient.resolverTasasOperativas(local);
+    }
+    return {
+      tasa_bcv: n(local.bcv),
+      tasa_usd: n(local.usd)
+    };
+  }
+
+  /**
+   * Calculador de impacto: muestra cómo el % de descuento afecta márgenes típicos.
+   * Usa costo hipotético $100 y las tasas actuales del sistema.
+   */
+  function renderCalculadorImpactoDivisa() {
+    var bloque = document.getElementById('calculador-impacto-divisa');
+    if (!bloque) return;
+
+    var modo = getModoMonedaLocal();
+    var desc = leerDescuentoDivisaFormulario();
+
+    if (modo !== 'multimoneda' || !desc.activo || desc.pct <= 0) {
+      bloque.style.display = 'none';
+      return;
+    }
+
+    var ps = window.PreciosServiceClient;
+    if (!ps || typeof ps.calcularPrecios !== 'function') {
+      bloque.style.display = 'none';
+      return;
+    }
+
+    var tasas = tasasOperativasConfig();
+    if (!(tasas.tasa_bcv > 0) || !(tasas.tasa_usd > 0)) {
+      bloque.style.display = 'none';
+      return;
+    }
+
+    bloque.style.display = 'block';
+
+    var costRef = 100;
+    var descPct = desc.pct;
+
+    [20, 30, 45].forEach(function (margenEjemplo) {
+      var precios;
+      try {
+        precios = ps.calcularPrecios(costRef, margenEjemplo, tasas.tasa_bcv, tasas.tasa_usd);
+      } catch (_eCalc) {
+        return;
+      }
+
+      var cobroUsdRaw = ps.resolverTotalUsdCobro
+        ? ps.resolverTotalUsdCobro(precios.precio_usd_bcv, descPct)
+        : precios.precio_usd_bcv * (1 - descPct / 100);
+      var cobroUsd = Math.round(cobroUsdRaw * 100) / 100;
+      var gananciaR = ((cobroUsd - costRef) / costRef) * 100;
+      var gananciaStr = gananciaR.toFixed(1) + '%';
+
+      var elCobro = document.getElementById('impacto-cobro-' + margenEjemplo);
+      var elGanancia = document.getElementById('impacto-ganancia-' + margenEjemplo);
+
+      if (elCobro) elCobro.textContent = '$' + cobroUsd.toFixed(2) + ' (base $100 costo)';
+
+      if (elGanancia) {
+        elGanancia.textContent = gananciaStr;
+        elGanancia.className = gananciaR < 10 ? 'ganancia-baja'
+          : gananciaR < 20 ? 'ganancia-media'
+          : 'ganancia-alta';
+      }
+    });
+
+    var nota = document.getElementById('calculador-nota-margen-compensado');
+    if (nota) {
+      var usdObjetivo30 = costRef * 1.30;
+      var margenNecesario = null;
+      if (typeof ps.calcularMargenDesdeUsdCobroObjetivo === 'function') {
+        margenNecesario = ps.calcularMargenDesdeUsdCobroObjetivo(
+          usdObjetivo30, costRef, tasas.tasa_bcv, tasas.tasa_usd, descPct
+        );
+      }
+      if (margenNecesario == null) {
+        var factorBrecha = tasas.tasa_usd / tasas.tasa_bcv;
+        var factorDescuento = 1 - descPct / 100;
+        if (factorBrecha > 0 && factorDescuento > 0) {
+          margenNecesario = (usdObjetivo30 / (costRef * factorBrecha * factorDescuento) - 1) * 100;
+        }
+      }
+      if (margenNecesario != null && Number.isFinite(margenNecesario)) {
+        nota.textContent =
+          'Para recibir ~30% de ganancia en billetes en TODOS tus productos con este descuento, ' +
+          'necesitarías configurar un margen de ~' + Math.round(margenNecesario) + '%. ' +
+          '(Solo útil si todos tus productos tienen el mismo margen objetivo.)';
+      } else {
+        nota.textContent = '';
+      }
+    }
+  }
+
+  function enlazarCalculadorImpactoDivisa(host) {
+    var cbActivo = (host || document).querySelector('#cfg-descuento-divisa-activo');
+    var inpPct   = (host || document).querySelector('#cfg-descuento-divisa-pct');
+    if (cbActivo) {
+      cbActivo.addEventListener('change', renderCalculadorImpactoDivisa);
+    }
+    if (inpPct) {
+      inpPct.addEventListener('input', renderCalculadorImpactoDivisa);
+      inpPct.addEventListener('change', renderCalculadorImpactoDivisa);
+    }
+  }
+
+  function cargarDescuentoCobroDivisa() {
+    return apiFetch('/api/configuracion', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .then(function (cfg) {
+        var activo = cfg.descuento_cobro_divisa_activo === 'true';
+        var pct = parseFloat(String(cfg.descuento_cobro_divisa_pct || '0').replace(',', '.')) || 0;
+        var cbActivo = document.getElementById('cfg-descuento-divisa-activo');
+        var inpPct   = document.getElementById('cfg-descuento-divisa-pct');
+        if (cbActivo) cbActivo.checked = activo;
+        if (inpPct)   inpPct.value    = pct > 0 ? String(pct) : '';
+        try {
+          localStorage.setItem('nexus_cfg_descuento_cobro_divisa_activo', activo ? 'true' : 'false');
+          localStorage.setItem('nexus_cfg_descuento_cobro_divisa_pct', String(pct));
+        } catch (_e) { /* ignore */ }
+        renderCalculadorImpactoDivisa();
+      })
+      .catch(function () {
+        toast('No se pudo cargar la configuración de descuento divisa', 'error');
+      });
+  }
+
+  function guardarDescuentoCobroDivisa() {
+    if (!puedeEscribirConfig()) {
+      toast('No tienes permiso para cambiar esta configuración', 'warning');
+      return;
+    }
+    var cbActivo = document.getElementById('cfg-descuento-divisa-activo');
+    var inpPct   = document.getElementById('cfg-descuento-divisa-pct');
+    if (!cbActivo || !inpPct) return;
+
+    var activo = cbActivo.checked;
+    var pctRaw = parseFloat(String(inpPct.value).replace(',', '.'));
+    if (Number.isNaN(pctRaw) || pctRaw < 0 || pctRaw > 100) {
+      toast('El porcentaje debe ser un número entre 0 y 100', 'warning');
+      return;
+    }
+
+    var btn = document.getElementById('btn-guardar-descuento-divisa');
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+
+    apiFetch('/api/configuracion/descuento-cobro-divisa', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activo: activo, pct: pctRaw })
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error(d.error || 'Error al guardar');
+        return d;
+      });
+    }).then(function (resp) {
+      toast(
+        'Descuento divisa guardado: ' + (resp.activo ? 'Activo al ' + resp.pct + '%' : 'Desactivado'),
+        'success'
+      );
+      if (inpPct) inpPct.value = resp.pct > 0 ? String(resp.pct) : '0';
+      if (cbActivo) cbActivo.checked = !!resp.activo;
+      try {
+        localStorage.setItem('nexus_cfg_descuento_cobro_divisa_activo', resp.activo ? 'true' : 'false');
+        localStorage.setItem('nexus_cfg_descuento_cobro_divisa_pct', String(resp.pct != null ? resp.pct : 0));
+      } catch (_e) { /* ignore */ }
+      renderCalculadorImpactoDivisa();
+    }).catch(function (e) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    }).finally(function () {
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar descuento divisa'; }
+    });
   }
 
   function enviarCambioModo(modo, tasaUsd) {
@@ -1316,27 +1586,46 @@
   }
 
   function generarClave() {
-    var hwid    = (document.getElementById('lic-gen-hwid')    || {}).value || '';
-    var empresa = (document.getElementById('lic-gen-empresa') || {}).value || '';
-    var expira  = (document.getElementById('lic-gen-expira')  || {}).value || '';
-    if (!hwid.trim()) { toast('El Hardware ID del cliente es obligatorio', 'error'); return; }
+    // AUD: la generación de licencias ya NO ocurre en el cliente (el endpoint local
+    // /api/licencia/generar fue eliminado por seguridad). Las licencias se crean únicamente
+    // en el servidor del distribuidor (panel web /admin o scripts CLI de license-server),
+    // que es el único que posee la clave privada Ed25519. Informamos en vez de llamar a un
+    // endpoint inexistente.
+    toast(
+      'La generación de licencias se realiza en el panel del distribuidor (servidor de licencias), no desde el cliente.',
+      'info'
+    );
+  }
 
-    apiFetch('/api/licencia/generar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hwid: hwid.trim(), empresa: empresa.trim(), expiraEn: expira || null })
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (!r.ok) throw new Error(d.error || 'Error al generar');
-        return d;
+  /* ─── SELECTOR DE TEMA ─── */
+  function initSelectorTema(host) {
+    var selectorEl = (host || document).querySelector('#cfg-tema-selector');
+    if (!selectorEl) return;
+
+    var btns = selectorEl.querySelectorAll('.cfg-tema-btn');
+
+    function actualizarBotones(temaActivo) {
+      btns.forEach(function (btn) {
+        var esteEs = btn.dataset.tema === temaActivo;
+        btn.classList.toggle('is-active', esteEs);
+        btn.setAttribute('aria-pressed', esteEs ? 'true' : 'false');
       });
-    }).then(function (data) {
-      var resDiv  = document.getElementById('lic-gen-resultado');
-      var claveEl = document.getElementById('lic-gen-clave-output');
-      if (claveEl) claveEl.textContent = data.clave;
-      if (resDiv) resDiv.style.display = '';
-    }).catch(function (e) {
-      toast(e.message || 'No se pudo generar la clave', 'error');
+    }
+
+    var temaInicial = window.TemaService ? window.TemaService.getTema() : (document.documentElement.getAttribute('data-theme') || 'dark');
+    actualizarBotones(temaInicial);
+
+    btns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var tema = btn.dataset.tema;
+        if (window.TemaService) {
+          window.TemaService.setTema(tema);
+        } else {
+          try { localStorage.setItem('nexus_theme', tema); } catch (e) {}
+          document.documentElement.setAttribute('data-theme', tema);
+        }
+        actualizarBotones(tema);
+      });
     });
   }
 
@@ -1369,8 +1658,15 @@
       if (btnBcvAuto) btnBcvAuto.addEventListener('click', guardarProgramaBcvAuto);
       var btnBcvSync = host.querySelector('#btn-bcv-auto-sync');
       if (btnBcvSync) btnBcvSync.addEventListener('click', consultarBcvAutoAhora);
+      var btnFerSync = host.querySelector('#btn-bcv-feriados-sync');
+      if (btnFerSync) btnFerSync.addEventListener('click', sincronizarFeriadosAhora);
       var btnBcvForzar = host.querySelector('#btn-bcv-auto-forzar');
       if (btnBcvForzar) btnBcvForzar.addEventListener('click', forzarAplicarBcvAhora);
+
+      // Descuento cobro divisa
+      var btnDescDiv = host.querySelector('#btn-guardar-descuento-divisa');
+      if (btnDescDiv) btnDescDiv.addEventListener('click', guardarDescuentoCobroDivisa);
+      enlazarCalculadorImpactoDivisa(host);
 
       // Empresa
       var btnEmpresa = host.querySelector('#btn-guardar-empresa');
@@ -1430,8 +1726,10 @@
       });
 
       cargarConfig();
+      cargarDescuentoCobroDivisa();
       aplicarUIPermisosTasas(host);
       aplicarUIPermisosRespaldo(host);
+      initSelectorTema(host);
     },
     editarUsuario: function (id) {
       apiFetch('/api/usuarios/' + id)

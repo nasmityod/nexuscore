@@ -122,12 +122,16 @@
   function chartTheme() {
     var s = getComputedStyle(document.documentElement);
     return {
-      muted: s.getPropertyValue('--text-muted').trim() || '#3d5068',
-      grid: s.getPropertyValue('--border-subtle').trim() || '#0e1a2e',
-      accentBar: s.getPropertyValue('--accent-primary-glow').trim() || 'rgba(240, 165, 0, 0.6)',
-      successColor: s.getPropertyValue('--accent-success').trim() || '#22c55e',
-      primary: s.getPropertyValue('--accent-primary').trim() || '#f0a500',
-      danger: s.getPropertyValue('--accent-danger').trim() || '#ef4444'
+      muted:         s.getPropertyValue('--text-muted').trim()          || '#3d5068',
+      textPrimary:   s.getPropertyValue('--text-primary').trim()        || '#edf2f7',
+      grid:          s.getPropertyValue('--border-subtle').trim()       || '#0e1a2e',
+      borderPrimary: s.getPropertyValue('--border-primary').trim()      || '#1a2540',
+      accentBar:     s.getPropertyValue('--accent-primary-glow').trim() || 'rgba(240, 165, 0, 0.12)',
+      income:        s.getPropertyValue('--chart-income').trim()        || '#10b981',
+      areaFill:      s.getPropertyValue('--chart-area-fill').trim()     || 'rgba(240, 165, 0, 0.05)',
+      tooltipBg:     s.getPropertyValue('--chart-tooltip-bg').trim()    || '#162035',
+      primary:       s.getPropertyValue('--accent-primary').trim()      || '#f0a500',
+      danger:        s.getPropertyValue('--accent-danger').trim()       || '#ef4444'
     };
   }
 
@@ -325,9 +329,9 @@
           label: 'Ventas ($ BCV)',
           data: datos,
           backgroundColor: datos.map(function (_, idx) {
-            return idx === 6 ? theme.successColor : theme.accentBar;
+            return idx === 6 ? theme.income : theme.accentBar;
           }),
-          borderRadius: 5
+          borderRadius: 3
         }]
       },
       options: {
@@ -336,6 +340,13 @@
         plugins: {
           legend: { display: false },
           tooltip: {
+            backgroundColor: theme.tooltipBg,
+            borderColor: theme.borderPrimary,
+            borderWidth: 1,
+            titleColor: theme.textPrimary,
+            bodyColor: theme.muted,
+            titleFont: { family: 'DM Mono', size: 11 },
+            bodyFont: { family: 'DM Mono', size: 11 },
             callbacks: {
               label: function (ctx) {
                 return monto(n(ctx.raw));
@@ -344,14 +355,14 @@
           }
         },
         scales: {
-          x: { ticks: { color: theme.muted, font: { size: 11 } }, grid: { display: false } },
+          x: { ticks: { color: theme.muted, font: { family: 'DM Mono', size: 10 } }, grid: { display: false } },
           y: {
             ticks: {
               color: theme.muted,
               callback: function (v) {
                 return '$ ' + formatRefUsdBcvVe(v);
               },
-              font: { size: 11 }
+              font: { family: 'DM Mono', size: 10 }
             },
             grid: { color: theme.grid }
           }
@@ -381,8 +392,8 @@
           {
             label: 'Hoy',
             data: data.ventasHoy || [],
-            borderColor: theme.successColor,
-            backgroundColor: 'rgba(16, 185, 129, 0.12)',
+            borderColor: theme.income,
+            backgroundColor: theme.areaFill,
             fill: true,
             tension: 0.3,
             pointRadius: 0,
@@ -407,9 +418,16 @@
         plugins: {
           legend: {
             display: true,
-            labels: { color: theme.muted, boxWidth: 12, font: { size: 11 } }
+            labels: { color: theme.muted, boxWidth: 12, font: { family: 'DM Mono', size: 11 } }
           },
           tooltip: {
+            backgroundColor: theme.tooltipBg,
+            borderColor: theme.borderPrimary,
+            borderWidth: 1,
+            titleColor: theme.textPrimary,
+            bodyColor: theme.muted,
+            titleFont: { family: 'DM Mono', size: 11 },
+            bodyFont: { family: 'DM Mono', size: 11 },
             callbacks: {
               label: function (ctx) {
                 return ctx.dataset.label + ': ' + monto(n(ctx.raw));
@@ -419,14 +437,14 @@
         },
         scales: {
           x: {
-            ticks: { color: theme.muted, maxTicksLimit: 12, font: { size: 10 } },
+            ticks: { color: theme.muted, maxTicksLimit: 12, font: { family: 'DM Mono', size: 10 } },
             grid: { display: false }
           },
           y: {
             ticks: {
               color: theme.muted,
               callback: function (v) { return '$ ' + formatRefUsdBcvVe(v); },
-              font: { size: 10 }
+              font: { family: 'DM Mono', size: 10 }
             },
             grid: { color: theme.grid }
           }
@@ -691,6 +709,46 @@
     return resumenPromise;
   }
 
+  /* ─── Reactividad de tema — actualizar colores sin redibujar ── */
+  function refreshChartColors() {
+    var t = chartTheme();
+
+    if (chart7d) {
+      var ds = chart7d.data.datasets[0];
+      if (ds && Array.isArray(ds.data)) {
+        ds.backgroundColor = ds.data.map(function (_, idx) {
+          return idx === 6 ? t.income : t.accentBar;
+        });
+      }
+      chart7d.options.scales.x.ticks.color = t.muted;
+      chart7d.options.scales.y.ticks.color = t.muted;
+      chart7d.options.scales.y.grid.color  = t.grid;
+      var tt7 = chart7d.options.plugins.tooltip;
+      tt7.backgroundColor = t.tooltipBg;
+      tt7.borderColor     = t.borderPrimary;
+      tt7.titleColor      = t.textPrimary;
+      tt7.bodyColor       = t.muted;
+      chart7d.update('none');
+    }
+
+    if (chartHoras) {
+      var ds0 = chartHoras.data.datasets[0];
+      var ds1 = chartHoras.data.datasets[1];
+      if (ds0) { ds0.borderColor = t.income; ds0.backgroundColor = t.areaFill; }
+      if (ds1) { ds1.borderColor = t.muted; }
+      chartHoras.options.scales.x.ticks.color = t.muted;
+      chartHoras.options.scales.y.ticks.color = t.muted;
+      chartHoras.options.scales.y.grid.color  = t.grid;
+      chartHoras.options.plugins.legend.labels.color = t.muted;
+      var ttH = chartHoras.options.plugins.tooltip;
+      ttH.backgroundColor = t.tooltipBg;
+      ttH.borderColor     = t.borderPrimary;
+      ttH.titleColor      = t.textPrimary;
+      ttH.bodyColor       = t.muted;
+      chartHoras.update('none');
+    }
+  }
+
   /* ─── Mount ──────────────────────────────────────────────────── */
   window.DashboardPage = {
     mount: function (host) {
@@ -737,11 +795,15 @@
       };
       window.addEventListener('nexus:session', onSession);
 
+      var onThemeChange = function () { refreshChartColors(); };
+      window.addEventListener('nexus:themechange', onThemeChange);
+
       window.addEventListener('nexus:route', function cleanup() {
         clearInterval(refreshTimer);
         refreshTimer = null;
         destroyCharts();
         window.removeEventListener('nexus:session', onSession);
+        window.removeEventListener('nexus:themechange', onThemeChange);
         window.removeEventListener('nexus:route', cleanup);
       }, { once: true });
     }

@@ -8,6 +8,7 @@
 const { db } = require('../config/database');
 const { asyncHandler, httpError } = require('../utils/asyncHandler');
 const { SALDO_BCV_SQL, resolverMontoAbono } = require('../services/creditoAbonoService');
+const { formatBolivares, formatUsdRef } = require('../utils/formatters');
 
 /* ─── RESUMEN DE AGING ──────────────────────────────────────────────────────
    Bucketes: 0-30 · 31-60 · 61-90 · 91+ días
@@ -277,51 +278,76 @@ async function estadoCuentaPdf(req, res) {
   const deudaTotalUsd = cuentasAbiertas.reduce((s, c) => s + Number(c.saldo_pendiente_usd), 0);
 
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function fmtBcv(n) {
-    return Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  function fmt(n) { return Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function fmtFecha(d) { return d ? new Date(d).toLocaleDateString('es-VE') : '—'; }
+
+  function montoCellHtml(refUsd, efectivoUsd) {
+    return `<td class="num">` +
+      `<span class="amount-primary">${formatUsdRef(refUsd)}</span>` +
+      `<span class="amount-sub">Efectivo: ${formatUsdRef(efectivoUsd)}</span>` +
+      `</td>`;
+  }
+
+  function estadoColor(estado) {
+    if (estado === 'vencida') return '#ef4444';
+    if (estado === 'pagada') return '#10b981';
+    return '#f59e0b';
+  }
 
   const cuentasHtml = cuentas.map((c) => {
     const saldoBcv = saldoBcvCuenta(c);
-    return `
-    <tr>
-      <td>${fmtFecha(c.creado_en)}</td>
-      <td>${esc(c.numero_venta || '—')}</td>
-      <td style="text-align:right"><strong>$${fmtBcv(c.monto_usd_bcv || c.monto_original_usd)} BCV</strong><br><span style="font-size:10px;color:#666">$${fmt(c.monto_original_usd)} USD</span></td>
-      <td style="text-align:right"><strong>$${fmtBcv(saldoBcv)} BCV</strong><br><span style="font-size:10px;color:#666">$${fmt(c.saldo_pendiente_usd)} USD</span></td>
-      <td>${fmtFecha(c.fecha_vencimiento)}</td>
-      <td style="color:${c.estado === 'vencida' ? '#ef4444' : c.estado === 'pagada' ? '#10b981' : '#f59e0b'};font-weight:700">${String(c.estado || '—').toUpperCase()}</td>
-    </tr>`;
+    return `<tr>` +
+      `<td class="col-fecha">${fmtFecha(c.creado_en)}</td>` +
+      `<td class="col-factura">${esc(c.numero_venta || '—')}</td>` +
+      montoCellHtml(c.monto_usd_bcv || c.monto_original_usd, c.monto_original_usd) +
+      montoCellHtml(saldoBcv, c.saldo_pendiente_usd) +
+      `<td class="col-fecha">${fmtFecha(c.fecha_vencimiento)}</td>` +
+      `<td class="col-estado" style="color:${estadoColor(c.estado)}">${String(c.estado || '—').toUpperCase()}</td>` +
+      `</tr>`;
   }).join('');
 
-  const pagosHtml = pagos.map((p) => {
-    const monto_bs_str = p.monto_bs != null && Number(p.monto_bs) > 0
-      ? ` <span style="font-size:10px;color:#666">Bs.${fmt(p.monto_bs)}</span>` : '';
-    return `
-    <tr>
-      <td>${fmtFecha(p.fecha_pago || p.fecha)}</td>
-      <td>$${fmt(p.monto_usd)}${monto_bs_str}</td>
-      <td>${esc(p.metodo_pago || '—')}</td>
-      <td>${esc(p.registrado_por || '—')}</td>
-      <td>${esc(p.notas || '')}</td>
-    </tr>`;
-  }).join('');
+  const pagosHtml = pagos.length ? pagos.map((p) => {
+    const montoBs = p.monto_bs != null && Number(p.monto_bs) > 0
+      ? `<span class="amount-sub">${formatBolivares(p.monto_bs)}</span>` : '';
+    return `<tr>` +
+      `<td class="col-fecha">${fmtFecha(p.fecha_pago || p.fecha)}</td>` +
+      `<td class="num"><span class="amount-primary">${formatUsdRef(p.monto_usd)}</span>${montoBs}</td>` +
+      `<td>${esc(p.metodo_pago || '—')}</td>` +
+      `<td>${esc(p.registrado_por || '—')}</td>` +
+      `<td class="col-notas">${esc(p.notas || '—')}</td>` +
+      `</tr>`;
+  }).join('') : '<tr><td colspan="5" class="empty-row">Sin pagos registrados</td></tr>';
 
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
   <title>Estado de Cuenta — ${esc(cliente.nombre)}</title>
   <style>
     body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:20px}
-    h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:16px 0 6px}
+    h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:16px 0 8px}
     .header{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:14px}
-    .kpis{display:flex;gap:20px;margin:10px 0 16px}
-    .kpi{border:1px solid #ddd;padding:8px 14px;border-radius:4px}
-    .kpi-label{font-size:10px;color:#555} .kpi-value{font-size:16px;font-weight:700}
-    table{width:100%;border-collapse:collapse;margin-bottom:14px}
-    th{background:#f3f4f6;text-align:left;padding:5px 8px;font-size:11px;border-bottom:1px solid #ddd}
-    td{padding:4px 8px;border-bottom:1px solid #eee}
-    .total-row{font-weight:700;background:#fef9c3}
+    .cliente-bar{margin:10px 0 14px;padding:8px 10px;background:#f9fafb;border:1px solid #e5e7eb}
+    .kpis{display:flex;gap:12px;margin:10px 0 18px}
+    .kpi{flex:1;border:1px solid #ddd;padding:10px 14px;border-radius:4px;min-width:0}
+    .kpi-label{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.04em}
+    .kpi-value{font-size:16px;font-weight:700;margin-top:2px}
+    .kpi-sub{font-size:10px;color:#555;margin-top:4px}
+    table.data{width:100%;border-collapse:collapse;margin-bottom:16px;table-layout:fixed}
+    table.data th,table.data td{padding:7px 8px;border-bottom:1px solid #eee;vertical-align:top;word-wrap:break-word}
+    table.data th{background:#f3f4f6;font-size:11px;border-bottom:1px solid #ddd;font-weight:700}
+    table.data th.num,table.data td.num{text-align:right}
+    table.data col.col-fecha{width:11%}
+    table.data col.col-factura{width:17%}
+    table.data col.col-monto{width:18%}
+    table.data col.col-estado{width:12%}
+    table.data td.col-fecha,table.data th.col-fecha{white-space:nowrap}
+    table.data td.col-factura,table.data th.col-factura{font-family:Consolas,'Courier New',monospace;font-size:11px}
+    table.data td.col-estado,table.data th.col-estado{text-align:center;font-weight:700;font-size:11px}
+    table.data .col-notas{width:28%}
+    table.data tfoot td{border-bottom:none}
+    .amount-primary{display:block;font-weight:700;line-height:1.35;font-family:Consolas,'Courier New',monospace}
+    .amount-sub{display:block;font-size:10px;color:#666;line-height:1.3;margin-top:2px;font-family:Consolas,'Courier New',monospace}
+    .total-row td{font-weight:700;background:#fef9c3}
+    .total-row .total-label{text-align:right;padding-right:10px}
+    .empty-row{text-align:center;color:#888;font-style:italic;padding:12px 8px}
+    @media print{body{margin:12px}}
   </style>
   </head><body>
   <div class="header">
@@ -330,24 +356,49 @@ async function estadoCuentaPdf(req, res) {
     <div style="text-align:right"><strong>Estado de Cuenta</strong><br>
       Fecha: ${fmtFecha(new Date())}<br>Página 1</div>
   </div>
-  <div><strong>Cliente:</strong> ${esc(cliente.nombre)} &nbsp; | &nbsp;
-    <strong>Cédula/RIF:</strong> ${esc(cliente.cedula_rif || '—')} &nbsp; | &nbsp;
+  <div class="cliente-bar"><strong>Cliente:</strong> ${esc(cliente.nombre)} &nbsp;|&nbsp;
+    <strong>Cédula/RIF:</strong> ${esc(cliente.cedula_rif || '—')} &nbsp;|&nbsp;
     <strong>Teléfono:</strong> ${esc(cliente.telefono || '—')}</div>
   <div class="kpis">
-    <div class="kpi"><div class="kpi-label">Deuda Total (BCV)</div><div class="kpi-value">$${fmtBcv(deudaTotalBcv)} BCV</div><div style="font-size:10px;color:#555">$${fmt(deudaTotalUsd)} USD efectivo</div></div>
-    <div class="kpi"><div class="kpi-label">Límite Crédito</div><div class="kpi-value">$${fmt(cliente.limite_credito_usd)} USD</div></div>
-    <div class="kpi"><div class="kpi-label">Cuentas Abiertas</div><div class="kpi-value">${cuentas.filter((c) => ['pendiente','vencida'].includes(c.estado)).length}</div></div>
+    <div class="kpi"><div class="kpi-label">Deuda total (ref. BCV)</div><div class="kpi-value">${formatUsdRef(deudaTotalBcv)}</div><div class="kpi-sub">Efectivo: ${formatUsdRef(deudaTotalUsd)}</div></div>
+    <div class="kpi"><div class="kpi-label">Límite crédito</div><div class="kpi-value">${formatUsdRef(cliente.limite_credito_usd)}</div></div>
+    <div class="kpi"><div class="kpi-label">Cuentas abiertas</div><div class="kpi-value">${cuentasAbiertas.length}</div></div>
   </div>
   <h2>Cuentas por cobrar</h2>
-  <table><thead><tr><th>Fecha</th><th>Factura</th><th>Monto Original</th><th>Saldo Pendiente</th><th>Vencimiento</th><th>Estado</th></tr></thead>
-  <tbody>${cuentasHtml}</tbody>
-  <tfoot><tr class="total-row"><td colspan="3">TOTAL PENDIENTE</td><td><strong>$${fmtBcv(deudaTotalBcv)} BCV</strong><br>$${fmt(deudaTotalUsd)} USD</td><td colspan="2"></td></tr></tfoot>
+  <table class="data">
+  <colgroup>
+    <col class="col-fecha"><col class="col-factura"><col class="col-monto"><col class="col-monto"><col class="col-fecha"><col class="col-estado">
+  </colgroup>
+  <thead><tr>
+    <th class="col-fecha">Fecha</th>
+    <th class="col-factura">Factura</th>
+    <th class="num">Monto original</th>
+    <th class="num">Saldo pendiente</th>
+    <th class="col-fecha">Vencimiento</th>
+    <th class="col-estado">Estado</th>
+  </tr></thead>
+  <tbody>${cuentasHtml || '<tr><td colspan="6" class="empty-row">Sin cuentas registradas</td></tr>'}</tbody>
+  <tfoot><tr class="total-row">
+    <td colspan="3" class="total-label">TOTAL PENDIENTE</td>
+    <td class="num"><span class="amount-primary">${formatUsdRef(deudaTotalBcv)}</span><span class="amount-sub">Efectivo: ${formatUsdRef(deudaTotalUsd)}</span></td>
+    <td></td><td></td>
+  </tr></tfoot>
   </table>
   <h2>Historial de pagos</h2>
-  <table><thead><tr><th>Fecha</th><th>Monto</th><th>Método</th><th>Registrado por</th><th>Notas</th></tr></thead>
+  <table class="data">
+  <colgroup>
+    <col class="col-fecha"><col><col><col><col class="col-notas">
+  </colgroup>
+  <thead><tr>
+    <th class="col-fecha">Fecha</th>
+    <th class="num">Monto</th>
+    <th>Método</th>
+    <th>Registrado por</th>
+    <th>Notas</th>
+  </tr></thead>
   <tbody>${pagosHtml}</tbody></table>
   <div style="margin-top:20px;font-size:10px;color:#666;border-top:1px solid #ddd;padding-top:8px">
-    Documento generado automáticamente por Nexus Core. No tiene validez fiscal.
+    
   </div>
   </body></html>`;
 

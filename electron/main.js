@@ -14,6 +14,13 @@ const {
   applySavedConfigToProcess,
   getUserConfigEnvPath
 } = require('./setupConfig');
+const {
+  readSavedTheme,
+  writeSavedTheme,
+  getWindowBackgroundColor,
+  normalizeTheme,
+  BG_PRIMARY
+} = require('./themePreference');
 const LOG_PREFIX = '[nexus-core]';
 
 // userData/config.env (asistente) → .env del proyecto (dev) → defaults
@@ -198,12 +205,18 @@ function getSplashPreloadPath() {
   return path.join(__dirname, 'preload-splash.js');
 }
 
+function loadThemedHtmlFile(browserWindow, filePath) {
+  const tema = readSavedTheme(app);
+  return browserWindow.loadFile(filePath, { query: { theme: tema } });
+}
+
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
     width: 600,
     height: 400,
     frame: false,
     transparent: true,
+    backgroundColor: getWindowBackgroundColor(app),
     resizable: false,
     alwaysOnTop: true,
     icon: getBrowserWindowIcon(),
@@ -216,7 +229,7 @@ function createSplashWindow() {
   });
 
   const splashPath = path.join(__dirname, '..', 'frontend', 'splash.html');
-  splashWindow.loadFile(splashPath).catch((err) => {
+  loadThemedHtmlFile(splashWindow, splashPath).catch((err) => {
     console.error(`${LOG_PREFIX} No se pudo cargar splash screen:`, err);
   });
 
@@ -274,6 +287,7 @@ function createSetupWindow(options = {}) {
       maximizable: false,
       fullscreenable: false,
       autoHideMenuBar: true,
+      backgroundColor: getWindowBackgroundColor(app),
       icon: getBrowserWindowIcon(),
       title: 'Nexus Core · Instalación',
       webPreferences: {
@@ -284,7 +298,8 @@ function createSetupWindow(options = {}) {
       }
     });
 
-    setupWindow.loadFile(
+    loadThemedHtmlFile(
+      setupWindow,
       path.join(__dirname, '..', 'frontend', 'setup.html')
     ).catch((err) => {
       console.error(`${LOG_PREFIX} No se pudo cargar setup.html:`, err);
@@ -413,6 +428,7 @@ function createActivationWindow() {
       maximizable:      false,
       fullscreenable:   false,
       autoHideMenuBar:  true,
+      backgroundColor:  getWindowBackgroundColor(app),
       icon:             getBrowserWindowIcon(),
       title:            'Nexus Core · Activación de Licencia',
       webPreferences: {
@@ -423,7 +439,8 @@ function createActivationWindow() {
       },
     });
 
-    activationWindow.loadFile(
+    loadThemedHtmlFile(
+      activationWindow,
       path.join(__dirname, '..', 'frontend', 'activation.html')
     ).catch((err) => {
       console.error(`${LOG_PREFIX} No se pudo cargar activation.html:`, err);
@@ -597,6 +614,49 @@ async function checkLicense() {
   }
 }
 
+/**
+ * Gate de licencia unificado del sistema profesional.
+ *   1. licenseManager.evaluate(): verifica el archivo local cifrado (firma Ed25519 offline +
+ *      integridad + expiración + período de gracia). Es la autoridad primaria.
+ *   2. Si no hay archivo local (state 'none'), cae al chequeo legado contra el backend
+ *      (licencia en PostgreSQL del sistema anterior) para no romper instalaciones existentes;
+ *      el usuario migrará al archivo cifrado al reactivar.
+ *   3. Lanza verificación online en segundo plano cuando corresponde (no bloquea el arranque).
+ * @returns {Promise<{ ok:boolean, source?:string, state?:string, reason?:string, info?:object, estado?:object }>}
+ */
+async function evaluateLicenseGate() {
+  const licenseManager = require('./licenseManager');
+  let local;
+  try { local = licenseManager.evaluate(app); }
+  catch (e) { local = { ok: false, state: 'error', reason: e && e.message ? e.message : String(e) }; }
+
+  if (local.ok) {
+    if (local.needsOnlineSoon) {
+      // Verificación online en segundo plano: refresca token/estado sin frenar el arranque.
+      licenseManager.verifyOnline(app)
+        .then((r) => {
+          if (r && r.blocked) {
+            console.warn(`${LOG_PREFIX} [licencia] servidor rechazó (${r.reason}); se bloqueará en el próximo arranque.`);
+          }
+        })
+        .catch(() => {});
+    }
+    return { ok: true, source: 'local', info: local.info };
+  }
+
+  if (local.state === 'none') {
+    const legacy = await checkLicense();
+    if (legacy.ok) {
+      console.log(`${LOG_PREFIX} [licencia] gate legado (PostgreSQL) válido — usa el sistema anterior.`);
+      return { ok: true, source: 'legacy', estado: legacy.estado };
+    }
+    return { ok: false, state: 'none', reason: local.reason, estado: legacy.estado || null };
+  }
+
+  console.warn(`${LOG_PREFIX} [licencia] gate local inactivo: state=${local.state} motivo=${local.reason || '—'}`);
+  return { ok: false, state: local.state, reason: local.reason, info: local.info || null };
+}
+
 function createMainWindow() {
   mainWindowLifecycleStarted = true;
   mainWindow = new BrowserWindow({
@@ -608,6 +668,7 @@ function createMainWindow() {
     fullscreen: false,
     fullscreenable: true,
     autoHideMenuBar: true,
+    backgroundColor: getWindowBackgroundColor(app),
     icon: getBrowserWindowIcon(),
     webPreferences: {
       preload: getPreloadPath(),
@@ -657,7 +718,7 @@ function createMainWindow() {
   });
 
   const indexFile = getIndexHtmlPath();
-  mainWindow.loadFile(indexFile).catch((err) => {
+  loadThemedHtmlFile(mainWindow, indexFile).catch((err) => {
     console.error(`${LOG_PREFIX} No se pudo cargar la ventana principal:`, err);
   });
 
@@ -671,6 +732,67 @@ function registerBasicIpc() {
     || 'https://nexuscore-iota.vercel.app';
 
   ipcMain.handle('license:get-server-url', () => NEXUS_LICENSE_SERVER_URL);
+
+  // ── Sistema profesional de licencias (license-key NXCS + archivo local cifrado) ──
+  const licenseManager = require('./licenseManager');
+
+  ipcMain.handle('license:get-hwid', () => {
+    try {
+      const r = licenseManager.computeHardwareId();
+      return { hwid: r.hwid, components: r.components, detail: r.detail };
+    } catch (_e) {
+      return { hwid: 'HWID-ERROR', components: [], detail: {} };
+    }
+  });
+
+  ipcMain.handle('license:get-status', () => {
+    try {
+      const ev = licenseManager.evaluate(app);
+      return {
+        ok: ev.ok,
+        state: ev.state,
+        reason: ev.reason || null,
+        info: ev.info || null,
+        hwid: licenseManager.computeHardwareId().hwid,
+        serverUrl: licenseManager.serverUrl()
+      };
+    } catch (e) {
+      return { ok: false, state: 'error', reason: e && e.message ? e.message : String(e) };
+    }
+  });
+
+  ipcMain.handle('license:activate', async (_evt, args) => {
+    const key = args && args.licenseKey ? String(args.licenseKey) : '';
+    if (!key.trim()) return { ok: false, reason: 'input', message: 'Ingresa la clave de licencia.' };
+    try {
+      const os = require('os');
+      return await licenseManager.activate(app, key, app.getVersion(), os.hostname());
+    } catch (e) {
+      return { ok: false, reason: 'error', message: e && e.message ? e.message : 'Error al activar.' };
+    }
+  });
+
+  ipcMain.handle('license:deactivate', async () => {
+    try { return await licenseManager.deactivate(app); }
+    catch (e) { return { ok: false, message: e && e.message ? e.message : String(e) }; }
+  });
+
+  ipcMain.handle('theme:save', (_evt, rawTema) => {
+    try {
+      const tema = normalizeTheme(rawTema);
+      writeSavedTheme(app, tema);
+      const bg = BG_PRIMARY[tema];
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.setBackgroundColor(bg);
+        }
+      });
+      return { ok: true, tema: tema };
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} theme:save falló:`, err && err.message ? err.message : err);
+      return { ok: false, tema: 'dark' };
+    }
+  });
 
   ipcMain.handle('app:get-path', (_evt, name) => app.getPath(name));
 
@@ -686,6 +808,53 @@ function registerBasicIpc() {
     app.focus({ steal: true });
     mainWindow.focus();
     mainWindow.webContents.focus();
+  });
+
+  // Reemplazo de los diálogos nativos window.confirm / window.alert.
+  // En Windows, los diálogos JS nativos de Chromium dejan el foco de teclado
+  // "atascado" en el webContents: tras cerrarlos no se puede escribir en ningún
+  // input hasta hacer clic fuera de la app y volver (bug histórico de Electron,
+  // electron/electron#31917, #41603, #22923). dialog.showMessageBoxSync no provoca
+  // ese fallo. Se usa sendSync para preservar la semántica síncrona de confirm()/alert().
+  ipcMain.on('dialog:confirm', (event, message) => {
+    const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    const opts = {
+      type: 'question',
+      buttons: ['Aceptar', 'Cancelar'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+      title: 'Confirmar',
+      message: String(message == null ? '' : message)
+    };
+    try {
+      const idx = (win && !win.isDestroyed())
+        ? dialog.showMessageBoxSync(win, opts)
+        : dialog.showMessageBoxSync(opts);
+      event.returnValue = idx === 0;
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} dialog:confirm falló:`, err && err.message ? err.message : err);
+      event.returnValue = false;
+    }
+  });
+
+  ipcMain.on('dialog:alert', (event, message) => {
+    const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    const opts = {
+      type: 'info',
+      buttons: ['Aceptar'],
+      defaultId: 0,
+      noLink: true,
+      title: 'Aviso',
+      message: String(message == null ? '' : message)
+    };
+    try {
+      if (win && !win.isDestroyed()) dialog.showMessageBoxSync(win, opts);
+      else dialog.showMessageBoxSync(opts);
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} dialog:alert falló:`, err && err.message ? err.message : err);
+    }
+    event.returnValue = true;
   });
 
   ipcMain.handle('app:get-hardware-id', async () => {
@@ -764,18 +933,30 @@ async function runStartupSequence() {
   await new Promise((resolve) => setTimeout(resolve, 200));
 
   updateSplashStatus('Verificando licencia...', 85);
-  const { ok: licenciaOk, estado: licenciaEstado } = await checkLicense();
+  const gate = await evaluateLicenseGate();
+  const licenciaOk = gate.ok;
+  const licenciaEstado = gate.estado || null; // legado (PostgreSQL)
+  const licenciaInfo = gate.info || null;     // nuevo (archivo local cifrado)
 
-  if (licenciaOk && licenciaEstado && licenciaEstado.esTrial) {
-    const hrs = licenciaEstado.horasRestantes;
-    console.warn(
-      `${LOG_PREFIX} [licencia] MODO PRUEBA — Vence en ${hrs != null ? hrs : '?'}h (${licenciaEstado.expira || '—'})`
-    );
-    if (hrs != null && hrs <= 6) {
+  // Aviso de prueba por vencer (soporta el nuevo info.isTrial/daysRemaining y el legado esTrial/horasRestantes).
+  const trialInfo = licenciaInfo && licenciaInfo.isTrial
+    ? { dias: licenciaInfo.daysRemaining, horas: null }
+    : (licenciaEstado && licenciaEstado.esTrial
+        ? {
+            dias: licenciaEstado.horasRestantes != null ? Math.ceil(licenciaEstado.horasRestantes / 24) : null,
+            horas: licenciaEstado.horasRestantes
+          }
+        : null);
+  if (licenciaOk && trialInfo) {
+    const d = trialInfo.dias;
+    console.warn(`${LOG_PREFIX} [licencia] MODO PRUEBA — ${d != null ? d + ' día(s) restantes' : 'vigente'}`);
+    if ((trialInfo.horas != null && trialInfo.horas <= 6) || (trialInfo.horas == null && d != null && d <= 1)) {
       await dialog.showMessageBox({
         type: 'warning',
         title: 'Licencia de prueba por vencer',
-        message: `Tu período de prueba vence en ${hrs} hora(s).`,
+        message: trialInfo.horas != null
+          ? `Tu período de prueba vence en ${trialInfo.horas} hora(s).`
+          : 'Tu período de prueba vence pronto.',
         detail:
           'Contacta a tu proveedor para activar la licencia completa y continuar usando el sistema sin interrupciones.',
         buttons: ['Entendido']
@@ -785,15 +966,18 @@ async function runStartupSequence() {
 
   if (!licenciaOk) {
     pendingLicenseReason =
-      licenciaEstado && licenciaEstado.motivo ? String(licenciaEstado.motivo) : null;
+      gate.reason || (licenciaEstado && licenciaEstado.motivo ? String(licenciaEstado.motivo) : null);
     console.log(
-      `${LOG_PREFIX} Licencia inactiva — paso 2 del asistente` +
+      `${LOG_PREFIX} Licencia inactiva — pantalla de activación profesional` +
       (pendingLicenseReason ? ` (${pendingLicenseReason})` : '.')
     );
     updateSplashStatus('Se requiere activación...', 90);
     await new Promise((resolve) => setTimeout(resolve, 300));
     closeSplash();
-    const activated = await createSetupWindow({ startStep: 2 });
+    // Sistema profesional de licencias: pantalla dedicada (activation.html) que activa contra
+    // el servidor Vercel y escribe el archivo local cifrado vía licenseManager. El asistente de
+    // datos (admin/moneda/empresa) se ejecuta después, por separado, con setup.html.
+    const activated = await createActivationWindow();
     if (!activated) {
       console.log(`${LOG_PREFIX} Activación cancelada o ventana cerrada — saliendo.`);
       app.quit();
@@ -806,22 +990,25 @@ async function runStartupSequence() {
     }
   } else {
     console.log(`${LOG_PREFIX} Licencia válida — continuando.`);
-    const adminEstado = await fetchSetupAdminEstado();
-    if (adminEstado && adminEstado.adminPendiente) {
-      console.log(`${LOG_PREFIX} Falta crear administrador — paso 3 del asistente.`);
-      updateSplashStatus('Configurar administrador...', 88);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      closeSplash();
-      const adminDone = await createSetupWindow({ startStep: 3 });
-      if (!adminDone) {
-        console.log(`${LOG_PREFIX} Configuración de administrador cancelada — saliendo.`);
-        app.quit();
-        return;
-      }
-      if (!splashWindow || splashWindow.isDestroyed()) {
-        createSplashWindow();
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
+  }
+
+  // Configuración de administrador / moneda / empresa (tras licencia OK, sea previa o recién
+  // activada). Reutiliza el asistente probado entrando en el paso 3.
+  const adminEstado = await fetchSetupAdminEstado();
+  if (adminEstado && adminEstado.adminPendiente) {
+    console.log(`${LOG_PREFIX} Falta crear administrador — paso 3 del asistente.`);
+    updateSplashStatus('Configurar administrador...', 88);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    closeSplash();
+    const adminDone = await createSetupWindow({ startStep: 3 });
+    if (!adminDone) {
+      console.log(`${LOG_PREFIX} Configuración de administrador cancelada — saliendo.`);
+      app.quit();
+      return;
+    }
+    if (!splashWindow || splashWindow.isDestroyed()) {
+      createSplashWindow();
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
 
@@ -833,6 +1020,19 @@ async function runStartupSequence() {
 
   console.log(`${LOG_PREFIX} Secuencia de inicio completada. Abriendo ventana principal.`);
   createMainWindow();
+
+  // Verificación de licencia periódica mientras la app permanece abierta (cada 24h, si hay
+  // internet). Un rechazo del servidor (revocada/suspendida) se persiste y bloquea en el
+  // próximo arranque; no se interrumpe la sesión activa. El gate de período de gracia en
+  // evaluate() cubre los reinicios diarios típicos.
+  try {
+    const lm = require('./licenseManager');
+    if (!global.__nexusLicenseVerifyTimer) {
+      global.__nexusLicenseVerifyTimer = setInterval(() => {
+        lm.verifyOnline(app).catch(() => {});
+      }, lm.VERIFY_INTERVAL_MS);
+    }
+  } catch (_e) { /* sin verificación periódica */ }
 }
 
 async function handleStartupFailure(err) {

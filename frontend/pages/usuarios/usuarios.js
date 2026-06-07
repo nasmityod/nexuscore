@@ -62,7 +62,9 @@
         { key: 'compras_all', label: 'Módulo de compras',
           desc: 'Acceso completo al módulo de compras: crear órdenes, recibir mercancía, registrar precios de costo y actualizar inventario desde facturas de proveedor.' },
         { key: 'proveedores_all', label: 'Gestionar proveedores',
-          desc: 'Puede crear, editar y eliminar fichas de proveedores, incluyendo RIF, teléfonos, contacto y condiciones de pago.' }
+          desc: 'Puede crear, editar y eliminar fichas de proveedores, incluyendo RIF, teléfonos, contacto y condiciones de pago.' },
+        { key: 'cuentas_pagar_all', label: 'Cuentas por pagar',
+          desc: 'Acceso al módulo de cuentas por pagar: registrar deudas con proveedores, abonar pagos, ver antigüedad de saldos y anular cuentas.' }
       ]
     },
     {
@@ -163,7 +165,7 @@
         var bgColor = color(u.nombre_completo || u.username);
         var activo  = u.activo !== false;
         var rolBadge = u.rol ? '<span class="badge-rol">' + esc(u.rol) + '</span>' : '';
-        var customBadge = tieneOverride(u) ? '<span class="badge-rol badge-custom-perm" style="margin-left:.3rem" title="Tiene permisos personalizados">⚙ Custom</span>' : '';
+        var customBadge = tieneOverride(u) ? '<span class="badge-rol badge-custom-perm" style="margin-left:.3rem" title="Tiene permisos personalizados">Custom</span>' : '';
         var inactivoBadge = !activo ? '<span class="badge-rol badge-inactivo" style="margin-left:.3rem">Inactivo</span>' : '';
         card.innerHTML =
           '<div class="usuario-card-header">' +
@@ -174,8 +176,8 @@
           '</div></div>' +
           '<div style="font-size:.78rem;color:var(--text-secondary)">Último acceso: ' + (u.ultimo_acceso ? new Date(u.ultimo_acceso).toLocaleDateString('es-VE') : 'Nunca') + '</div>' +
           '<div class="usuario-card-acciones">' +
-          '<button class="btn-secondary" style="height:32px;font-size:.78rem;padding:0 .6rem" data-edit="' + u.id + '">✏️ Editar</button>' +
-          '<button class="btn-secondary" style="height:32px;font-size:.78rem;padding:0 .6rem" data-pass="' + u.id + '" data-uname="' + esc(u.nombre_completo || u.username) + '">🔑 Contraseña</button>' +
+          '<button class="btn-secondary" style="height:32px;font-size:.78rem;padding:0 .6rem" data-edit="' + u.id + '">Editar</button>' +
+          '<button class="btn-secondary" style="height:32px;font-size:.78rem;padding:0 .6rem" data-pass="' + u.id + '" data-uname="' + esc(u.nombre_completo || u.username) + '">Contraseña</button>' +
           (activo ? '<button class="btn-danger" style="height:32px;font-size:.78rem" data-del="' + u.id + '" data-uname="' + esc(u.username) + '">Desactivar</button>' : '') +
           '</div>';
         card.querySelector('[data-edit]').addEventListener('click', function () { abrirEditar(u); });
@@ -211,7 +213,7 @@
       var html =
         '<div class="permisos-panel">' +
         '<div class="permisos-panel-header" id="perm-header">' +
-        '<span class="permisos-panel-title">⚙️ Permisos' + (tieneCustom ? ' <span style="font-size:.7rem;font-weight:600;color:var(--accent-warning);padding:.1rem .35rem;background:rgba(245,158,11,.15);border-radius:3px">Personalizados</span>' : '') + '</span>' +
+        '<span class="permisos-panel-title">Permisos' + (tieneCustom ? ' <span style="font-size:.7rem;font-weight:600;color:var(--accent-warning);padding:.1rem .35rem;background:rgba(245,158,11,.15);border-radius:3px">Personalizados</span>' : '') + '</span>' +
         '<span id="perm-chevron" style="font-size:.85rem;color:var(--text-secondary);transition:transform .2s">' + (tieneCustom ? '▲' : '▼') + '</span>' +
         '</div>' +
         '<div id="perm-body" style="display:' + (tieneCustom ? 'block' : 'none') + '">' +

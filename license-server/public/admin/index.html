@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Nexus Core · Panel de Licencias</title>
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #121826; --panel-2: #182032; --line: #243049;
+    --txt: #e8edf5; --muted: #8a98b0; --accent: #f0a500; --accent-dim: #c47f00;
+    --ok: #22c55e; --warn: #f59e0b; --danger: #ef4444; --info: #3b82f6;
+    --mono: 'DM Mono','SFMono-Regular',Consolas,monospace;
+    --ui: 'Segoe UI',system-ui,sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font-family: var(--ui); font-size: 14px; }
+  a { color: var(--accent); }
+  .mono { font-family: var(--mono); }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5; flex-wrap: wrap;
+  }
+  header .brand { font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  header .brand small { color: var(--accent); font-family: var(--mono); font-size: 11px; letter-spacing: .18em; display: block; }
+  .btn {
+    font-family: var(--ui); font-size: 13px; font-weight: 600; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--txt); border-radius: 4px; padding: 8px 14px; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); color: #05080f; border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent-dim); }
+  .btn-danger { background: transparent; color: #fca5a5; border-color: rgba(239,68,68,.4); }
+  .btn-sm { padding: 5px 9px; font-size: 12px; }
+  .wrap { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  .hidden { display: none !important; }
+
+  /* Login */
+  .login-card { max-width: 420px; margin: 8vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
+  .login-card h1 { margin: 0 0 4px; font-size: 20px; }
+  .login-card p { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+
+  label { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 12px 0 5px; }
+  input, select, textarea {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+    color: var(--txt); padding: 9px 11px; font-family: var(--ui); font-size: 14px;
+  }
+  input.mono { font-family: var(--mono); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .stat .v { font-family: var(--mono); font-size: 28px; line-height: 1; }
+  .stat .l { font-family: var(--mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+  .stat.ok .v { color: var(--ok); } .stat.warn .v { color: var(--warn); }
+  .stat.danger .v { color: var(--danger); } .stat.accent .v { color: var(--accent); }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .toolbar input, .toolbar select { width: auto; flex: 1; min-width: 140px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: var(--panel-2); }
+  td.num, th.num { text-align: right; font-family: var(--mono); }
+  tbody tr:hover { background: var(--panel-2); cursor: pointer; }
+  .key { font-family: var(--mono); font-size: 12px; }
+
+  .badge { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; border-radius: 2px; padding: 2px 7px; border: 1px solid; }
+  .b-active { color: #4ade80; border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.1); }
+  .b-suspended { color: #fcd34d; border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.1); }
+  .b-revoked { color: #f87171; border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.1); }
+  .b-expired { color: #f87171; border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.1); }
+  .b-trial { color: #93c5fd; border-color: rgba(59,130,246,.4); background: rgba(59,130,246,.1); }
+  .b-permanent { color: #c4b5fd; border-color: rgba(168,85,247,.4); background: rgba(168,85,247,.1); }
+  .b-subscription { color: #e8edf5; border-color: var(--line); background: var(--panel-2); }
+
+  /* Modal */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 20; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: 100%; max-width: 560px; max-height: 90vh; overflow: auto; }
+  .modal-h { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .modal-h h2 { margin: 0; font-size: 16px; text-transform: uppercase; letter-spacing: .04em; }
+  .modal-b { padding: 20px; }
+  .modal-f { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 12px 18px; z-index: 50; max-width: 90vw; }
+  .toast.ok { border-color: rgba(34,197,94,.5); } .toast.err { border-color: rgba(239,68,68,.5); }
+
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; font-size: 13px; }
+  .kv dt { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .kv dd { margin: 0; word-break: break-all; }
+  .act-list { margin-top: 14px; }
+  .act-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px; }
+  .act-item .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .keybox { background: var(--panel-2); border: 1px dashed var(--accent); border-radius: 6px; padding: 12px; font-family: var(--mono); font-size: 16px; text-align: center; letter-spacing: .04em; margin: 8px 0; }
+  @media (max-width: 640px) {
+    .hide-sm { display: none; }
+    .row2 { grid-template-columns: 1fr; }
+    th, td { padding: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ░░ LOGIN ░░ -->
+<div id="login" class="login-card">
+  <h1>Panel de Licencias</h1>
+  <p>Nexus Core · acceso del distribuidor</p>
+  <label for="adminKey">Clave de administración (ADMIN_SECRET)</label>
+  <input id="adminKey" class="mono" type="password" placeholder="Bearer key…" autocomplete="off" />
+  <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-family:var(--ui);font-size:13px;letter-spacing:0;color:var(--txt);margin-top:14px;">
+    <input id="remember" type="checkbox" style="width:auto;" /> Recordar en este navegador
+  </label>
+  <button class="btn btn-primary" style="width:100%;margin-top:16px;" onclick="App.login()">Entrar</button>
+  <p id="loginErr" style="color:#f87171;margin-top:12px;"></p>
+</div>
+
+<!-- ░░ APP ░░ -->
+<div id="app" class="hidden">
+  <header>
+    <div class="brand">Nexus Core <small>LICENCIAS · ADMIN</small></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="App.openCreate()">+ Nueva licencia</button>
+      <button class="btn" onclick="App.openTrial()">Prueba rápida</button>
+      <button class="btn" onclick="App.refresh()">↻</button>
+      <button class="btn" onclick="App.logout()">Salir</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar">
+      <input id="q" placeholder="Buscar por key, cliente o email…" oninput="App.render()" />
+      <select id="fStatus" onchange="App.render()">
+        <option value="">Todos los estados</option>
+        <option value="active">Activas</option>
+        <option value="suspended">Suspendidas</option>
+        <option value="revoked">Revocadas</option>
+      </select>
+      <select id="fType" onchange="App.render()">
+        <option value="">Todos los tipos</option>
+        <option value="subscription">Suscripción</option>
+        <option value="permanent">Permanente</option>
+        <option value="trial">Prueba</option>
+      </select>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Licencia</th>
+          <th class="hide-sm">Cliente</th>
+          <th>Tipo</th>
+          <th>Estado</th>
+          <th class="hide-sm">Vence</th>
+          <th class="num">Activ.</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+const App = (() => {
+  let KEY = '';
+  let DATA = { stats: {}, licenses: [] };
+
+  // ── HTTP ──
+  async function api(path, opts = {}) {
+    const res = await fetch('/api/admin' + path, {
+      ...opts,
+      headers: {
+        'Authorization': 'Bearer ' + KEY,
+        'Content-Type': 'application/json',
+        ...(opts.headers || {})
+      }
+    });
+    let body = null;
+    try { body = await res.json(); } catch (_e) {}
+    if (!res.ok) throw new Error((body && body.error) || ('Error ' + res.status));
+    return body;
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso); if (isNaN(d)) return '—';
+    return d.toLocaleDateString('es-VE', { year: 'numeric', month: 'short', day: '2-digit' });
+  }
+  function badge(kind, text) { return `<span class="badge b-${kind}">${esc(text)}</span>`; }
+
+  function toast(msg, kind = 'ok') {
+    const el = document.createElement('div');
+    el.className = 'toast ' + kind; el.textContent = msg;
+    document.getElementById('toastRoot').appendChild(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+
+  // ── Auth ──
+  function login() {
+    const k = document.getElementById('adminKey').value.trim();
+    if (!k) { document.getElementById('loginErr').textContent = 'Ingresa la clave.'; return; }
+    KEY = k;
+    if (document.getElementById('remember').checked) {
+      try { localStorage.setItem('nxcs_admin_key', k); } catch (_e) {}
+    }
+    boot();
+  }
+  function logout() {
+    KEY = '';
+    try { localStorage.removeItem('nxcs_admin_key'); sessionStorage.removeItem('nxcs_admin_key'); } catch (_e) {}
+    document.getElementById('app').classList.add('hidden');
+    document.getElementById('login').classList.remove('hidden');
+  }
+
+  async function boot() {
+    try {
+      await refresh();
+      document.getElementById('login').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      try { sessionStorage.setItem('nxcs_admin_key', KEY); } catch (_e) {}
+    } catch (e) {
+      document.getElementById('loginErr').textContent = 'Clave inválida o servidor inaccesible.';
+      KEY = '';
+    }
+  }
+
+  async function refresh() {
+    DATA = await api('/licenses');
+    renderStats();
+    render();
+  }
+
+  // ── Render ──
+  function renderStats() {
+    const s = DATA.stats || {};
+    const cards = [
+      ['accent', s.total || 0, 'Total'],
+      ['ok', s.active || 0, 'Activas'],
+      ['danger', s.expired || 0, 'Vencidas'],
+      ['warn', s.suspended || 0, 'Suspendidas'],
+      ['danger', s.revoked || 0, 'Revocadas'],
+      ['', s.trials || 0, 'Pruebas']
+    ];
+    document.getElementById('stats').innerHTML = cards.map(([c, v, l]) =>
+      `<div class="stat ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+  }
+
+  function render() {
+    const q = document.getElementById('q').value.trim().toLowerCase();
+    const fs = document.getElementById('fStatus').value;
+    const ft = document.getElementById('fType').value;
+    const rows = (DATA.licenses || []).filter(l => {
+      if (fs && l.status !== fs) return false;
+      if (ft && l.type !== ft) return false;
+      if (q) {
+        const hay = [l.key, l.customerName, l.customerEmail].map(x => String(x || '').toLowerCase()).join(' ');
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    document.getElementById('rows').innerHTML = rows.map(l => {
+      const stKind = l.status === 'active' ? (l.expired ? 'expired' : 'active') : l.status;
+      const stTxt = l.status === 'active' && l.expired ? 'vencida' : l.status;
+      return `<tr onclick="App.openDetail('${esc(l.key)}')">
+        <td class="key">${esc(l.key)}</td>
+        <td class="hide-sm">${esc(l.customerName || '—')}</td>
+        <td>${badge(l.type, l.type)}</td>
+        <td>${badge(stKind, stTxt)}</td>
+        <td class="hide-sm mono">${l.type === 'permanent' ? '∞' : fmtDate(l.expiresAt)}</td>
+        <td class="num">${l.activationCount || 0}/${l.maxActivations || 1}</td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">Ninguna licencia coincide.</td></tr>`;
+  }
+
+  // ── Modales ──
+  function modal(html) { document.getElementById('modalRoot').innerHTML = `<div class="overlay" onclick="if(event.target===this)App.closeModal()">${html}</div>`; }
+  function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
+
+  function openCreate() {
+    modal(`<div class="modal"><div class="modal-h"><h2>Nueva licencia</h2><button class="btn btn-sm" onclick="App.closeModal()">✕</button></div>
+      <div class="modal-b">
+        <label>Tipo</label>
+        <select id="c_type" onchange="App.toggleDur()">
+          <option value="subscription">Suscripción (con vencimiento)</option>
+          <option value="permanent">Permanente (sin vencimiento)</option>
+          <option value="trial">Prueba</option>
+        </select>
+        <div class="row2">
+          <div><label>Cliente</label><input id="c_name" placeholder="Nombre del negocio" /></div>
+          <div><label>Email</label><input id="c_email" placeholder="correo@cliente.com" /></div>
+        </div>
+        <div class="row2">
+          <div id="c_durWrap"><label>Duración (días)</label><input id="c_dur" class="mono" type="number" min="1" value="365" /></div>
+          <div><label>Máx. activaciones</label><input id="c_max" class="mono" type="number" min="1" value="1" /></div>
+        </div>
+        <label>Funcionalidades (separadas por coma, opcional)</label>
+        <input id="c_features" placeholder="pos, reportes, multimoneda" />
+        <label>Notas</label>
+        <textarea id="c_notes" rows="2" placeholder="Referencia interna…"></textarea>
+      </div>
+      <div class="modal-f"><button class="btn" onclick="App.closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="App.submitCreate()">Crear licencia</button></div></div>`);
+  }
+  function toggleDur() {
+    const t = document.getElementById('c_type').value;
+    const lbl = document.querySelector('#c_durWrap label');
+    document.getElementById('c_durWrap').style.display = t === 'permanent' ? 'none' : '';
+    if (lbl) lbl.textContent = t === 'trial' ? 'Días de prueba' : 'Duración (días)';
+  }
+  async function submitCreate() {
+    const type = document.getElementById('c_type').value;
+    const payload = {
+      type,
+      customerName: document.getElementById('c_name').value.trim(),
+      customerEmail: document.getElementById('c_email').value.trim(),
+      maxActivations: Number(document.getElementById('c_max').value) || 1,
+      features: document.getElementById('c_features').value.split(',').map(s => s.trim()).filter(Boolean),
+      notes: document.getElementById('c_notes').value.trim()
+    };
+    const dur = Number(document.getElementById('c_dur').value) || null;
+    if (type === 'trial') payload.trialDays = dur; else if (type === 'subscription') payload.durationDays = dur;
+    try {
+      const r = await api('/licenses/create', { method: 'POST', body: JSON.stringify(payload) });
+      closeModal(); await refresh(); showKey(r.license.key);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  function openTrial() {
+    modal(`<div class="modal"><div class="modal-h"><h2>Prueba rápida</h2><button class="btn btn-sm" onclick="App.closeModal()">✕</button></div>
+      <div class="modal-b">
+        <label>Cliente</label><input id="t_name" placeholder="Nombre del negocio" />
+        <div class="row2">
+          <div><label>Días de prueba</label><input id="t_days" class="mono" type="number" min="1" value="15" /></div>
+          <div><label>Máx. activaciones</label><input id="t_max" class="mono" type="number" min="1" value="1" /></div>
+        </div>
+      </div>
+      <div class="modal-f"><button class="btn" onclick="App.closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="App.submitTrial()">Crear prueba</button></div></div>`);
+  }
+  async function submitTrial() {
+    try {
+      const r = await api('/licenses/trial', { method: 'POST', body: JSON.stringify({
+        customerName: document.getElementById('t_name').value.trim(),
+        trialDays: Number(document.getElementById('t_days').value) || 15,
+        maxActivations: Number(document.getElementById('t_max').value) || 1
+      }) });
+      closeModal(); await refresh(); showKey(r.license.key);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  function showKey(key) {
+    modal(`<div class="modal"><div class="modal-h"><h2>Licencia creada</h2><button class="btn btn-sm" onclick="App.closeModal()">✕</button></div>
+      <div class="modal-b">
+        <p style="color:var(--muted)">Entrega esta clave al cliente. Es la única vez que se muestra destacada:</p>
+        <div class="keybox" id="newKey">${esc(key)}</div>
+        <button class="btn" style="width:100%" onclick="App.copyKey('${esc(key)}')">Copiar al portapapeles</button>
+      </div>
+      <div class="modal-f"><button class="btn btn-primary" onclick="App.openDetail('${esc(key)}')">Ver detalle</button></div></div>`);
+  }
+  function copyKey(k) { navigator.clipboard.writeText(k).then(() => toast('Copiada.'), () => toast('No se pudo copiar', 'err')); }
+
+  async function openDetail(key) {
+    let d;
+    try { d = (await api('/licenses/' + encodeURIComponent(key))).license; }
+    catch (e) { toast(e.message, 'err'); return; }
+    const acts = Object.values(d.activations || {});
+    const actsHtml = acts.length ? acts.map(a => `
+      <div class="act-item">
+        <div><div>${esc(a.machineName || 'Equipo sin nombre')}</div>
+          <div class="meta">${esc((a.hwidHash || '').slice(0, 18))}… · v${esc(a.appVersion || '?')} · ${fmtDate(a.activatedAt)}</div></div>
+        <button class="btn btn-danger btn-sm" onclick="App.revokeAct('${esc(d.key)}','${esc(a.hwidHash)}')">Revocar</button>
+      </div>`).join('') : `<p style="color:var(--muted)">Sin activaciones.</p>`;
+
+    const stKind = d.status === 'active' ? (d.expired ? 'expired' : 'active') : d.status;
+    modal(`<div class="modal"><div class="modal-h"><h2>Detalle de licencia</h2><button class="btn btn-sm" onclick="App.closeModal()">✕</button></div>
+      <div class="modal-b">
+        <div class="keybox">${esc(d.key)}</div>
+        <dl class="kv">
+          <dt>Cliente</dt><dd>${esc(d.customerName || '—')}</dd>
+          <dt>Email</dt><dd>${esc(d.customerEmail || '—')}</dd>
+          <dt>Tipo</dt><dd>${badge(d.type, d.type)}</dd>
+          <dt>Estado</dt><dd>${badge(stKind, d.status === 'active' && d.expired ? 'vencida' : d.status)} ${d.statusReason ? esc('· ' + d.statusReason) : ''}</dd>
+          <dt>Creada</dt><dd class="mono">${fmtDate(d.createdAt)}</dd>
+          <dt>Activada</dt><dd class="mono">${d.activatedAt ? fmtDate(d.activatedAt) : 'no activada'}</dd>
+          <dt>Vence</dt><dd class="mono">${d.type === 'permanent' ? '∞ (permanente)' : (fmtDate(d.expiresAt) + (d.daysRemaining != null ? ` · ${d.daysRemaining} día(s)` : ''))}</dd>
+          <dt>Activaciones</dt><dd class="mono">${d.activationCount}/${d.maxActivations}</dd>
+          <dt>Funciones</dt><dd>${(d.features || []).map(esc).join(', ') || '—'}</dd>
+          <dt>Notas</dt><dd>${esc(d.notes || '—')}</dd>
+        </dl>
+        <div class="act-list"><label>Equipos activados</label>${actsHtml}</div>
+      </div>
+      <div class="modal-f" style="flex-wrap:wrap;justify-content:space-between;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${d.status !== 'active' ? `<button class="btn btn-sm" onclick="App.setStatus('${esc(d.key)}','active')">Reactivar</button>` : ''}
+          ${d.status !== 'suspended' ? `<button class="btn btn-sm" onclick="App.setStatus('${esc(d.key)}','suspended')">Suspender</button>` : ''}
+          ${d.status !== 'revoked' ? `<button class="btn btn-danger btn-sm" onclick="App.setStatus('${esc(d.key)}','revoked')">Revocar</button>` : ''}
+        </div>
+        ${d.type !== 'permanent' ? `<button class="btn btn-sm" onclick="App.extend('${esc(d.key)}')">Extender…</button>` : ''}
+      </div></div>`);
+  }
+
+  async function setStatus(key, status) {
+    let reason = '';
+    if (status !== 'active') { reason = prompt('Motivo (opcional):') || ''; }
+    try { await api('/licenses/' + encodeURIComponent(key) + '/status', { method: 'PUT', body: JSON.stringify({ status, reason }) });
+      toast('Estado actualizado.'); await refresh(); openDetail(key);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  async function extend(key) {
+    const d = prompt('¿Cuántos días adicionales?', '30'); const n = Number(d);
+    if (!n || n <= 0) return;
+    try { await api('/licenses/' + encodeURIComponent(key) + '/extend', { method: 'PUT', body: JSON.stringify({ additionalDays: n }) });
+      toast('Licencia extendida.'); await refresh(); openDetail(key);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  async function revokeAct(key, hwidHash) {
+    if (!confirm('¿Revocar esta activación? El equipo deberá reactivar.')) return;
+    try { await api('/licenses/' + encodeURIComponent(key) + '/activations/' + encodeURIComponent(hwidHash), { method: 'DELETE' });
+      toast('Activación revocada.'); await refresh(); openDetail(key);
+    } catch (e) { toast(e.message, 'err'); }
+  }
+
+  // ── Init ──
+  function init() {
+    let saved = '';
+    try { saved = sessionStorage.getItem('nxcs_admin_key') || localStorage.getItem('nxcs_admin_key') || ''; } catch (_e) {}
+    if (saved) { KEY = saved; boot(); }
+    document.getElementById('adminKey').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  }
+
+  return { login, logout, refresh, render, openCreate, toggleDur, submitCreate, openTrial, submitTrial,
+           showKey, copyKey, openDetail, setStatus, extend, revokeAct, closeModal, init };
+})();
+App.init();
+</script>
+</body>
+</html>

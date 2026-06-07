@@ -69,6 +69,7 @@
   /**
    * P. unit. y subtotal en ref. $ BCV para líneas de detalle (misma cadena que el ticket).
    * Prioriza reparto proporcional del total_ref_usd_bcv de cabecera (incluye desc. global).
+   * NEXUS-DUAL: contraparte en backend/utils/ventaTotalesBcv.js → lineaMontosBcvRef.
    */
   function lineaMontosBcvRef(d, venta, sumSubtotalesUsd) {
     var cant = Number(d && d.cantidad) || 0;
@@ -375,6 +376,7 @@
       var detailBtnCerrar   = host.querySelector('#ventas-detalle-cerrar');
       var detailBtnDevolver = host.querySelector('#ventas-detalle-devolver');
       var detailBtnFactura  = host.querySelector('#ventas-detalle-factura');
+      var detailBtnNota     = host.querySelector('#ventas-detalle-nota');
       var _currentDetalle   = null;
 
       function closeDetalleModal() {
@@ -432,10 +434,10 @@
         detailBloqueTotales.innerHTML =
           '<h4>Cliente y montos</h4>' +
           '<dl class="ventas-detalle-totales">' +
-          '<dt>Cliente</dt><dd style="font-weight:500;text-align:right">' +
+          '<dt>Cliente</dt><dd class="is-text">' +
           cliente +
           '</dd>' +
-          '<dt>Cajero / usuario</dt><dd style="font-weight:500;text-align:right">' +
+          '<dt>Cajero / usuario</dt><dd class="is-text">' +
           vendedor +
           '</dd>' +
           '<dt>Tasa BCV (oficial)</dt><dd>' +
@@ -505,7 +507,7 @@
           });
           detailBloquePagos.innerHTML =
             '<h4>Formas de pago</h4>' +
-            '<div class="ventas-detalle-mini">' +
+            '<div class="ventas-detalle-mini ventas-detalle-mini--pagos">' +
             '<table><thead><tr><th>Método</th><th class="num">Monto</th></tr></thead><tbody>' +
             rowsP +
             '</tbody></table></div>' +
@@ -551,7 +553,7 @@
         });
         detailBloqueLineas.innerHTML =
           '<h4>Qué compraron</h4>' +
-          '<div class="ventas-detalle-mini">' +
+          '<div class="ventas-detalle-mini ventas-detalle-mini--items">' +
           '<table><thead>' +
           '<tr><th>Producto</th><th class="num">Cant.</th>' +
           '<th class="num">P. unit $ BCV</th><th class="num">Subtotal $ BCV</th></tr>' +
@@ -575,16 +577,26 @@
           .then(function (full) {
             _currentDetalle = full;
             renderDetalleVenta(full);
-            // Mostrar botón devolver solo si completada y con permiso
+            // Mostrar botón devolver solo si completada, con permiso y saldo pendiente
             if (detailBtnDevolver) {
-              var puedeDevolver = !window.NexusAuth || !window.NexusAuth.can ||
-                                  window.NexusAuth.can('ventas_anular');
+              var puedeDevolver =
+                window.NexusAuth &&
+                typeof window.NexusAuth.can === 'function' &&
+                window.NexusAuth.can('ventas_anular');
+              var haySaldoDev =
+                full.devolucion_pendiente !== false &&
+                (full.devoluciones_saldo || []).some(function (s) {
+                  return Number(s.cantidad_pendiente) > 0;
+                });
               detailBtnDevolver.style.display =
-                (full.estado === 'completada' && puedeDevolver) ? '' : 'none';
+                (full.estado === 'completada' && puedeDevolver && haySaldoDev) ? '' : 'none';
             }
-            // Botón factura siempre visible para ventas completadas
+            // Botones de documento visibles solo para ventas completadas
             if (detailBtnFactura) {
               detailBtnFactura.style.display = full.estado === 'completada' ? '' : 'none';
+            }
+            if (detailBtnNota) {
+              detailBtnNota.style.display = full.estado === 'completada' ? '' : 'none';
             }
           })
           .catch(function () {
@@ -625,8 +637,32 @@
             setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
           })
           .catch(function (err) {
-            console.error('Error al abrir factura:', err);
-            alert('No se pudo abrir la factura. Verifique sus permisos.');
+            toast('No se pudo abrir la factura. Verifique sus permisos.', 'danger');
+          });
+      });
+
+      if (detailBtnNota) detailBtnNota.addEventListener('click', function () {
+        if (!_currentDetalle) return;
+        var id = _currentDetalle.id;
+        var url = apiBase() + '/api/pdf/nota/' + id;
+        apiFetch(url)
+          .then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.blob();
+          })
+          .then(function (blob) {
+            var u = URL.createObjectURL(blob);
+            if (window.nexusCore && window.nexusCore.openPdfBuffer) {
+              blob.arrayBuffer().then(function (ab) {
+                window.nexusCore.openPdfBuffer(ab);
+              });
+            } else {
+              window.open(u, '_blank');
+              setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
+            }
+          })
+          .catch(function () {
+            toast('No se pudo generar la nota de entrega.', 'danger');
           });
       });
 
@@ -792,23 +828,55 @@
           }
         }
 
-        // Poblar líneas
+        // Poblar líneas (cantidad máxima = saldo pendiente por devolver)
         var tbody = host.querySelector('#ventas-dev-lineas-tbody');
+        var btnConfirmDev = host.querySelector('#ventas-dev-confirm');
+        var saldoMap = {};
+        (ventaDetalle.devoluciones_saldo || []).forEach(function (s) {
+          saldoMap[Number(s.producto_id)] = s;
+        });
         if (tbody) {
           var lineas = ventaDetalle.detalles || ventaDetalle._lineas || [];
           if (!lineas.length) {
             tbody.innerHTML = '<tr><td colspan="3" class="tabla-dev-empty">Sin líneas de detalle disponibles</td></tr>';
+            if (btnConfirmDev) btnConfirmDev.disabled = true;
           } else {
-            tbody.innerHTML = lineas.map(function (l, i) {
+            var filasHtml = [];
+            var pidsRenderizados = {};
+            lineas.forEach(function (l, i) {
+              var pid = Number(l.producto_id);
+              if (pidsRenderizados[pid]) return;
+              pidsRenderizados[pid] = true;
+              var saldo = saldoMap[pid] || {};
+              var cantPend = saldo.cantidad_pendiente != null
+                ? cantidadLineaDev(saldo.cantidad_pendiente)
+                : cantidadLineaDev(l.cantidad);
+              if (!(cantPend > 0)) {
+                filasHtml.push(
+                  '<tr class="dev-row-agotada"><td>' + escapeHtml(l.producto_nombre || l.nombre || '—') +
+                  '</td><td class="num">—</td><td class="tabla-dev-empty">Ya devuelto</td></tr>'
+                );
+                return;
+              }
               var precioUsd = Number(l.precio_unitario_usd || l.precio_usd || 0);
-              var cantDev = cantidadLineaDev(l.cantidad);
-              var stepCant = cantDev % 1 === 0 ? '1' : '0.001';
-              return '<tr><td>' + escapeHtml(l.producto_nombre || l.nombre || '—') + '</td>' +
+              var stepCant = cantPend % 1 === 0 ? '1' : '0.001';
+              var hintDev = Number(saldo.cantidad_devuelta) > 0
+                ? ' <span class="dev-saldo-hint">(' + cantidadLineaDev(saldo.cantidad_devuelta) + ' dev.)</span>'
+                : '';
+              filasHtml.push(
+                '<tr><td>' + escapeHtml(l.producto_nombre || l.nombre || '—') + hintDev + '</td>' +
                 '<td class="num">$' + precioUsd.toFixed(2) + '</td>' +
                 '<td class="dev-modal-col-cant">' +
-                '<input type="number" class="dev-cant-input" data-idx="' + i + '" data-pid="' + (l.producto_id || '') + '" data-precio="' + precioUsd + '" min="0" max="' + cantDev + '" step="' + stepCant + '" value="' + cantDev + '">' +
-                '</td></tr>';
-            }).join('');
+                '<input type="number" class="dev-cant-input" data-idx="' + i + '" data-pid="' + pid + '" min="0" max="' + cantPend + '" step="' + stepCant + '" value="0">' +
+                '</td></tr>'
+              );
+            });
+            tbody.innerHTML = filasHtml.length
+              ? filasHtml.join('')
+              : '<tr><td colspan="3" class="tabla-dev-empty">No quedan productos por devolver</td></tr>';
+            if (btnConfirmDev) {
+              btnConfirmDev.disabled = !tbody.querySelector('.dev-cant-input');
+            }
           }
         }
         devModal.classList.add('is-open');
@@ -825,8 +893,7 @@
           if (cant > 0) {
             lineas.push({
               producto_id: Number(inp.getAttribute('data-pid')),
-              cantidad: cant,
-              precio_unitario_usd: Number(inp.getAttribute('data-precio'))
+              cantidad: cant
             });
           }
         });
@@ -860,30 +927,67 @@
           .finally(function () { if (btnConfirm) btnConfirm.disabled = false; });
       }
 
+      function puedeAnularDevolucion() {
+        return window.NexusAuth &&
+          typeof window.NexusAuth.can === 'function' &&
+          window.NexusAuth.can('ventas_anular');
+      }
+
+      function anularDevolucion(devId) {
+        if (!devId || !confirm('¿Anular esta devolución? El stock saldrá del inventario nuevamente.')) return;
+        apiFetch('/api/devoluciones/' + encodeURIComponent(String(devId)) + '/anular', { method: 'POST' })
+          .then(function (r) {
+            return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.error || 'Error'); });
+          })
+          .then(function () {
+            toast('Devolución anulada', 'success');
+            abrirDevList();
+            load();
+          })
+          .catch(function (e) { toast(e.message || 'No se pudo anular la devolución', 'danger'); });
+      }
+
       function abrirDevList() {
         if (!devListModal) return;
         devListModal.classList.add('is-open');
         var tbody = host.querySelector('#ventas-devlist-tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="tabla-dev-empty">Cargando...</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="tabla-dev-empty">Cargando...</td></tr>';
         apiFetch('/api/devoluciones?limit=80')
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (d) {
             if (!d || !tbody) return;
             var rows = d.devoluciones || [];
             if (!rows.length) {
-              tbody.innerHTML = '<tr><td colspan="6" class="tabla-dev-empty">Sin devoluciones</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="8" class="tabla-dev-empty">Sin devoluciones</td></tr>';
               return;
             }
+            var showAnular = puedeAnularDevolucion();
             tbody.innerHTML = rows.map(function (r) {
+              var accion = '';
+              if (showAnular && r.estado === 'completada') {
+                accion = '<button type="button" class="pages-btn-danger btn-sm dev-anular-btn" data-dev-id="' + r.id + '">Anular</button>';
+              }
               return '<tr><td>' + escapeHtml(r.numero_devolucion) + '</td>' +
                 '<td>' + escapeHtml(r.numero_venta || '—') + '</td>' +
                 '<td>' + escapeHtml(r.tipo) + '</td>' +
                 '<td class="num">$' + Number(r.total_usd).toFixed(2) + '</td>' +
+                '<td class="num">' + (Number(r.total_bs) > 0 ? formatBs(r.total_bs) : '—') + '</td>' +
                 '<td>' + escapeHtml(r.cajero_nombre || '—') + '</td>' +
-                '<td>' + formatFechaLista(r.creado_en) + '</td></tr>';
+                '<td>' + formatFechaLista(r.creado_en) + '</td>' +
+                '<td>' + accion + '</td></tr>';
             }).join('');
           })
-          .catch(function () { if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="tabla-dev-empty">Error al cargar</td></tr>'; });
+          .catch(function () { if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="tabla-dev-empty">Error al cargar</td></tr>'; });
+      }
+
+      var devListTbody = host.querySelector('#ventas-devlist-tbody');
+      if (devListTbody) {
+        devListTbody.addEventListener('click', function (e) {
+          var btn = e.target && e.target.closest ? e.target.closest('.dev-anular-btn') : null;
+          if (!btn) return;
+          var devId = btn.getAttribute('data-dev-id');
+          if (devId) anularDevolucion(devId);
+        });
       }
 
       var btnVerDevs = host.querySelector('#btn-ver-devoluciones');

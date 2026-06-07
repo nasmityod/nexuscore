@@ -45,6 +45,36 @@ function parseFechaValorApi(iso) {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
+/** Meses en español → número (sin acentos; admite "setiembre"). */
+const MESES_ES = {
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+  julio: 7, agosto: 8, septiembre: 9, setiembre: 9,
+  octubre: 10, noviembre: 11, diciembre: 12
+};
+
+/**
+ * Convierte la fecha valor en texto del BCV ("Martes, 09 Junio 2026") a YYYY-MM-DD.
+ * Útil para el contrato público /bcv-api, que no entrega fecha máquina.
+ * @param {string} texto
+ * @returns {string|null}
+ */
+function parseFechaValorTextoEs(texto) {
+  if (texto == null || String(texto).trim() === '') return null;
+  const s = String(texto)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // quitar acentos para casar nombres de mes
+  const m = /(\d{1,2})\s+(?:de\s+)?([a-z]+)\s+(?:de\s+)?(\d{4})/.exec(s);
+  if (!m) return null;
+  const dia = Number(m[1]);
+  const mes = MESES_ES[m[2]];
+  const anio = Number(m[3]);
+  if (!mes || !Number.isFinite(dia) || dia < 1 || dia > 31) return null;
+  if (!Number.isFinite(anio) || anio < 2000 || anio > 2100) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${anio}-${pad(mes)}-${pad(dia)}`;
+}
+
 /**
  * Medianoche del día fecha valor en Caracas, expresada como timestamp UTC.
  * @param {string} ymd - YYYY-MM-DD
@@ -239,6 +269,7 @@ module.exports = {
   TZ,
   ymdCaracas,
   parseFechaValorApi,
+  parseFechaValorTextoEs,
   inicioVigenciaUtcMs,
   yaEntroVigencia,
   esFinDeSemanaYmd,

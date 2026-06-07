@@ -9,30 +9,62 @@
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800&family=DM+Mono:wght@400;500&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --bg-primary:         #05080f;
-      --bg-secondary:       #090d18;
-      --bg-tertiary:        #0d1424;
-      --bg-elevated:        #162035;
-      --accent-primary:     #f0a500;
-      --accent-primary-bg:  rgba(240, 165, 0, 0.07);
-      --accent-primary-glow:rgba(240, 165, 0, 0.12);
-      --border-accent:      rgba(240, 165, 0, 0.25);
-      --accent-success:     #22c55e;
-      --accent-danger:      #ef4444;
-      --text-primary:       #edf2f7;
-      --text-secondary:     #7a8fa8;
-      --text-muted:         #3d5068;
-      --text-on-accent:     #05080f;
-      --border-primary:     #1a2540;
-      --font-ui:            'Sora', system-ui, sans-serif;
-      --font-display:       'Barlow Condensed', sans-serif;
-      --font-mono:          'DM Mono', 'JetBrains Mono', monospace;
+    :root,
+    [data-theme="dark"] {
+      --bg-primary:          #05080f;
+      --bg-secondary:        #090d18;
+      --bg-tertiary:         #0d1424;
+      --bg-elevated:         #162035;
+      --accent-primary:      #f0a500;
+      --accent-primary-dim:  #c47f00;
+      --accent-primary-bg:   rgba(240, 165, 0, 0.07);
+      --accent-primary-glow: rgba(240, 165, 0, 0.12);
+      --border-accent:       rgba(240, 165, 0, 0.25);
+      --accent-success:      #22c55e;
+      --accent-danger:       #ef4444;
+      --text-primary:        #edf2f7;
+      --text-secondary:      #7a8fa8;
+      --text-muted:          #3d5068;
+      --text-bright:         #ffffff;
+      --text-on-accent:      #05080f;
+      --text-on-color:       #ffffff;
+      --border-primary:      #1a2540;
+      --body-gradient-amber: rgba(240, 165, 0, 0.040);
+      --body-gradient-info:  rgba(59, 130, 246, 0.030);
+      --font-ui:             'Sora', system-ui, sans-serif;
+      --font-display:        'Barlow Condensed', sans-serif;
+      --font-mono:           'DM Mono', 'JetBrains Mono', monospace;
+    }
+
+    [data-theme="light"] {
+      --bg-primary:          #f4f6fa;
+      --bg-secondary:        #ffffff;
+      --bg-tertiary:         #eef1f6;
+      --bg-elevated:         #ffffff;
+      --accent-primary:      #f0a500;
+      --accent-primary-dim:  #c47f00;
+      --accent-primary-bg:   rgba(240, 165, 0, 0.09);
+      --accent-primary-glow: rgba(240, 165, 0, 0.14);
+      --border-accent:       rgba(240, 165, 0, 0.30);
+      --accent-success:      #16a34a;
+      --accent-danger:       #dc2626;
+      --text-primary:        #1a2332;
+      --text-secondary:      #5a6d85;
+      --text-muted:          #8fa3b8;
+      --text-bright:         #0d1520;
+      --text-on-accent:      #05080f;
+      --text-on-color:       #ffffff;
+      --border-primary:      #d0dae8;
+      --body-gradient-amber: rgba(240, 165, 0, 0.045);
+      --body-gradient-info:  rgba(37, 99, 235, 0.030);
     }
 
     body {
       font-family: var(--font-ui);
       background: var(--bg-primary);
+      background-image:
+        radial-gradient(ellipse 80% 50% at 15% -10%, var(--body-gradient-amber) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 85% 110%, var(--body-gradient-info)  0%, transparent 70%);
       color: var(--text-primary);
       min-height: 100vh;
       display: flex;
@@ -345,6 +377,17 @@
       font-family: var(--font-mono);
     }
   </style>
+  <script>
+    (function () {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var t = params.get('theme') || localStorage.getItem('nexus_theme') || 'dark';
+        if (t !== 'light' && t !== 'dark') t = 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+        try { localStorage.setItem('nexus_theme', t); } catch (e2) {}
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <div class="card">

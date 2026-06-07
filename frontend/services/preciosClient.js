@@ -419,6 +419,91 @@
     return { bcv: bcv, usd: usd, tasa_bcv: bcv, tasa_usd: usd };
   }
 
+  /**
+   * % de margen necesario para que el cobro USD/Zelle (con descuento divisa activo)
+   * iguale al monto objetivo deseado. Usa la cadena calcularPrecios + resolverTotalUsdCobro
+   * con búsqueda binaria por centésimas de % (misma precisión que otros modos objetivo).
+   *
+   * Aproximación analítica (referencia):
+   *   usdObjetivo ≈ costo × (1 + margen/100) × (tasaUsd/tasaBcv) × (1 − descPct/100)
+   *
+   * NEXUS-DUAL: contraparte en backend/services/preciosService.js → calcularMargenDesdeUsdCobroObjetivo.
+   *
+   * @param {number} usdObjetivo Monto USD que quiere recibir el dueño al cobrar en divisa
+   * @param {number} costo       Costo USD del producto
+   * @param {number} tasaBcv     Tasa BCV del día
+   * @param {number} tasaUsd     Tasa USD mercado del día
+   * @param {number} descPct     % de descuento divisa activo (ej: 20)
+   * @returns {number|null} % de margen requerido (2 decimales), o null si inválido
+   */
+  function calcularMargenDesdeUsdCobroObjetivo(usdObjetivo, costo, tasaBcv, tasaUsd, descPct) {
+    var bcv = redondearTasa4(tasaBcv);
+    var usd = redondearTasa4(tasaUsd);
+    var obj = Number(usdObjetivo);
+    var c =
+      Math.round(Number(costo) * Math.pow(10, COSTO_DECIMALES)) /
+      Math.pow(10, COSTO_DECIMALES);
+    var p = Number(descPct);
+
+    if (!obj || obj <= 0 || !Number.isFinite(obj)) return null;
+    if (!c || c <= 0 || !Number.isFinite(c)) return null;
+    if (!bcv || bcv <= 0 || Number.isNaN(bcv)) return null;
+    if (!usd || usd <= 0 || Number.isNaN(usd)) return null;
+    if (!p || p <= 0 || p >= 100 || !Number.isFinite(p)) return null;
+
+    function cobroDeGananciaCent(gCent) {
+      var g = gCent / 100;
+      var pr = calcularPrecios(c, g, bcv, usd);
+      return resolverTotalUsdCobro(pr.precio_usd_bcv, p);
+    }
+
+    var minCobro = cobroDeGananciaCent(0);
+    if (minCobro > obj) return null;
+
+    var hi = 1;
+    var guard = 0;
+    while (cobroDeGananciaCent(hi) < obj && hi < 50000000 && guard < 40) {
+      hi *= 2;
+      guard += 1;
+    }
+    if (cobroDeGananciaCent(hi) < obj) return null;
+
+    var lo = 0;
+    var right = hi;
+    while (lo < right) {
+      var mid = Math.floor((lo + right) / 2);
+      if (cobroDeGananciaCent(mid) < obj) lo = mid + 1;
+      else right = mid;
+    }
+    var iCeil = lo;
+    var iFloor = Math.max(0, iCeil - 1);
+    var cobroCeil = cobroDeGananciaCent(iCeil);
+    var cobroFloor = cobroDeGananciaCent(iFloor);
+    var diffCeil = Math.abs(cobroCeil - obj);
+    var diffFloor = Math.abs(cobroFloor - obj);
+    var pickCent = diffFloor <= diffCeil ? iFloor : iCeil;
+    var margenPct = pickCent / 100;
+    if (margenPct < 0) return null;
+    return Math.round(margenPct * 100) / 100;
+  }
+
+  /**
+   * USD a cobrar cuando aplica descuento divisa.
+   * Fórmula: round4(totalUsdBcvRef × (1 − pct / 100)).
+   * NEXUS-DUAL: contraparte en backend/services/preciosService.js → resolverTotalUsdCobro.
+   *
+   * @param {number} totalUsdBcvRef Ref. $ BCV del ticket
+   * @param {number} pct Porcentaje de descuento (0–100)
+   * @returns {number}
+   */
+  function resolverTotalUsdCobro(totalUsdBcvRef, pct) {
+    var ref = Number(totalUsdBcvRef);
+    var p   = Number(pct);
+    if (!isFinite(ref) || ref < 0) throw new Error('resolverTotalUsdCobro: totalUsdBcvRef inválido');
+    if (!isFinite(p) || p < 0 || p > 100) throw new Error('resolverTotalUsdCobro: pct fuera de rango');
+    return Math.round(ref * (1 - p / 100) * 10000) / 10000;
+  }
+
   window.PreciosServiceClient = {
     redondearTasa4: redondearTasa4,
     calcularPrecios: calcularPrecios,
@@ -431,6 +516,8 @@
     precioManualUsdDesdeBcvObjetivo: precioManualUsdDesdeBcvObjetivo,
     tienePrecioManualActivo: tienePrecioManualActivo,
     getModoMonedaLocal: getModoMonedaLocal,
-    resolverTasasOperativas: resolverTasasOperativas
+    resolverTasasOperativas: resolverTasasOperativas,
+    resolverTotalUsdCobro: resolverTotalUsdCobro,
+    calcularMargenDesdeUsdCobroObjetivo: calcularMargenDesdeUsdCobroObjetivo
   };
 })();
