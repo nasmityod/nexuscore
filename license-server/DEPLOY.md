@@ -1,7 +1,8 @@
 # Despliegue del servidor de licencias en Vercel
 
-Servidor de licencias profesional de Nexus Core: API serverless (Node ≥ 20) + Redis KV,
-firma Ed25519 de tokens offline, panel de administración web y scripts CLI.
+Servidor de licencias profesional de Nexus Core: API serverless (Node 20.x) + Redis KV,
+firma Ed25519 de tokens offline, **panel de administración integrado** en la raíz (`/`)
+y scripts CLI.
 
 ---
 
@@ -18,19 +19,19 @@ license-server/
 │   │   ├── activate.js                   POST /api/licenses/activate
 │   │   ├── verify.js                     POST /api/licenses/verify
 │   │   └── deactivate.js                 POST /api/licenses/deactivate
-│   └── admin/
-│       ├── codes/…                       (legado)
-│       └── licenses/
-│           ├── index.js                  GET  /api/admin/licenses
-│           ├── create.js                 POST /api/admin/licenses/create
-│           ├── trial.js                  POST /api/admin/licenses/trial
-│           └── [key]/
-│               ├── index.js              GET  /api/admin/licenses/:key
-│               ├── status.js             PUT  /api/admin/licenses/:key/status
-│               ├── extend.js             PUT  /api/admin/licenses/:key/extend
-│               └── activations/[hwid].js DELETE /api/admin/licenses/:key/activations/:hwid
-├── lib/                                  crypto, kv, validate, ratelimit, logger, licenses
-├── public/admin/index.html               Panel de administración web  →  /admin
+│   ├── admin/
+│   │   ├── codes/…                       (legado)
+│   │   └── licenses/…                    API admin directa (Bearer NEXUS_ADMIN_API_KEY)
+│   └── panel/                            ░ BFF del panel web (cookie de sesión) ░
+│       ├── auth/                         POST /api/panel/auth/login|logout, GET session
+│       ├── health.js                     GET  /api/panel/health
+│       ├── stats.js                      GET  /api/panel/stats
+│       └── licenses/…                    Proxy seguro → /api/admin/licenses/*
+├── lib/                                  crypto, kv, validate, licenses + lib/panel/
+├── public/
+│   ├── index.html                        Panel profesional integrado  →  /
+│   ├── assets/                           CSS + JS del panel
+│   └── admin/index.html                  Panel legado (clave en navegador)  →  /admin
 ├── scripts/                              CLI: create / trial / list / revoke / suspend / extend / export
 ├── vercel.json
 └── package.json
@@ -44,9 +45,9 @@ license-server/
 
 ## 2. `vercel.json`
 
-Ya incluido. Define `maxDuration: 10s` para todas las funciones y cabeceras de seguridad
-(`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, HSTS). No requiere `rewrites`:
-el enrutado por archivos cubre todos los endpoints, y `public/admin/` se sirve en `/admin`.
+Ya incluido. Define `maxDuration: 10s`, runtime `nodejs20.x` (evita el warning de `>=20`)
+y cabeceras de seguridad. No requiere `rewrites`: `public/index.html` se sirve en `/` y
+`public/admin/` en `/admin`.
 
 ---
 
@@ -61,6 +62,11 @@ el enrutado por archivos cubre todos los endpoints, y `public/admin/` se sirve e
 | `NEXUS_TRIAL_HOURS` | No | (Legado, sistema de códigos) horas de prueba. Default 24. |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | **Una de las dos** | Redis REST (Upstash / Vercel KV). **Recomendada.** |
 | `KV_REDIS_URL` / `REDIS_URL` | Alternativa | Redis TCP (`redis://…`). No mezclar con REST. |
+| `ADMIN_PANEL_PASSWORD` | **Sí** (panel `/`) | Contraseña de login del panel integrado. |
+| `PANEL_SESSION_SECRET` | **Sí** (panel `/`) | Secreto HMAC para la cookie de sesión (≥ 32 bytes hex). |
+| `PANEL_SESSION_HOURS` | No | Duración de sesión en horas (default 12). |
+| `PANEL_EXPIRING_SOON_DAYS` | No | Umbral "por vencer" en dashboard (default 30). |
+| `LICENSE_SERVER_URL` | No | Solo si el panel apunta a **otro** deploy. En el mismo proyecto no hace falta. |
 
 Configura las variables para **Production** (y Preview si lo usas). Tras cambiarlas, **redeploy**.
 
@@ -105,7 +111,8 @@ $env:NEXUS_ADMIN_API_KEY="…"
 $env:NEXUS_LICENSE_ADMIN_URL="https://TU-PROYECTO.vercel.app"
 node scripts/create-license.js --type subscription --name "Cliente Demo" --days 365 --max 1
 ```
-O abre el panel: `https://TU-PROYECTO.vercel.app/admin` e ingresa el `NEXUS_ADMIN_API_KEY`.
+O abre el panel integrado: `https://TU-PROYECTO.vercel.app/` con tu `ADMIN_PANEL_PASSWORD`.
+(Panel legado en `/admin` sigue disponible con `NEXUS_ADMIN_API_KEY`.)
 
 ---
 
