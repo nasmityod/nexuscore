@@ -284,7 +284,14 @@ function activeActivationCount(rec) {
 /**
  * Registra una activación para un hwid. Si ya existe (misma máquina) la refresca (no
  * consume un nuevo cupo). Si es nueva, valida maxActivations.
- * @returns {{ created: boolean }}
+ *
+ * Caso especial (maxActivations === 1): si el cupo está lleno con un HWID diferente, se
+ * reemplaza la activación antigua. Esto cubre el escenario legítimo en que el HWID del
+ * cliente cambia entre arranques (drift de hardware, timeout de CIM al calcular el HWID,
+ * reinstalación de SO, etc.) sin que el usuario haya podido hacer deactivate. El cliente
+ * solo puede estar en UNA máquina a la vez, por lo que el reemplazo respeta la política
+ * de maxActivations=1.
+ * @returns {{ created: boolean, replaced?: boolean }}
  */
 function recordActivation(rec, { hwid, machineName, ip, appVersion }, nowMs = Date.now()) {
   const hh = hashHwid(hwid);
@@ -292,7 +299,14 @@ function recordActivation(rec, { hwid, machineName, ip, appVersion }, nowMs = Da
   const nowIso = new Date(nowMs).toISOString();
 
   if (!existing && activeActivationCount(rec) >= rec.maxActivations) {
-    throw httpish(409, 'Esta licencia alcanzó el máximo de activaciones permitidas');
+    // Para licencias de una sola activación: permitir reemplazar la activación existente.
+    // El equipo anterior queda desregistrado automáticamente (solo uno puede usar la
+    // licencia al mismo tiempo, que es el modelo correcto para maxActivations=1).
+    if (rec.maxActivations === 1) {
+      rec.activations = {};
+    } else {
+      throw httpish(409, 'Esta licencia alcanzó el máximo de activaciones permitidas');
+    }
   }
 
   rec.activations[hh] = {

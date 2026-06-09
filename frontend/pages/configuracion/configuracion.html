@@ -56,29 +56,43 @@
           <option value="solo_bcv">Solo BCV (una sola tasa)</option>
         </select>
       </div>
+      <p class="cfg-modo-save-hint">
+        Al cambiar esta opción aparece una confirmación y se guarda <strong>al instante</strong>.
+        No depende del botón «Guardar Tasas» de la sección de abajo.
+      </p>
       <p class="cfg-modo-hint" id="cfg-modo-hint"></p>
     </div>
-    <div class="cfg-tasas-grid">
-      <div class="config-seccion">
-        <h3>Tasa BCV (oficial)</h3>
-        <div class="tasa-display tasa-display--bcv" id="display-bcv">—</div>
-        <div class="campo-grupo campo-grupo--flush">
-          <label>Nueva tasa BCV</label>
-          <input type="number" id="input-tasa-bcv" class="input-g" step="0.0001" min="1" placeholder="Ej: 89.5462">
+    <div class="config-seccion cfg-tasas-manuales" id="seccion-tasas-manuales">
+      <h3>Tasas de cambio</h3>
+      <div class="cfg-tasas-grid">
+        <div class="config-seccion config-seccion--nested">
+          <h3>Tasa BCV (oficial)</h3>
+          <div class="tasa-display tasa-display--bcv" id="display-bcv">—</div>
+          <div class="campo-grupo campo-grupo--flush">
+            <label>Nueva tasa BCV</label>
+            <input type="number" id="input-tasa-bcv" class="input-g" step="0.0001" min="1" placeholder="Ej: 89.5462">
+          </div>
+        </div>
+        <div class="config-seccion config-seccion--nested" id="seccion-tasa-usd">
+          <h3>Tasa USD</h3>
+          <div class="tasa-display tasa-display--usd" id="display-usd">—</div>
+          <div class="campo-grupo campo-grupo--flush">
+            <label>Nueva tasa USD</label>
+            <input type="number" id="input-tasa-usd" class="input-g" step="0.0001" min="1" placeholder="Ej: 92.1800">
+          </div>
         </div>
       </div>
-      <div class="config-seccion" id="seccion-tasa-usd">
-        <h3>Tasa USD</h3>
-        <div class="tasa-display tasa-display--usd" id="display-usd">—</div>
-        <div class="campo-grupo campo-grupo--flush">
-          <label>Nueva tasa USD</label>
-          <input type="number" id="input-tasa-usd" class="input-g" step="0.0001" min="1" placeholder="Ej: 92.1800">
-        </div>
+      <p data-tasas-admin-only class="cfg-admin-hint" style="display:none">
+        Solo el <strong>administrador</strong> puede modificar las tasas globales del sistema. Consulta los valores actuales arriba.
+      </p>
+      <p class="bcv-auto-nota-usd">
+        La <strong>tasa USD</strong> de la derecha siempre se actualiza <strong>manualmente</strong> con el botón de abajo.
+        La tasa BCV también puede editarse aquí si no usas la actualización automática.
+      </p>
+      <div class="cfg-btn-row cfg-tasas-actions">
+        <button type="button" class="btn-primary" id="btn-guardar-tasas">Guardar Tasas</button>
       </div>
     </div>
-    <p data-tasas-admin-only class="cfg-admin-hint" style="display:none">
-      Solo el <strong>administrador</strong> puede modificar las tasas globales del sistema. Consulta los valores actuales arriba.
-    </p>
     <div class="config-seccion bcv-auto-panel" id="bcv-auto-panel">
       <h3>Tasa BCV automática</h3>
       <p class="bcv-auto-lead">
@@ -111,16 +125,12 @@
           <button type="button" class="btn-secondary" id="btn-bcv-feriados-sync">Sincronizar feriados del servidor</button>
         </div>
       </details>
-      <div class="bcv-auto-actions">
+      <div class="bcv-auto-actions cfg-bcv-auto-actions">
         <button type="button" class="btn-secondary" id="btn-bcv-auto-sync">Consultar ahora</button>
         <button type="button" class="btn-warning" id="btn-bcv-auto-forzar" style="display:none">Aplicar ahora</button>
-        <button type="button" class="btn-primary" id="btn-guardar-bcv-auto">Guardar cambios</button>
+        <button type="button" class="btn-primary" id="btn-guardar-bcv-auto">Guardar configuración BCV</button>
       </div>
     </div>
-    <p class="bcv-auto-nota-usd">
-      La <strong>tasa USD</strong> de la derecha siempre se actualiza <strong>manualmente</strong> con «Guardar Tasas».
-    </p>
-    <button class="btn-primary" id="btn-guardar-tasas">Guardar Tasas</button>
 
     <!-- ─── Descuento al cobrar en divisa (solo multimoneda) ─── -->
     <div class="config-seccion cfg-descuento-divisa-wrap" id="seccion-descuento-divisa">
@@ -176,9 +186,9 @@
           </table>
           <div class="calculador-impacto-nota" id="calculador-nota-margen-compensado"></div>
         </div>
-        <button type="button" class="btn-primary cfg-btn-guardar" id="btn-guardar-descuento-divisa" style="margin-top:12px">
-          Guardar descuento divisa
-        </button>
+        <div class="cfg-btn-row cfg-descuento-actions">
+          <button type="button" class="btn-primary" id="btn-guardar-descuento-divisa">Guardar descuento divisa</button>
+        </div>
       </div>
     </div>
   </div>
@@ -217,7 +227,9 @@
           <input type="text" id="cfg-factura-leyenda" class="input-g" placeholder="">
         </div>
       </div>
-      <button class="btn-primary cfg-btn-guardar" id="btn-guardar-empresa">Guardar datos de empresa</button>
+      <div class="cfg-btn-row">
+        <button type="button" class="btn-primary" id="btn-guardar-empresa">Guardar datos de empresa</button>
+      </div>
     </div>
   </div>
 
@@ -285,7 +297,9 @@
           <button type="button" class="btn-secondary" id="btn-guardar-backup-sched">Guardar programa</button>
         </div>
       </div>
-      <button class="btn-primary" id="btn-respaldo-manual">Crear respaldo ahora</button>
+      <div class="cfg-btn-row cfg-respaldo-actions">
+        <button type="button" class="btn-primary" id="btn-respaldo-manual">Crear respaldo ahora</button>
+      </div>
     </div>
   </div>
 
@@ -320,7 +334,7 @@
       <div class="campo-grupo">
         <label>Clave de Licencia *</label>
         <textarea id="lic-clave-input" class="input-g lic-clave-ta" rows="3"
-          placeholder="Pega aquí tu clave de licencia..."></textarea>
+          placeholder="NXCS-XXXX-XXXX-XXXX-XXXX (clave del panel web)"></textarea>
       </div>
       <button class="btn-primary" id="btn-activar-licencia">Activar Licencia</button>
     </div>

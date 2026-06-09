@@ -47,7 +47,9 @@ contextBridge.exposeInMainWorld('nexusDialogs', {
 // Estado de licencia (solo lectura) para el banner de la ventana principal.
 contextBridge.exposeInMainWorld('nexusLicense', {
   getStatus: () => ipcRenderer.invoke('license:get-status'),
-  getHwid: () => ipcRenderer.invoke('license:get-hwid')
+  getHwid: () => ipcRenderer.invoke('license:get-hwid'),
+  activate: (licenseKey) => ipcRenderer.invoke('license:activate', { licenseKey }),
+  deactivate: () => ipcRenderer.invoke('license:deactivate')
 });
 
 // También exponer como electronAPI para compatibilidad con el módulo de licencia

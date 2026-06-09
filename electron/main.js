@@ -189,6 +189,8 @@ let setupWindowStartStep = 1;
 let startupBackendPreloaded = false;
 /** Motivo de licencia inactiva (p. ej. trial expirado) para el paso 2 del wizard. */
 let pendingLicenseReason = null;
+/** Aviso de trial por vencer; se muestra tras cerrar el splash (alwaysOnTop tapa diálogos nativos). */
+let pendingTrialExpiryNotice = null;
 
 /** Evita app.quit() cuando aún no existe la ventana principal (p. ej. al cerrar solo la activación). */
 let mainWindowLifecycleStarted = false;
@@ -258,6 +260,25 @@ function closeSplash() {
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.close();
     splashWindow = null;
+  }
+}
+
+async function showPendingTrialExpiryNotice() {
+  if (!pendingTrialExpiryNotice) return;
+  const opts = pendingTrialExpiryNotice;
+  pendingTrialExpiryNotice = null;
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  try {
+    if (win) {
+      await dialog.showMessageBox(win, opts);
+    } else {
+      await dialog.showMessageBox(opts);
+    }
+  } catch (err) {
+    console.warn(
+      `${LOG_PREFIX} [licencia] No se pudo mostrar aviso de prueba por vencer:`,
+      err && err.message ? err.message : err
+    );
   }
 }
 
@@ -653,6 +674,25 @@ async function evaluateLicenseGate() {
     return { ok: false, state: 'none', reason: local.reason, estado: legacy.estado || null };
   }
 
+  // Cuando el token local expiró o se excedió el período de gracia offline, intentar
+  // verificación online antes de bloquear: el admin pudo haber renovado la licencia en
+  // el servidor Vercel y el cliente aún tiene el token viejo.
+  if (local.state === 'expired' || local.state === 'grace_exceeded') {
+    try {
+      const online = await licenseManager.verifyOnline(app);
+      if (online && online.ok) {
+        console.log(`${LOG_PREFIX} [licencia] renovación online exitosa tras estado local '${local.state}' — licencia vigente en el servidor.`);
+        return { ok: true, source: 'online_renewed', info: online.info };
+      }
+      const onlineReason = (online && online.reason) || local.reason;
+      console.warn(`${LOG_PREFIX} [licencia] verificación online rechazada (${onlineReason}) para estado '${local.state}'.`);
+      return { ok: false, state: local.state, reason: onlineReason, info: local.info || null };
+    } catch (_e) {
+      // Sin internet: bloquear con el motivo original del token local.
+      console.warn(`${LOG_PREFIX} [licencia] sin conexión al verificar estado '${local.state}' — bloqueando.`);
+    }
+  }
+
   console.warn(`${LOG_PREFIX} [licencia] gate local inactivo: state=${local.state} motivo=${local.reason || '—'}`);
   return { ok: false, state: local.state, reason: local.reason, info: local.info || null };
 }
@@ -701,6 +741,7 @@ function createMainWindow() {
       mainWindow.show();
       mainWindow.focus();
     }
+    showPendingTrialExpiryNotice().catch(() => {});
   });
 
   mainWindow.on('closed', () => {
@@ -951,7 +992,7 @@ async function runStartupSequence() {
     const d = trialInfo.dias;
     console.warn(`${LOG_PREFIX} [licencia] MODO PRUEBA — ${d != null ? d + ' día(s) restantes' : 'vigente'}`);
     if ((trialInfo.horas != null && trialInfo.horas <= 6) || (trialInfo.horas == null && d != null && d <= 1)) {
-      await dialog.showMessageBox({
+      pendingTrialExpiryNotice = {
         type: 'warning',
         title: 'Licencia de prueba por vencer',
         message: trialInfo.horas != null
@@ -960,7 +1001,7 @@ async function runStartupSequence() {
         detail:
           'Contacta a tu proveedor para activar la licencia completa y continuar usando el sistema sin interrupciones.',
         buttons: ['Entendido']
-      });
+      };
     }
   }
 
@@ -1044,6 +1085,8 @@ async function handleStartupFailure(err) {
 
   await new Promise((resolve) => setTimeout(resolve, 800));
 
+  closeSplash();
+
   const { response } = await dialog.showMessageBox({
     type: 'error',
     title: 'Nexus Core — Error de inicio',
@@ -1053,8 +1096,6 @@ async function handleStartupFailure(err) {
     defaultId: 0,
     cancelId: 1
   });
-
-  closeSplash();
 
   if (response === 0) {
     const reconfigured = await createSetupWindow();

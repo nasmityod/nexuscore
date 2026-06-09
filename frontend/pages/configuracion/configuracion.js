@@ -484,7 +484,7 @@
     }).catch(function (e) {
       toast(e.message || 'No se pudo guardar', 'error');
     }).finally(function () {
-      if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar configuración BCV'; }
       aplicarUIPermisosBcvAuto(null);
     });
   }
@@ -1449,30 +1449,49 @@
     return obtenerHwidBundle().then(function (b) { return b.hwid; });
   }
 
-  function cargarLicencia() {
-    var iconoInicial = document.getElementById('lic-icono');
-    if (iconoInicial && !iconoInicial.innerHTML) { iconoInicial.innerHTML = SVG_LIC_WAIT; iconoInicial.className = 'lic-icono lic-icono--wait'; }
-    // Mostrar versión de la app
-    var verEl = document.getElementById('lic-app-version');
-    if (verEl && window.nexusCore && window.nexusCore.getVersion) {
-      window.nexusCore.getVersion().then(function (v) { if (verEl && v) verEl.textContent = 'v' + v; }).catch(function () {});
-    } else if (verEl) {
-      verEl.textContent = window._APP_VERSION ? 'v' + window._APP_VERSION : '—';
-    }
+  var LIC_TYPE_ES = { subscription: 'Suscripción', permanent: 'Permanente', trial: 'Prueba' };
 
-    obtenerHwidBundle().then(function (bundle) {
+  function esClaveNxcs(clave) {
+    return /^NXCS-[ACDEFGHJKLMNPQRTUVWXY3467]{4}-[ACDEFGHJKLMNPQRTUVWXY3467]{4}-[ACDEFGHJKLMNPQRTUVWXY3467]{4}-[ACDEFGHJKLMNPQRTUVWXY3467]{4}$/i.test(
+      String(clave || '').trim().toUpperCase()
+    );
+  }
+
+  function mapLicenciaProfesional(st) {
+    var info = (st && st.info) || {};
+    var activada = !!(st && st.ok);
+    var registrada = !!(st && st.state && st.state !== 'none');
+    var expira = info.isPermanent ? 'Perpetua' : (info.expiresAt || null);
+    var horasRestantes = info.daysRemaining != null ? info.daysRemaining * 24 : null;
+    var motivo = activada ? null : ((st && st.reason) || 'Sin licencia activa');
+    return {
+      activada: activada,
+      registrada: registrada,
+      hwid_actual: (st && st.hwid) || null,
+      hwid_registrado: (st && st.hwid) || null,
+      empresa: info.customerName || (activada ? 'Nexus Core' : ''),
+      edition: LIC_TYPE_ES[info.type] || info.type || null,
+      expira: expira,
+      esTrial: !!info.isTrial,
+      horasRestantes: horasRestantes,
+      motivo: motivo,
+      source: 'professional'
+    };
+  }
+
+  function cargarLicenciaLegacy() {
+    return obtenerHwidBundle().then(function (bundle) {
       var hwid = bundle.hwid;
       var compat = bundle.hwidCompat;
-      var hwidEl = document.getElementById('lic-hwid');
-      if (hwidEl) hwidEl.textContent = hwid;
       var q = '/api/licencia/estado?hwid=' + encodeURIComponent(hwid);
       if (compat && compat !== hwid) {
         q += '&hwid_compat=' + encodeURIComponent(compat);
       }
-      return apiFetch(q);
-    }).then(function (r) {
-      return r.ok ? r.json() : {};
-    }).then(function (data) {
+      return apiFetch(q).then(function (r) { return r.ok ? r.json() : {}; });
+    });
+  }
+
+  function renderLicenciaEstado(data) {
       var iconoEl    = document.getElementById('lic-icono');
       var labelEl    = document.getElementById('lic-estado-label');
       var empresaEl  = document.getElementById('lic-empresa');
@@ -1536,13 +1555,25 @@
           }
         }
       } else {
+        var tieneRegistro = !!(data.registrada || data.clave_presente);
         if (iconoEl) { iconoEl.innerHTML = SVG_LIC_WARN; iconoEl.className = 'lic-icono lic-icono--warn'; }
-        if (labelEl) { labelEl.textContent = 'Sin Licencia Activa'; labelEl.className = 'lic-estado-label badge badge-warning'; }
+        if (labelEl) {
+          labelEl.textContent = tieneRegistro ? 'Licencia inactiva' : 'Sin Licencia Activa';
+          labelEl.className = 'lic-estado-label badge badge-warning';
+        }
         if (boxEl) { boxEl.className = 'lic-estado-box lic-estado-box--warning'; }
-        if (empresaEl) empresaEl.textContent = data.motivo || '';
-        if (editionEl) editionEl.textContent = '—';
-        if (expiraEl)  expiraEl.textContent  = '—';
-        if (hwidRegEl) hwidRegEl.textContent = '—';
+        if (empresaEl) empresaEl.textContent = data.empresa || data.motivo || '';
+        if (editionEl) editionEl.textContent = data.edition || '—';
+        if (expiraEl) {
+          var rawExpIn = data.expira != null && data.expira !== '' ? data.expira : '—';
+          expiraEl.textContent =
+            rawExpIn === '—'
+              ? '—'
+              : (typeof window.formatExpiraLicenciaUi === 'function'
+                ? window.formatExpiraLicenciaUi(rawExpIn)
+                : rawExpIn);
+        }
+        if (hwidRegEl) hwidRegEl.textContent = data.hwid_registrado || data.hwid_actual || '—';
         if (secActEl) secActEl.style.display = '';
       }
 
@@ -1550,9 +1581,42 @@
       var esAdmin = window.NexusAuth && window.NexusAuth.getUser &&
                     (window.NexusAuth.getUser().rol === 'admin');
       if (secGenEl) secGenEl.style.display = esAdmin ? '' : 'none';
+  }
+
+  function cargarLicencia() {
+    var iconoInicial = document.getElementById('lic-icono');
+    if (iconoInicial && !iconoInicial.innerHTML) { iconoInicial.innerHTML = SVG_LIC_WAIT; iconoInicial.className = 'lic-icono lic-icono--wait'; }
+    var verEl = document.getElementById('lic-app-version');
+    if (verEl && window.nexusCore && window.nexusCore.getVersion) {
+      window.nexusCore.getVersion().then(function (v) { if (verEl && v) verEl.textContent = 'v' + v; }).catch(function () {});
+    } else if (verEl) {
+      verEl.textContent = window._APP_VERSION ? 'v' + window._APP_VERSION : '—';
+    }
+
+    function pintarHwid(hwid) {
+      var hwidEl = document.getElementById('lic-hwid');
+      if (hwidEl && hwid) hwidEl.textContent = hwid;
+    }
+
+    var profPromise = (window.nexusLicense && typeof window.nexusLicense.getStatus === 'function')
+      ? window.nexusLicense.getStatus()
+      : Promise.resolve(null);
+
+    profPromise.then(function (st) {
+      if (st && st.state !== 'none') {
+        pintarHwid(st.hwid);
+        renderLicenciaEstado(mapLicenciaProfesional(st));
+        return;
+      }
+      return obtenerHwidBundle().then(function (bundle) {
+        pintarHwid(bundle.hwid);
+        return cargarLicenciaLegacy().then(renderLicenciaEstado);
+      });
     }).catch(function () {
-      var labelEl = document.getElementById('lic-estado-label');
-      if (labelEl) { labelEl.textContent = 'Error al verificar licencia'; labelEl.className = 'lic-estado-label badge badge-danger'; }
+      cargarLicenciaLegacy().then(renderLicenciaEstado).catch(function () {
+        var labelEl = document.getElementById('lic-estado-label');
+        if (labelEl) { labelEl.textContent = 'Error al verificar licencia'; labelEl.className = 'lic-estado-label badge badge-danger'; }
+      });
     });
   }
 
@@ -1560,6 +1624,20 @@
     var claveInput = document.getElementById('lic-clave-input');
     var clave = claveInput ? claveInput.value.trim() : '';
     if (!clave) { toast('Ingresa la clave de licencia', 'error'); return; }
+
+    if (esClaveNxcs(clave) && window.nexusLicense && typeof window.nexusLicense.activate === 'function') {
+      window.nexusLicense.activate(clave.toUpperCase()).then(function (res) {
+        if (!res || !res.ok) {
+          throw new Error((res && res.message) || 'No se pudo activar la licencia');
+        }
+        toast('Licencia activada correctamente', 'success');
+        if (claveInput) claveInput.value = '';
+        cargarLicencia();
+      }).catch(function (e) {
+        toast(e.message || 'No se pudo activar la licencia', 'error');
+      });
+      return;
+    }
 
     obtenerHwidBundle().then(function (bundle) {
       var body = { clave: clave, hwid: bundle.hwid };

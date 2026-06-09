@@ -2673,11 +2673,21 @@
 .config-page .config-seccion h3 { font-family:var(--font-mono); }
 
 /* Tasas */
+.cfg-tasas-manuales .cfg-tasas-grid { margin-bottom:.75rem; }
 .cfg-tasas-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem; }
+.config-seccion--nested { margin-bottom:0; padding:1rem; background:var(--bg-tertiary); }
+.cfg-tasas-manuales .cfg-admin-hint { margin-bottom:.75rem; }
+.cfg-tasas-manuales .bcv-auto-nota-usd { margin-bottom:.75rem; }
+.cfg-tasas-actions { margin-top:0; }
+.cfg-bcv-auto-actions { margin-top:.5rem; padding-top:.5rem; border-top:1px solid var(--border-primary); }
+.cfg-descuento-actions { margin-top:.75rem; }
+.cfg-respaldo-actions { margin-top:.75rem; }
 .tasa-display--bcv { color:var(--accent-primary); }
 .tasa-display--usd { color:var(--accent-warning); }
 .campo-grupo--flush { margin:0; }
 .cfg-admin-hint { font-size:.85rem; color:var(--text-secondary); margin:0 0 1rem; padding:.5rem .75rem; background:rgba(148,163,184,.12); border-radius:var(--radius-sm); }
+.cfg-modo-save-hint { font-size:.8rem; color:var(--text-muted); margin:.65rem 0 0; line-height:1.45; }
+.cfg-modo-hint { font-size:.85rem; color:var(--text-secondary); margin:.45rem 0 0; line-height:1.4; }
 
 /* Calculador de impacto descuento divisa (configuración) */
 .calculador-impacto {

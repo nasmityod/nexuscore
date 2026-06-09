@@ -826,28 +826,6 @@
       return Math.round(ref * (1 - pct / 100) * 10000) / 10000;
     }
 
-    /** ¿Hay montos en métodos distintos de efectivo_usd / zelle? (cobro mixto). */
-    function cobroHayMontosNoDivisa() {
-      for (var i = 0; i < COBRO_TABLA_ORDEN.length; i += 1) {
-        var m = COBRO_TABLA_ORDEN[i];
-        if (m === 'efectivo_usd' || m === 'zelle') continue;
-        if (Number(cobroState.rowAmounts[m]) > 0) return true;
-      }
-      return false;
-    }
-
-    /**
-     * Banner rojo en USD: descuento divisa activo, fila activa efectivo_usd / zelle
-     * y sin otros métodos con monto (regla 100 % divisa).
-     */
-    function cobroBannerRojoMuestraUsd() {
-      if (posModoMoneda() === 'solo_bcv') return false;
-      if (!descuentoCobroDivisaConfig.activo || !(descuentoCobroDivisaConfig.pct > 0)) return false;
-      var mid = cobroState.activeMetodo;
-      if (mid !== 'efectivo_usd' && mid !== 'zelle') return false;
-      return !cobroHayMontosNoDivisa();
-    }
-
     /** Total Bs a tasa Calle desde total USD (misma lógica que backend totalBsDesdeUsdTasaCalle). */
     function totalBsMercadoDesdeUsdTotal(totalUsdConIva) {
       var u;
@@ -2973,6 +2951,26 @@
             cobroSyncSuPagoInputs();
           }
         }
+        // Descuento divisa: al salir de efectivo_usd/zelle hacia un método en Bs, si el monto
+        // coincide con el precio auto-rellenado, vaciarlo para evitar cobro doble en modo mixto.
+        if (
+          descuentoCobroDivisaConfig.activo &&
+          descuentoCobroDivisaConfig.pct > 0 &&
+          (prev === 'efectivo_usd' || prev === 'zelle') &&
+          mid !== 'efectivo_usd' && mid !== 'zelle'
+        ) {
+          var prevDivAmt = Number(cobroState.rowAmounts[prev]) || 0;
+          if (prevDivAmt > 0) {
+            var totsClearDiv = cartTotals();
+            var autoFillDivVal = round4(
+              totalUsdCobroEfectivo(totsClearDiv, [{ metodo: prev, monto: 1, moneda: 'USD' }])
+            );
+            if (autoFillDivVal > 0 && Math.abs(prevDivAmt - autoFillDivVal) <= 0.02) {
+              cobroState.rowAmounts[prev] = 0;
+              cobroSyncSuPagoInputs();
+            }
+          }
+        }
         cobroState.activeMetodo = mid;
         if (mid === 'efectivo_usd' || mid === 'zelle') {
           // El descuento al cobrar en divisa NO debe condicionar la edición de las filas:
@@ -3260,21 +3258,31 @@
       if (cobroBannerTotalBs)
         cobroBannerTotalBs.textContent = 'Bs.\u00A0' + formatBs(totals.totalBsBcv);
 
-      // USD banner: muestra totalUsdCobro cuando aplica descuento divisa.
+      // Banner USD estable: no alternar $30 vs $31,79 al cambiar fila de cobro.
+      // Con descuento divisa activo en config, siempre se muestran ambos referentes.
       var pagosActuales = cobroPaymentsArray();
       var aplicaDivisa = cobroAplicaDescuentoDivisa(pagosActuales);
-      var usdMostrar = aplicaDivisa
-        ? totalUsdCobroEfectivo(totals, pagosActuales)
-        : totals.totalUsd;
       if (cobroBannerTotalUsd) {
-        if (aplicaDivisa) {
-          var pctDiv = descuentoCobroDivisaConfig.pct;
-          var montoDesc = round4(totals.totalUsdBcvRef - usdMostrar);
+        var usdCalleTicket = totals.totalUsd;
+        if (
+          posModoMoneda() !== 'solo_bcv' &&
+          descuentoCobroDivisaConfig.activo &&
+          descuentoCobroDivisaConfig.pct > 0
+        ) {
+          var pctDivCfg = descuentoCobroDivisaConfig.pct;
+          var usdDiv100 = round4(
+            totalUsdCobroEfectivo(totals, [{ metodo: 'efectivo_usd', monto: 1, moneda: 'USD' }])
+          );
           cobroBannerTotalUsd.textContent =
-            'USD $' + formatUsd(usdMostrar) +
-            ' (−' + pctDiv.toFixed(1) + '% div., −$' + formatUsd(montoDesc) + ')';
+            'USD $' + formatUsd(usdCalleTicket) + ' (Bs / mixto) · ' +
+            'USD/Zelle 100%: $' + formatUsd(usdDiv100) +
+            ' (−' + pctDivCfg.toFixed(1) + '%)';
+          cobroBannerTotalUsd.title =
+            'USD calle del ticket para Bs o cobro mixto. El monto USD/Zelle aplica solo si el cobro es 100% efectivo USD o Zelle.';
         } else {
-          cobroBannerTotalUsd.textContent = 'USD $' + formatUsd(totals.totalUsd);
+          cobroBannerTotalUsd.textContent = 'USD $' + formatUsd(usdCalleTicket);
+          cobroBannerTotalUsd.title =
+            'Equivalente USD a tasa USD para cubrir el total BCV';
         }
       }
 
@@ -3291,13 +3299,12 @@
         var iniOp = bsBcvCuotaInicialCobroCashea(cobroState.casheaDesglose, totals);
         if (iniOp > 0) bsOperativoCobro = iniOp;
       }
-      var muestraUsdBannerRojo = cobroBannerRojoMuestraUsd();
+      // Banner rojo: USD descontado solo cuando el cobro ingresado es 100% USD/Zelle,
+      // no al solo seleccionar la fila (evita saltos al explorar métodos de pago).
+      var muestraUsdBannerRojo = aplicaDivisa;
       if (cobroBannerTotalPago) {
         if (muestraUsdBannerRojo) {
-          var midUsdBanner = cobroState.activeMetodo;
-          var usdOperativoCobro = totalUsdCobroEfectivo(totals, [
-            { metodo: midUsdBanner, monto: 1, moneda: 'USD' }
-          ]);
+          var usdOperativoCobro = totalUsdCobroEfectivo(totals, pagosActuales);
           cobroBannerTotalPago.textContent = '$' + formatUsd(usdOperativoCobro);
         } else {
           cobroBannerTotalPago.textContent = formatBs(bsOperativoCobro);
@@ -3924,11 +3931,22 @@
         var tots = cartTotals();
         var resUsd = round4(sumUsdCalle - tots.totalUsd);
         if (Math.abs(resUsd) <= EPS_USD_PAGOS) return 0;
+
+        // FIX: el gap se expresa en Bs a tasa calle (coherente con el backend).
+        // Usar `raw` (BCV-based) es incorrecto en cobro mixto USD+Bs con descuento divisa
+        // activo: el monto descontado (base BCV) × tasa_calle puede superar totalBsBcv,
+        // haciendo que raw sea negativo (falso "vuelto") cuando en realidad falta cubrir.
+        var tasaCalleGap = Number(getTasas().usd) || 0;
+        if (tasaCalleGap > 0) {
+          // resUsd < 0 → falta (devuelve positivo); resUsd > 0 → vuelto (devuelve negativo).
+          return Math.round(-resUsd * tasaCalleGap * 100) / 100;
+        }
+        // Sin tasa disponible: absorber si el gap BCV es pequeño, o retornar raw.
+        if (Math.abs(raw) < 0.02 * 1) return 0; // fallback mínimo sin tasa
       }
 
-      // Absorber diferencia de Bs < $0.02 a tasa USD cuando hay USD en el cobro.
-      // A 710 Bs/$: umbral ≈ 14,2 Bs (≈ 1 centavo y medio de dólar).
-      // Evita rechazar ventas por redondeo de centavos entre la cadena BCV y la tasa USD.
+      // Absorber diferencia de Bs < $0.02 a tasa USD cuando hay pagos solo USD_BCV/Cashea
+      // sin USD físico de mercado (el bloque hayUsd ya retornó para efectivo_usd/zelle + Bs).
       if (hayUsd) {
         var tasaParAbs = Number(getTasas().usd) || 0;
         if (tasaParAbs > 0 && Math.abs(raw) < 0.02 * tasaParAbs) return 0;
@@ -3973,16 +3991,18 @@
 
       var resDivUsd = cobroResidualDivisaUsd();
       if (resDivUsd !== null && Math.abs(resDivUsd) > EPS_USD_PAGOS) {
-        cobroStatusEl.classList.add('is-pending');
-        if (resDivUsd > EPS_USD_PAGOS) {
+        // resDivUsd = pagado − requerido: negativo → falta cobrar; positivo → vuelto en USD.
+        if (resDivUsd < -EPS_USD_PAGOS) {
+          cobroStatusEl.classList.add('is-pending');
           cobroStatusLbl.textContent = 'Falta por cobrar (USD)';
-          cobroStatusAmt.textContent = 'USD $' + formatUsd(resDivUsd);
+          cobroStatusAmt.textContent = 'USD $' + formatUsd(Math.abs(resDivUsd));
+          cobroBtnConfirmar.disabled = true;
         } else {
-          cobroStatusLbl.textContent = 'Monto USD no cuadra con el total';
-          cobroStatusAmt.textContent =
-            'Exceso USD $' + formatUsd(Math.abs(resDivUsd)) + ' — revisa la fila activa';
+          cobroStatusEl.classList.add('is-change');
+          cobroStatusLbl.textContent = 'Vuelto (USD)';
+          cobroStatusAmt.textContent = 'USD $' + formatUsd(resDivUsd);
+          cobroBtnConfirmar.disabled = false;
         }
-        cobroBtnConfirmar.disabled = true;
         return;
       }
 

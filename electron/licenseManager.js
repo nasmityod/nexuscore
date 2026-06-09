@@ -69,7 +69,7 @@ function readWindowsHardwareIds() {
     const out = execFileSync(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps],
-      { timeout: 6000, windowsHide: true, encoding: 'utf8' }
+      { timeout: 12000, windowsHide: true, encoding: 'utf8' }
     );
     const ids = {};
     for (const line of String(out).split(/\r?\n/)) {
@@ -173,13 +173,64 @@ function licenseFilePath(app) {
   return path.join(app.getPath('userData'), LICENSE_FILE);
 }
 
+/**
+ * Calcula un HWID alternativo basado en MACs de red (mismo algoritmo que el fallback
+ * de computeHardwareId cuando CIM falla). Usado para recuperación cuando el HWID
+ * primario (CIM) no puede descifrar el archivo (ej: archivo fue cifrado en un arranque
+ * donde CIM falló y se usó el fallback MAC, pero ahora CIM sí funciona).
+ */
+function computeMacFallbackHwid() {
+  try {
+    const os = require('os');
+    const ifaces = os.networkInterfaces();
+    const macSet = new Set();
+    for (const name of Object.keys(ifaces)) {
+      for (const iface of ifaces[name] || []) {
+        if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+          macSet.add(iface.mac.toLowerCase());
+        }
+      }
+    }
+    if (macSet.size) {
+      return crypto.createHash('sha256').update('mac:' + [...macSet].sort().join(',')).digest('hex');
+    }
+    return crypto.createHash('sha256').update('host:' + require('os').hostname()).digest('hex');
+  } catch (_e) {
+    return null;
+  }
+}
+
 function readLocal(app, hwid) {
   try {
     const p = licenseFilePath(app);
     if (!fs.existsSync(p)) return null;
     const fileObj = JSON.parse(fs.readFileSync(p, 'utf8'));
-    // Si el archivo fue manipulado o copiado de otra máquina, decrypt lanza (tag GCM/clave HWID).
-    return decryptPayload(fileObj, hwid);
+
+    // Intento primario: HWID actual (CIM o el que corresponda).
+    try {
+      return decryptPayload(fileObj, hwid);
+    } catch (_primaryErr) {
+      // El HWID primario no puede descifrar el archivo. Esto ocurre cuando el HWID
+      // computado en este arranque difiere del usado al cifrar (ej: un arranque usó
+      // CIM exitoso y otro usó el fallback MAC por timeout, o viceversa).
+      // Intentar candidatos alternativos antes de declarar "manipulado".
+      const candidates = [];
+      const macHwid = computeMacFallbackHwid();
+      if (macHwid && macHwid !== hwid) candidates.push(macHwid);
+
+      for (const candidate of candidates) {
+        try {
+          const payload = decryptPayload(fileObj, candidate);
+          // Recuperación exitosa: re-cifrar con el HWID actual para estabilizar futuros arranques.
+          writeLocal(app, hwid, payload);
+          return payload;
+        } catch (_e) {
+          // Siguiente candidato.
+        }
+      }
+
+      return { __tampered: true };
+    }
   } catch (_e) {
     return { __tampered: true };
   }
