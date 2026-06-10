@@ -580,7 +580,7 @@ const App = (() => {
       <div class="act-item">
         <div>
           <div class="name">${UI.esc(a.machineName || 'Equipo sin nombre')}</div>
-          <div class="meta">${UI.esc((a.hwidHash || '').slice(0, 20))}… · v${UI.esc(a.appVersion || '?')} · ${UI.fmtDate(a.activatedAt)}</div>
+          <div class="meta">${UI.esc(a.hwidClient || (a.hwidPrefix ? a.hwidPrefix + '…' : (a.hwidHash || '').slice(0, 20) + '…'))} · v${UI.esc(a.appVersion || '?')} · ${UI.fmtDate(a.activatedAt)}</div>
         </div>
         <button class="btn btn-danger btn-sm" data-action="revoke-act" data-key="${UI.esc(d.key)}" data-hwid="${UI.esc(a.hwidHash)}">Liberar</button>
       </div>`).join('') : `<p class="muted">Sin equipos activados todavía.</p>`;

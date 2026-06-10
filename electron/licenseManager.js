@@ -25,9 +25,13 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const LICENSE_FILE = 'license.dat';
+const HWID_CACHE_FILE = 'hwid_cache.json';
+const HWID_CACHE_MAX = 5;
 const FILE_VERSION = 1;
 const VERIFY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 h
 const DEFAULT_GRACE_DAYS = 7;
+const CIM_TIMEOUT_MS = 12000;
+const CIM_RECOVERY_TIMEOUT_MS = 30000;
 
 // Clave pública Ed25519 embebida (pareja de la privada en Vercel). Override por env sin recompilar.
 const PUBLIC_KEY_PEM_DEFAULT = `-----BEGIN PUBLIC KEY-----
@@ -54,27 +58,47 @@ let _hwidCache = null;
  * (otro SO, permisos, timeout) devuelve {} y el HWID cae a la combinación os.* disponible.
  * @returns {Record<string,string>}
  */
-function readWindowsHardwareIds() {
+function isUsableHardwareValue(value) {
+  const v = String(value || '').trim();
+  if (!v) return false;
+  const u = v.toUpperCase();
+  return !/^0+$/.test(v)
+    && u !== 'TO BE FILLED BY O.E.M.'
+    && u !== 'NONE'
+    && u !== 'UNKNOWN'
+    && u !== 'SYSTEM.OBJECT[]';
+}
+
+function readWindowsHardwareIds(timeoutMs = CIM_TIMEOUT_MS) {
   if (process.platform !== 'win32') return {};
   try {
     // Una sola invocación de PowerShell que imprime CLAVE=VALOR por línea.
     const ps = [
-      "$ErrorActionPreference='SilentlyContinue';",
-      "function v($x){ if($x){ ($x | Select-Object -First 1).ToString().Trim() } else { '' } }",
-      "'CPU='   + v((Get-CimInstance Win32_Processor).ProcessorId);",
-      "'BOARD=' + v((Get-CimInstance Win32_BaseBoard).SerialNumber);",
-      "'UUID='  + v((Get-CimInstance Win32_ComputerSystemProduct).UUID);",
-      "'DISK='  + v((Get-CimInstance Win32_DiskDrive | Where-Object { $_.SerialNumber }).SerialNumber)"
-    ].join(' ');
+      '$ErrorActionPreference = "SilentlyContinue"',
+      'function Get-HwidVal { param($InputObject) if ($null -eq $InputObject) { return "" } $v = $InputObject | Select-Object -First 1; if ($null -eq $v) { return "" } return ([string]$v).Trim() }',
+      '$disks = @(Get-CimInstance Win32_DiskDrive | Where-Object { $_.SerialNumber } | ForEach-Object { ([string]$_.SerialNumber).Trim() } | Where-Object { $_ })',
+      'Write-Output ("CPU=" + (Get-HwidVal (Get-CimInstance Win32_Processor).ProcessorId))',
+      'Write-Output ("BOARD=" + (Get-HwidVal (Get-CimInstance Win32_BaseBoard).SerialNumber))',
+      'Write-Output ("UUID=" + (Get-HwidVal (Get-CimInstance Win32_ComputerSystemProduct).UUID))',
+      'Write-Output ("DISK=" + (Get-HwidVal $disks))',
+      'Write-Output ("DISKS=" + (($disks | Sort-Object -Unique) -join ","))'
+    ].join('; ');
     const out = execFileSync(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps],
-      { timeout: 12000, windowsHide: true, encoding: 'utf8' }
+      { timeout: timeoutMs, windowsHide: true, encoding: 'utf8' }
     );
     const ids = {};
     for (const line of String(out).split(/\r?\n/)) {
       const m = line.match(/^([A-Z]+)=(.*)$/);
-      if (m && m[2] && m[2].trim() && !/^0+$/.test(m[2].trim()) && m[2].trim().toUpperCase() !== 'TO BE FILLED BY O.E.M.') {
+      if (!m) continue;
+      if (m[1] === 'DISKS') {
+        const disks = String(m[2] || '')
+          .split(',')
+          .map((v) => v.trim())
+          .filter(isUsableHardwareValue);
+        if (disks.length) ids.DISKS = [...new Set(disks)];
+      } else if (isUsableHardwareValue(m[2])) {
         ids[m[1]] = m[2].trim();
       }
     }
@@ -89,48 +113,180 @@ function readWindowsHardwareIds() {
  * Devuelve { hwid, components } donde components lista qué fuentes se usaron (para soporte).
  * @returns {{ hwid: string, components: string[], detail: Record<string,boolean> }}
  */
-function computeHardwareId() {
-  if (_hwidCache) return _hwidCache;
+function buildHardwareResult(hw, options = {}) {
   const os = require('os');
-  const hw = readWindowsHardwareIds();
-
   const parts = [];
   const used = [];
   const detail = { cpu: false, board: false, uuid: false, disk: false, mac: false, host: false };
+  const disk = Object.prototype.hasOwnProperty.call(options, 'disk') ? options.disk : hw.DISK;
+  const allowOsFallback = options.allowOsFallback !== false;
 
   if (hw.CPU) { parts.push('cpu:' + hw.CPU); used.push('cpu'); detail.cpu = true; }
   if (hw.UUID) { parts.push('uuid:' + hw.UUID); used.push('uuid'); detail.uuid = true; }
   if (hw.BOARD) { parts.push('board:' + hw.BOARD); used.push('board'); detail.board = true; }
-  if (hw.DISK) { parts.push('disk:' + hw.DISK); used.push('disk'); detail.disk = true; }
+  if (disk) { parts.push('disk:' + disk); used.push('disk'); detail.disk = true; }
 
   // Refuerzo / fallback con identificadores del SO (MAC ordenadas + hostname). Si no hubo
   // identificadores de hardware, estos garantizan un HWID no trivial.
-  try {
-    const ifaces = os.networkInterfaces();
-    const macSet = new Set();
-    for (const name of Object.keys(ifaces)) {
-      for (const iface of ifaces[name] || []) {
-        if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-          macSet.add(iface.mac.toLowerCase());
+  if (allowOsFallback) {
+    try {
+      const ifaces = os.networkInterfaces();
+      const macSet = new Set();
+      for (const name of Object.keys(ifaces)) {
+        for (const iface of ifaces[name] || []) {
+          if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+            macSet.add(iface.mac.toLowerCase());
+          }
         }
       }
-    }
-    if (macSet.size && used.length === 0) {
-      // Solo se incluye la MAC en el hash cuando no hay IDs de hardware: así el HWID no
-      // cambia si el usuario conecta/desconecta una tarjeta de red en un equipo con WMI ok.
-      parts.push('mac:' + [...macSet].sort().join(','));
-      used.push('mac'); detail.mac = true;
-    }
-  } catch (_e) { /* sin red */ }
+      if (macSet.size && used.length === 0) {
+        // Solo se incluye la MAC en el hash cuando no hay IDs de hardware: así el HWID no
+        // cambia si el usuario conecta/desconecta una tarjeta de red en un equipo con WMI ok.
+        parts.push('mac:' + [...macSet].sort().join(','));
+        used.push('mac'); detail.mac = true;
+      }
+    } catch (_e) { /* sin red */ }
 
-  if (used.length === 0) {
-    parts.push('host:' + os.hostname());
-    used.push('host'); detail.host = true;
+    if (used.length === 0) {
+      parts.push('host:' + os.hostname());
+      used.push('host'); detail.host = true;
+    }
   }
 
+  if (used.length === 0) return null;
+
   const hwid = crypto.createHash('sha256').update(parts.join('|')).digest('hex');
-  _hwidCache = { hwid, components: used, detail };
+  return { hwid, components: used, detail };
+}
+
+function computeHardwareId() {
+  if (_hwidCache) return _hwidCache;
+  const hw = readWindowsHardwareIds();
+  _hwidCache = buildHardwareResult(hw, { allowOsFallback: true });
   return _hwidCache;
+}
+
+function usesWindowsHardware(result) {
+  return !!(result && result.detail && (
+    result.detail.cpu || result.detail.uuid || result.detail.board || result.detail.disk
+  ));
+}
+
+function addUniqueHwid(list, hwid) {
+  const h = String(hwid || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(h)) return;
+  if (!list.includes(h)) list.push(h);
+}
+
+function computeWindowsHardwareHwidVariants(timeoutMs = CIM_TIMEOUT_MS) {
+  const hw = readWindowsHardwareIds(timeoutMs);
+  const out = [];
+  const disks = [
+    hw.DISK,
+    ...(Array.isArray(hw.DISKS) ? hw.DISKS : [])
+  ].filter(Boolean);
+
+  const primary = buildHardwareResult(hw, { allowOsFallback: false });
+  if (primary && usesWindowsHardware(primary)) addUniqueHwid(out, primary.hwid);
+
+  // Candidato sin disco: permite recuperar si Windows cambió el disco "primero" o si un
+  // USB/SSD externo alteró el orden de Win32_DiskDrive.
+  const noDisk = buildHardwareResult({ ...hw, DISK: null }, { disk: null, allowOsFallback: false });
+  if (noDisk && usesWindowsHardware(noDisk)) addUniqueHwid(out, noDisk.hwid);
+
+  for (const disk of disks) {
+    const withDisk = buildHardwareResult({ ...hw, DISK: disk }, { allowOsFallback: false });
+    if (withDisk && usesWindowsHardware(withDisk)) addUniqueHwid(out, withDisk.hwid);
+  }
+
+  return out;
+}
+
+// ── Caché persistente del HWID entre sesiones ─────────────────────────────────
+//
+// Problema: PowerShell/CIM puede tardar más que su timeout (12 s) en ciertos
+// arranques (carga del sistema, actualizaciones en curso, etc.). Cuando ocurre,
+// computeHardwareId() cae al fallback MAC/hostname, produciendo un HWID distinto
+// al que usó el arranque donde SÍ funcionó CIM. El archivo de licencia queda
+// cifrado con el HWID "antiguo" y el nuevo no puede descifrarlo → __tampered.
+//
+// Solución: persistir el HWID CIM-based en userData/hwid_cache.json. En los
+// arranques donde CIM falle, se usa el HWID cacheado → mismo HWID → descifra OK.
+
+function hwidCachePath(app) {
+  return path.join(app.getPath('userData'), HWID_CACHE_FILE);
+}
+
+function normalizeCachedHwid(hwid) {
+  const h = String(hwid || '').trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(h) ? h : null;
+}
+
+/** Lee HWIDs persistidos de sesiones anteriores. Soporta el formato viejo `{ hwid }`. */
+function loadHwidCacheCandidates(app) {
+  try {
+    const p = hwidCachePath(app);
+    if (!fs.existsSync(p)) return [];
+    const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const out = [];
+    if (data && typeof data.hwid === 'string') addUniqueHwid(out, data.hwid);
+    if (data && Array.isArray(data.hwids)) {
+      for (const h of data.hwids) addUniqueHwid(out, h);
+    }
+    return out;
+  } catch (_e) { return []; }
+}
+
+/** Lee el HWID preferido de la última sesión estable. Null si no existe. */
+function loadHwidCache(app) {
+  const candidates = loadHwidCacheCandidates(app);
+  return candidates.length ? candidates[0] : null;
+}
+
+/** Persiste HWIDs conocidos, conservando un historial corto para recuperación. Best-effort. */
+function saveHwidCache(app, hwid, alsoRemember = []) {
+  try {
+    const primary = normalizeCachedHwid(hwid);
+    if (!primary) return;
+    const merged = [];
+    addUniqueHwid(merged, primary);
+    for (const h of alsoRemember || []) addUniqueHwid(merged, h);
+    for (const h of loadHwidCacheCandidates(app)) addUniqueHwid(merged, h);
+    fs.writeFileSync(
+      hwidCachePath(app),
+      JSON.stringify({ hwid: primary, hwids: merged.slice(0, HWID_CACHE_MAX), ts: Date.now() }),
+      { mode: 0o600 }
+    );
+  } catch (_e) { /* caché es best-effort, no bloquea el arranque */ }
+}
+
+/**
+ * Resuelve el HWID más estable disponible para este arranque:
+ *   1. CIM tuvo éxito → usa ese (más estable) y actualiza el caché.
+ *   2. CIM falló pero existe caché de sesión anterior → usa el HWID cacheado.
+ *   3. Sin caché → usa el fallback MAC/hostname de computeHardwareId().
+ *
+ * Esta función DEBE usarse en lugar de computeHardwareId().hwid en toda operación
+ * que toque el archivo de licencia (evaluate, activate, verifyOnline, deactivate).
+ */
+function resolveHwid(app) {
+  const result = computeHardwareId();
+  const usedHardware = usesWindowsHardware(result);
+
+  if (usedHardware) {
+    // CIM disponible: es el HWID más estable; persistir para reinicios donde CIM no responda.
+    if (app) saveHwidCache(app, result.hwid);
+    return result.hwid;
+  }
+
+  // CIM no disponible: intentar el HWID de la última sesión exitosa para mantener consistencia.
+  if (app) {
+    const cached = loadHwidCache(app);
+    if (cached) return cached;
+  }
+
+  // Sin caché: retornar el fallback MAC/hostname (mejor que nada).
+  return result.hwid;
 }
 
 // ── Cifrado del archivo local (AES-256-GCM, clave derivada del HWID) ─────────
@@ -173,6 +329,26 @@ function licenseFilePath(app) {
   return path.join(app.getPath('userData'), LICENSE_FILE);
 }
 
+function attachLocalMeta(payload, decryptedWithHwid) {
+  if (payload && typeof payload === 'object') {
+    Object.defineProperty(payload, '__decryptedWithHwid', {
+      value: normalizeCachedHwid(decryptedWithHwid),
+      enumerable: false,
+      configurable: true
+    });
+  }
+  return payload;
+}
+
+function stripLocalMeta(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const clean = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (!k.startsWith('__')) clean[k] = v;
+  }
+  return clean;
+}
+
 /**
  * Calcula un HWID alternativo basado en MACs de red (mismo algoritmo que el fallback
  * de computeHardwareId cuando CIM falla). Usado para recuperación cuando el HWID
@@ -206,26 +382,53 @@ function readLocal(app, hwid) {
     if (!fs.existsSync(p)) return null;
     const fileObj = JSON.parse(fs.readFileSync(p, 'utf8'));
 
-    // Intento primario: HWID actual (CIM o el que corresponda).
+    // Intento primario: HWID actual (CIM estable o cacheado según resolveHwid).
     try {
-      return decryptPayload(fileObj, hwid);
+      return attachLocalMeta(decryptPayload(fileObj, hwid), hwid);
     } catch (_primaryErr) {
-      // El HWID primario no puede descifrar el archivo. Esto ocurre cuando el HWID
-      // computado en este arranque difiere del usado al cifrar (ej: un arranque usó
-      // CIM exitoso y otro usó el fallback MAC por timeout, o viceversa).
-      // Intentar candidatos alternativos antes de declarar "manipulado".
+      // El HWID primario no puede descifrar el archivo. Construir lista de candidatos
+      // alternativos antes de declarar "manipulado":
+      //   1. MAC fallback: cubre el caso inverso (archivo cifrado en arranque con CIM,
+      //      ahora se usa MAC por timeout).
+      //   2. HWIDs cacheados: cubren transición CIM↔MAC o cambios menores donde el caché
+      //      aún tiene el HWID anterior.
+      //   3. Relectura CIM extendida: cubre instalaciones pre-parche que no tenían caché y
+      //      arrancaron justo cuando PowerShell/CIM estaba lento.
       const candidates = [];
       const macHwid = computeMacFallbackHwid();
       if (macHwid && macHwid !== hwid) candidates.push(macHwid);
 
+      for (const cachedHwid of loadHwidCacheCandidates(app)) {
+        if (cachedHwid !== hwid && cachedHwid !== macHwid) candidates.push(cachedHwid);
+      }
+
       for (const candidate of candidates) {
         try {
           const payload = decryptPayload(fileObj, candidate);
-          // Recuperación exitosa: re-cifrar con el HWID actual para estabilizar futuros arranques.
-          writeLocal(app, hwid, payload);
-          return payload;
+          // Recuperación exitosa: recordar ambos. Si el arranque tiene un HWID de hardware
+          // real, re-ciframos con ese HWID; si cayó a MAC/host por fallo de CIM, mantenemos
+          // el candidato bueno y evitamos convertir un fallo temporal en una reactivación.
+          if (usesWindowsHardware(computeHardwareId())) {
+            saveHwidCache(app, hwid, [candidate]);
+            writeLocal(app, hwid, payload);
+          } else {
+            saveHwidCache(app, candidate, [hwid]);
+          }
+          return attachLocalMeta(payload, candidate);
         } catch (_e) {
           // Siguiente candidato.
+        }
+      }
+
+      const recoveryCandidates = computeWindowsHardwareHwidVariants(CIM_RECOVERY_TIMEOUT_MS);
+      for (const candidate of recoveryCandidates) {
+        if (!candidate || candidate === hwid || candidates.includes(candidate)) continue;
+        try {
+          const payload = decryptPayload(fileObj, candidate);
+          saveHwidCache(app, candidate, [hwid, ...candidates]);
+          return attachLocalMeta(payload, candidate);
+        } catch (_e) {
+          // Siguiente candidato de recuperación.
         }
       }
 
@@ -238,7 +441,7 @@ function readLocal(app, hwid) {
 
 function writeLocal(app, hwid, payload) {
   const p = licenseFilePath(app);
-  const enc = encryptPayload(payload, hwid);
+  const enc = encryptPayload(stripLocalMeta(payload), hwid);
   fs.writeFileSync(p, JSON.stringify(enc), { mode: 0o600 });
 }
 
@@ -325,7 +528,7 @@ async function postServer(pathSeg, body, timeoutMs = 8000) {
  * @returns {Promise<{ ok:boolean, reason?:string, info?:object }>}
  */
 async function activate(app, licenseKey, appVersion, machineName) {
-  const { hwid } = computeHardwareId();
+  const hwid = resolveHwid(app);
   let resp;
   try {
     resp = await postServer('/api/licenses/activate', {
@@ -361,6 +564,7 @@ async function activate(app, licenseKey, appVersion, machineName) {
     checksum: sha256hex(resp.body.token + '|' + hwid)
   };
   writeLocal(app, hwid, payload);
+  saveHwidCache(app, hwid);
   return { ok: true, info: publicInfo(payload) };
 }
 
@@ -369,7 +573,7 @@ async function activate(app, licenseKey, appVersion, machineName) {
  * @returns {Promise<{ ok:boolean, blocked?:boolean, reason?:string, info?:object }>}
  */
 async function verifyOnline(app) {
-  const { hwid } = computeHardwareId();
+  const hwid = resolveHwid(app);
   const local = readLocal(app, hwid);
   if (!local || local.__tampered || !local.token) {
     return { ok: false, reason: 'no_license' };
@@ -395,6 +599,7 @@ async function verifyOnline(app) {
       local.checksum = sha256hex(resp.body.token + '|' + hwid);
     }
     writeLocal(app, hwid, local);
+    saveHwidCache(app, hwid);
     return { ok: true, info: publicInfo(local) };
   }
 
@@ -411,11 +616,17 @@ async function verifyOnline(app) {
 
 /**
  * Evaluación de arranque (sin red). Verifica integridad + firma + expiración + período de gracia.
- * @returns {{ ok:boolean, state:string, reason?:string, info?:object, needsOnlineSoon?:boolean }}
- *   state: 'none' | 'tampered' | 'foreign' | 'expired' | 'suspended' | 'revoked' | 'grace_exceeded' | 'ok'
+ * @returns {{ ok:boolean, state:string, reason?:string, info?:object, needsOnlineSoon?:boolean, licenseKey?:string }}
+ *   state: 'none' | 'tampered' | 'foreign' | 'expired' | 'suspended' | 'revoked' |
+ *          'grace_exceeded' | 'hwid_drifted' | 'ok'
+ *
+ *   'hwid_drifted': el token es criptográficamente válido para un HWID alternativo conocido
+ *   (cambio CIM↔MAC). Se incluye licenseKey para que evaluateLicenseGate() pueda hacer
+ *   re-activación silenciosa sin interrumpir al usuario.
  */
 function evaluate(app) {
-  const { hwid } = computeHardwareId();
+  // Usar resolveHwid para obtener el HWID más estable disponible (CIM > caché > MAC).
+  const hwid = resolveHwid(app);
   const local = readLocal(app, hwid);
   if (!local) return { ok: false, state: 'none', reason: 'Sin licencia. Ingresa tu clave de activación.' };
   if (local.__tampered) {
@@ -431,11 +642,51 @@ function evaluate(app) {
   }
 
   // Verificación criptográfica offline del token.
-  const off = verifyTokenOffline(local.token, hwid);
+  const currentHasHardware = usesWindowsHardware(computeHardwareId());
+  let tokenHwid = hwid;
+  let off = verifyTokenOffline(local.token, tokenHwid);
   if (!off.ok) {
-    const st = /otro equipo/i.test(off.motivo) ? 'foreign' : /vencida|expir/i.test(off.motivo) ? 'expired' : 'tampered';
-    return { ok: false, state: st, reason: off.motivo, info: publicInfo(local) };
+    // Antes de rechazar como "otro equipo" o "manipulado", verificar si el token es válido
+    // para un HWID alternativo conocido (escenario: HWID derivó entre CIM y MAC entre sesiones).
+    // Si el arranque actual no tiene IDs de hardware reales (CIM falló), el alternativo es
+    // la identidad buena y podemos continuar offline. Si sí hay hardware real pero difiere,
+    // se pide reactivación silenciosa para emitir un token del HWID actual.
+    if (/otro equipo/i.test(off.motivo) && local.licenseKey) {
+      const altHwids = new Set([
+        local.__decryptedWithHwid,
+        computeMacFallbackHwid(),
+        ...(app ? loadHwidCacheCandidates(app) : [])
+      ].filter(h => h && h !== hwid));
+
+      for (const altHwid of altHwids) {
+        const altOff = verifyTokenOffline(local.token, altHwid);
+        if (altOff.ok) {
+          if (!currentHasHardware) {
+            tokenHwid = altHwid;
+            off = altOff;
+            saveHwidCache(app, altHwid, [hwid]);
+            break;
+          }
+          // Token válido para un HWID anterior conocido → HWID derivó, no es fraude.
+          return {
+            ok: false,
+            state: 'hwid_drifted',
+            reason: 'El identificador de hardware cambió entre sesiones; reconectando con el servidor...',
+            licenseKey: local.licenseKey,
+            info: publicInfo(local)
+          };
+        }
+      }
+    }
+
+    if (!off.ok) {
+      const st = /otro equipo/i.test(off.motivo) ? 'foreign'
+        : /vencida|expir/i.test(off.motivo) ? 'expired'
+        : 'tampered';
+      return { ok: false, state: st, reason: off.motivo, info: publicInfo(local) };
+    }
   }
+  saveHwidCache(app, tokenHwid, tokenHwid === hwid ? [] : [hwid]);
 
   // Período de gracia offline: si pasó demasiado tiempo sin verificar online, exigir reconexión.
   const grace = Number(local.gracePeriodDays) || DEFAULT_GRACE_DAYS;
@@ -456,7 +707,7 @@ function evaluate(app) {
 
 /** Libera la activación de esta máquina en el servidor y borra el archivo local. */
 async function deactivate(app) {
-  const { hwid } = computeHardwareId();
+  const hwid = resolveHwid(app);
   const local = readLocal(app, hwid);
   if (local && !local.__tampered && local.licenseKey) {
     try { await postServer('/api/licenses/deactivate', { licenseKey: local.licenseKey, hwid }); }
@@ -490,6 +741,7 @@ function publicInfo(p) {
 
 module.exports = {
   computeHardwareId,
+  resolveHwid,
   licenseFilePath,
   readLocal,
   writeLocal,

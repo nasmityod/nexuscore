@@ -82,6 +82,8 @@ module.exports = async function handler(req, res) {
   }
 
   // Refrescar metadata de verificación y emitir token nuevo.
+  rec.activations[hh].hwidClient = L.clientHwidValue(input.hwid);
+  rec.activations[hh].hwidPrefix = L.clientHwidPrefix(input.hwid);
   rec.activations[hh].lastVerifiedAt = new Date(nowMs).toISOString();
   rec.activations[hh].lastIp = getIp(req);
   rec.activations[hh].verifyCount = (Number(rec.activations[hh].verifyCount) || 0) + 1;

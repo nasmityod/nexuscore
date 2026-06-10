@@ -376,7 +376,7 @@ const App = (() => {
     const actsHtml = acts.length ? acts.map(a => `
       <div class="act-item">
         <div><div>${esc(a.machineName || 'Equipo sin nombre')}</div>
-          <div class="meta">${esc((a.hwidHash || '').slice(0, 18))}… · v${esc(a.appVersion || '?')} · ${fmtDate(a.activatedAt)}</div></div>
+          <div class="meta">${esc(a.hwidPrefix || (a.hwidHash || '').slice(0, 18))}… · v${esc(a.appVersion || '?')} · ${fmtDate(a.activatedAt)}</div></div>
         <button class="btn btn-danger btn-sm" onclick="App.revokeAct('${esc(d.key)}','${esc(a.hwidHash)}')">Revocar</button>
       </div>`).join('') : `<p style="color:var(--muted)">Sin activaciones.</p>`;
 

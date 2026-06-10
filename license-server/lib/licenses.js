@@ -15,7 +15,9 @@
  *     Si alguien escribe un `lic:*` directo en KV sin NEXUS_CODE_SECRET, getLicense lo
  *     rechaza. Los campos mutables (status, activations, expiresAt) NO entran en el HMAC
  *     porque cambian de forma legítima vía admin; su autoridad es el ADMIN_SECRET del API.
- *   - El HWID real nunca se guarda: solo su SHA-256 (hashHwid). machineName/ip son metadata.
+ *   - El servidor usa SHA-256 (hashHwid) como clave interna de activación. También guarda
+ *     el HWID cliente completo para soporte/admin, de modo que el panel pueda compararlo
+ *     exactamente con el ID mostrado por Nexus.
  */
 
 const { kv } = require('./kv');
@@ -69,6 +71,17 @@ function isValidKeyFormat(key) {
 
 function licenseKvKey(key) {
   return LICENSE_PREFIX + normalizeKey(key);
+}
+
+function clientHwidValue(hwid) {
+  const clean = String(hwid || '').trim().toLowerCase().replace(/[^a-f0-9]/g, '');
+  return clean || null;
+}
+
+function clientHwidPrefix(hwid, chars = 20) {
+  const clean = clientHwidValue(hwid);
+  if (!clean) return null;
+  return clean.slice(0, Math.max(8, Math.min(32, Number(chars) || 20)));
 }
 
 // ── Integridad del documento (HMAC de identidad) ──────────────────────────────
@@ -297,6 +310,8 @@ function recordActivation(rec, { hwid, machineName, ip, appVersion }, nowMs = Da
   const hh = hashHwid(hwid);
   const existing = rec.activations[hh];
   const nowIso = new Date(nowMs).toISOString();
+  const hwidClient = clientHwidValue(hwid);
+  const hwidPrefix = clientHwidPrefix(hwid);
 
   if (!existing && activeActivationCount(rec) >= rec.maxActivations) {
     // Para licencias de una sola activación: permitir reemplazar la activación existente.
@@ -311,6 +326,8 @@ function recordActivation(rec, { hwid, machineName, ip, appVersion }, nowMs = Da
 
   rec.activations[hh] = {
     hwidHash: hh,
+    hwidClient,
+    hwidPrefix,
     machineName: String(machineName || '').slice(0, 120),
     lastIp: String(ip || '').slice(0, 64),
     appVersion: String(appVersion || '').slice(0, 40),
@@ -410,6 +427,8 @@ module.exports = {
   DAY_MS,
   generateLicenseKey,
   normalizeKey,
+  clientHwidValue,
+  clientHwidPrefix,
   isValidKeyFormat,
   licenseKvKey,
   computeExpiresAt,

@@ -674,6 +674,30 @@ async function evaluateLicenseGate() {
     return { ok: false, state: 'none', reason: local.reason, estado: legacy.estado || null };
   }
 
+  // hwid_drifted: el token es criptográficamente válido pero para un HWID anterior
+  // (PowerShell/CIM tuvo timeout y el HWID cambió entre sesiones). Intentar re-activar
+  // silenciosamente con el HWID actual: el servidor reemplaza la activación anterior
+  // (para maxActivations=1) y emite un token nuevo para el HWID actual.
+  // No requiere interacción del usuario; si falla sin internet, caemos al flujo normal.
+  if (local.state === 'hwid_drifted' && local.licenseKey) {
+    try {
+      const os = require('os');
+      const renewed = await licenseManager.activate(
+        app, local.licenseKey, app.getVersion(), os.hostname()
+      );
+      if (renewed && renewed.ok) {
+        console.log(`${LOG_PREFIX} [licencia] HWID derivado (CIM↔MAC) — re-activación silenciosa exitosa. Licencia vigente.`);
+        return { ok: true, source: 'hwid_recovered', info: renewed.info };
+      }
+      console.warn(`${LOG_PREFIX} [licencia] re-activación silenciosa rechazada (${renewed && renewed.message || '?'}) — mostrando pantalla de activación.`);
+    } catch (_e) {
+      console.warn(`${LOG_PREFIX} [licencia] re-activación silenciosa falló (sin internet u otro error) — mostrando pantalla de activación.`);
+    }
+    // Si la re-activación falló (sin internet o clave revocada), caer al flujo normal
+    // que muestra la pantalla de activación con el motivo apropiado.
+    return { ok: false, state: local.state, reason: local.reason, info: local.info || null };
+  }
+
   // Cuando el token local expiró o se excedió el período de gracia offline, intentar
   // verificación online antes de bloquear: el admin pudo haber renovado la licencia en
   // el servidor Vercel y el cliente aún tiene el token viejo.
@@ -780,7 +804,12 @@ function registerBasicIpc() {
   ipcMain.handle('license:get-hwid', () => {
     try {
       const r = licenseManager.computeHardwareId();
-      return { hwid: r.hwid, components: r.components, detail: r.detail };
+      const resolved = licenseManager.resolveHwid(app);
+      return {
+        hwid: resolved,
+        components: resolved === r.hwid ? r.components : ['cache'].concat(r.components || []),
+        detail: Object.assign({}, r.detail || {}, { cache: resolved !== r.hwid })
+      };
     } catch (_e) {
       return { hwid: 'HWID-ERROR', components: [], detail: {} };
     }
@@ -794,7 +823,7 @@ function registerBasicIpc() {
         state: ev.state,
         reason: ev.reason || null,
         info: ev.info || null,
-        hwid: licenseManager.computeHardwareId().hwid,
+        hwid: licenseManager.resolveHwid(app),
         serverUrl: licenseManager.serverUrl()
       };
     } catch (e) {
